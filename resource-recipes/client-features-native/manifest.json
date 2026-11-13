@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "referenceCommit": "1402707de1a4d52a8d42a2a5fe330f0227a6d015",
+  "baseExeSHA256": "a28601e349a65a1ec0356995b693a326620d81887031c17b76b5b73daaeb5216",
+  "clientFiles": {
+    "DNF.exe": {
+      "sha256": "6402835223a23f9e4300c57c175d1b990b78ab0eecc46bd03fd373d0893e73f4",
+      "bytes": 112812032
+    },
+    "DpsMeter.dll": {
+      "sha256": "6e907abd58551c06e58242d31e4a8a62c57d7d2440d88b7184f9844c34be5a17",
+      "bytes": 493056
+    },
+    "CombatPower.dll": {
+      "sha256": "140ff544f282e401801a5d46d067a74867b43a2ecce7d89b5abe065a00a59f77",
+      "bytes": 706048
+    },
+    "ImagePacks2/sprite_interface_private_features20261113.NPK": {
+      "sha256": "fc8d96ccb192e3bdaed211b2bfb81a59ee96daab50e9d69e495766019c56ac42",
+      "bytes": 125034
+    }
+  },
+  "payloadSHA256": "b6192843ff5ccb384719cbe6ec3716dd97e6553d0a35ab80265fb27ddc3b618d",
+  "reproducibleRebuildVerified": true,
+  "diagnosticsRemoved": true,
+  "gameExecuted": false,
+  "scope": "Native client source and exact cumulative client artifacts selected for public publication",
+  "resourceRecipe": "../selected-features-20261113/README.md",
+  "originalCumulativePVFSHA256": "021abacb4aaf5cb56c58b4fe7ee87ae5c8fc2a9132c79e706ae3dd63c18ae78d"
+}

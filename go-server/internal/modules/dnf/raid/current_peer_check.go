@@ -25,5 +25,20 @@ func DecodeCurrentPeerCheckRequest(body []byte) (CurrentPeerCheckRequest, error)
 // BuildCurrentUnassignedPeerCheckACK is only valid after actual runtime lookup
 // establishes that this target has no raid. ACK1FAE240 consumes u32/u16/4*u8
 // after success, sets the inactive cache, reopens the menu, and clears pending.
-// Existing-raid tail semantics are not established and must not be faked here.
-func BuildCurrentUnassignedPeerCheckACK() []byte { body := make([]byte, 11); body[0] = 1; return body }
+func BuildCurrentUnassignedPeerCheckACK() []byte { return BuildCurrentPeerCheckACK(0, 0, 0) }
+
+// ACK1FAE240 stores the first u32 and u16 in the pending target's native
+// menu cache at +1B0/+1B4. The native menu reads +1B0 through 1A54B50:
+// a real raid key selects its existing join/view action instead of invite.
+// The first trailing byte is the real member count, stored at +1B6. The
+// native join click (1A67860) silently returns when it is zero and checks it
+// against route capacity before opening the application confirmation dialog.
+// Only the final three bytes are reserved.
+func BuildCurrentPeerCheckACK(raidKey uint32, leader uint16, memberCount byte) []byte {
+	body := make([]byte, 11)
+	body[0] = 1
+	binary.LittleEndian.PutUint32(body[1:5], raidKey)
+	binary.LittleEndian.PutUint16(body[5:7], leader)
+	body[7] = memberCount
+	return body
+}

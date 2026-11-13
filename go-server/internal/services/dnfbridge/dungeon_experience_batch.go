@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -47,7 +48,7 @@ func (s *Service) commitCurrentDungeonExperienceBatch(ctx context.Context, sessi
 	}
 	id := strconv.Itoa(int(session.selectedCharacterID))
 	accountID := strings.TrimSpace(s.accountIDForSession(session))
-	character, found, err := repos.Character.Load(ctx, id)
+	character, found, err := dnfrepo.LoadProgressionCharacter(ctx, repos.Character, id)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +62,38 @@ func (s *Service) commitCurrentDungeonExperienceBatch(ctx context.Context, sessi
 	exp, present := character.Stats["exp"]
 	runtimeExp, runtimePresent := runtime.Character.Stats["exp"]
 	if !found || skill.CharacterID != id || skill.Points.SyncedLevel != character.Level ||
-		!present || !runtimePresent || exp < 0 || uint64(exp) > math.MaxUint32 || exp != runtimeExp || character.Level != runtime.Character.Level {
+		!present || !runtimePresent || exp < 0 || uint64(exp) > math.MaxUint32 || exp != runtimeExp || character.Level == 0 || character.Level != runtime.Character.Level {
 		return nil, errCurrentDungeonMonsterExperienceStateInvalid
+	}
+	_, narrowReader := repos.Character.(dnfrepo.ProgressionCharacterReader)
+	_, narrowWriter := repos.Character.(dnfrepo.ProgressionCharacterWriter)
+	if narrowReader && narrowWriter {
+		needsFull, err := currentDungeonExperienceBatchNeedsPresentation(character, skill, items)
+		if err != nil {
+			return nil, err
+		}
+		if needsFull {
+			full, found, err := repos.Character.Load(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			// The second read cannot silently combine a new owner/version or
+			// concurrent stat edit with the narrow preflight and skill ledger.
+			if !found || full.CharacterID != id || strings.TrimSpace(full.AccountID) != accountID ||
+				full.Level != character.Level || !full.UpdatedAt.Equal(character.UpdatedAt) || !maps.Equal(full.Stats, character.Stats) {
+				return nil, errCurrentDungeonMonsterExperienceStateInvalid
+			}
+			character = full
+		} else {
+			// Discard the stale stat map before cloning presentation slices;
+			// the authoritative narrow-read map replaces it immediately below.
+			presentationBase := runtime.Character
+			presentationBase.Stats = nil
+			presentation := dnfrepo.CloneCharacter(presentationBase)
+			presentation.AccountID, presentation.UpdatedAt = character.AccountID, character.UpdatedAt
+			presentation.Stats = character.Stats
+			character = presentation
+		}
 	}
 	timing.next()
 	initial := dnfrepo.CloneCharacter(character)
@@ -109,4 +140,31 @@ func (s *Service) commitCurrentDungeonExperienceBatch(ctx context.Context, sessi
 		}
 	}
 	return results, nil
+}
+
+// Forecast only whether any accepted award crosses a level boundary. Full
+// character data is loaded before the real planning loop, not halfway through
+// its predicted EXP/SP/stat transitions. Honor overflow follows the same rules
+// as the single-award path, including a character already at the level cap.
+func currentDungeonExperienceBatchNeedsPresentation(character dnfrepo.CharacterRecord, skill dnfrepo.SkillPointLedger, items []currentDungeonDeathBurstAward) (bool, error) {
+	level, experience, points := character.Level, statU32(character, "exp", 0), skill.Points
+	for _, item := range items {
+		if item.result.Award.Gain == 0 && !item.result.Award.BattlePassMonster {
+			continue
+		}
+		total := item.result.totalGain()
+		honor, err := currentHonorExpertExperienceGain(item.tables, level, experience, total)
+		if err != nil {
+			return false, err
+		}
+		preview, err := planCurrentDungeonSettlementProgression(item.tables, level, experience, total-honor, points)
+		if err != nil {
+			return false, err
+		}
+		if preview.Experience.LevelsGained > 0 {
+			return true, nil
+		}
+		level, experience, points = preview.Experience.NewLevel, preview.Experience.NewExperience, preview.SkillPoints.New
+	}
+	return false, nil
 }

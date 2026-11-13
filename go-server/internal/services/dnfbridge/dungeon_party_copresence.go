@@ -91,6 +91,7 @@ func (s *Service) recordDungeonPartyRunKey(session *gameSession, runtime *runtim
 	if !ok {
 		session.dungeonPartyRun = dungeonPartyRunKey{}
 		session.dungeonPartyRunValid = false
+		session.dungeonPeerRecovery = nil
 		session.dungeonPartyRunMu.Unlock()
 		return
 	}
@@ -110,6 +111,7 @@ func (s *Service) recordDungeonPartyRunKey(session *gameSession, runtime *runtim
 		} else {
 			session.dungeonPeerProjected = nil
 			session.dungeonOwnerOverrideLogged = nil
+			session.dungeonPeerRecovery = nil
 		}
 	} else if generationReset {
 		dropped = dropDungeonPeerProjectionGenerationLocked(session)

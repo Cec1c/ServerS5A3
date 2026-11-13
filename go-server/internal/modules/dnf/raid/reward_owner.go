@@ -209,6 +209,13 @@ func (o *RewardOwner) grant(ctx context.Context, cmd RewardCommand, refund bool)
 		character = repo.CloneCharacter(character)
 		assets := &RewardAssets{AccountInventory: &account, Inventory: &inventory, Mailbox: mailboxes, Ledger: ledgerRecord}
 		fateBefore := repo.BattlePassFateCount(inventory.Slots, account.Slots)
+		var ledgerFateBefore raidcurrency.State
+		if cmd.RequireLedger {
+			ledgerFateBefore, err = raidcurrency.Read(*ledgerRecord, cmd.CompletedAt)
+			if err != nil {
+				return err
+			}
+		}
 		changes, err := cmd.Project(assets)
 		if err != nil {
 			return err
@@ -228,7 +235,18 @@ func (o *RewardOwner) grant(ctx context.Context, cmd RewardCommand, refund bool)
 		if character.Stats == nil {
 			character.Stats = map[string]int64{}
 		}
-		if gained := repo.BattlePassFateCount(inventory.Slots, account.Slots) - fateBefore; gained > 0 {
+		gained := repo.BattlePassFateCount(inventory.Slots, account.Slots) - fateBefore
+		if cmd.RequireLedger {
+			// Current raid Fate is an account currency, not a bag stack. Count
+			// the committed acquisition delta, including the actual weekly cap,
+			// in the same transaction as the reward receipt. Replays return above.
+			after, err := raidcurrency.Read(*ledgerRecord, cmd.CompletedAt)
+			if err != nil {
+				return err
+			}
+			gained = int64(after.Earned) - int64(ledgerFateBefore.Earned)
+		}
+		if gained > 0 {
 			repo.AddBattlePassCounter(&character, 43, -1, gained, cmd.CompletedAt)
 		}
 		character.Stats[marker] = cmd.CompletedAt.Unix()
@@ -238,6 +256,7 @@ func (o *RewardOwner) grant(ctx context.Context, cmd RewardCommand, refund bool)
 				return ErrRewardReceipt
 			}
 			character.Stats[marker+"_fate"] = int64(assets.FateGranted)
+			character.Stats[marker+"_bp_fate_v1"] = 1
 			result.FateGranted, result.FateRecorded = assets.FateGranted, true
 		}
 		for i := 0; i < 4; i++ {

@@ -71,7 +71,7 @@ func TestAntonRewardCardDeadlineDoesNotRebuildPVFCatalog(t *testing.T) {
 		flow.PartyShownAt = flow.CompletedAt.Add(movie)
 		flow.AutoSelectAt = flow.CompletedAt.Add(2 * movie)
 		flow.PartySelectAfter = nil
-		deadline := currentAntonPartySelectAt(flow, movie)
+		deadline := currentRaidOwnerPartySelectAt(flow, 19)
 
 		started := time.Now()
 		_, errs := f.service.advanceCurrentAntonRewardFlows(deadline, zeroAntonRoll)

@@ -187,6 +187,14 @@ type Service struct {
 
 	initialEquipmentMu      sync.Mutex
 	initialEquipmentArchive *platformpvf.Archive
+	// PVF archives are immutable for this Service. Activity visibility still
+	// checks its live switch on every request; resource validation runs once.
+	epicRoadValidationOnce  sync.Once
+	epicRoadValidationOK    bool
+	lukeVisibilityOnce      sync.Once
+	lukeVisibilityErr       error
+	fiendWarVisibilityOnce  sync.Once
+	fiendWarVisibilityErr   error
 	initialEquipmentByJob   map[byte][]initialEquipmentEntry
 	initialEquipmentLoadErr error
 	// dungeonRuleSource lets focused tests provide the exact approved PVF texts

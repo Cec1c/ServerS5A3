@@ -94,7 +94,7 @@ func finalTeamReadyWire(t *testing.T, stream []byte, partyOwners []uint16, scree
 		}
 	}
 	if !shown[19] || !shown[20] {
-		t.Fatal("nonempty team rows must contain actual granted contents for both owners")
+		t.Fatal("nonempty team rows must contain actual granted contents for the page owner")
 	}
 }
 
@@ -208,12 +208,8 @@ func TestRealPVFAntonFinalTeamGrantRetryKeepsPartyAndNativeReadyOrder(t *testing
 	}
 	for i, p := range sessions {
 		dispatchAntonCardRequest(t, f, p, 660, []byte{1, byte(i)})
-		card := flow.Party[p.selectedCharacterID]
-		body, err := raid.BuildRewardListBody(1, []raid.RewardDisplayCard{{CharacterID: p.selectedCharacterID, CardType: card.Card, Items: currentAntonPartyDisplayItems(card.Plan)}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		publicP14WaitDisplay(t, sessions[1-i], body)
+		// A manual reveal belongs only to this connection.
+		p.conn.(*publicP14ConcurrentConn).take()
 	}
 	// The real clock persists completion activity before entering each reward
 	// transaction. It is an independent, idempotent accepted-clear event, not a
@@ -235,7 +231,7 @@ func TestRealPVFAntonFinalTeamGrantRetryKeepsPartyAndNativeReadyOrder(t *testing
 	at := flow.AutoSelectAt
 	_, errs := f.service.advanceCurrentAntonRewardFlows(at, zeroAntonRoll)
 	f.repos.AccountAssets = original
-	if len(errs) != 1 || !flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() || !flow.NextAttempt.After(at) {
+	if len(errs) != 2 || !flow.SquadShownAt.IsZero() || !flow.FinishedAt.IsZero() || !flow.OwnerNextAttempt[19].After(at) || !flow.OwnerNextAttempt[20].After(at) {
 		t.Fatal("failed team transaction advanced the display instead of deferring", errs)
 	}
 	for i, p := range sessions {
@@ -248,11 +244,11 @@ func TestRealPVFAntonFinalTeamGrantRetryKeepsPartyAndNativeReadyOrder(t *testing
 			t.Fatal("rolled-back team transaction changed assets or receipts")
 		}
 	}
-	finalTeamReadyAdvance(t, f, flow.NextAttempt.Add(-time.Nanosecond))
+	finalTeamReadyAdvance(t, f, flow.OwnerNextAttempt[19].Add(-time.Nanosecond))
 	if !flow.SquadShownAt.IsZero() {
 		t.Fatal("team grant ignored its retry backoff")
 	}
-	finalTeamReadyAdvance(t, f, flow.NextAttempt)
+	finalTeamReadyAdvance(t, f, flow.OwnerNextAttempt[19])
 	if flow.SquadShownAt.IsZero() || !reflect.DeepEqual(party, flow.Party) {
 		t.Fatal("team retry never became ready or changed committed manual party cards")
 	}
@@ -260,6 +256,6 @@ func TestRealPVFAntonFinalTeamGrantRetryKeepsPartyAndNativeReadyOrder(t *testing
 		if err := f.service.sendCurrentAntonRewardFlowProjection(p, cloneRuntimeRaidState(*f.state)); err != nil {
 			t.Fatal(err)
 		}
-		finalTeamReadyWire(t, p.conn.(*publicP14ConcurrentConn).take(), []uint16{19, 20}, 0)
+		r195WantFiendRewardWire(t, r195ReadFiendRewardWire(t, p.conn.(*publicP14ConcurrentConn).take()), flow, map[byte][]uint16{1: {19, 20}, 3: {19, 20}}, "kind1", "kind3")
 	}
 }

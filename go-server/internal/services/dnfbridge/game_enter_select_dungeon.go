@@ -227,7 +227,7 @@ func (s *Service) sendEnterSelectDungeonState(
 				"source", source,
 				"char_id", selectedCharacterID(session),
 				"error", err)
-			return err
+			return s.currentRaidProfileRequestError(session, err)
 		}
 	}
 

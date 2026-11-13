@@ -61,8 +61,10 @@ type currentCeraShopPurchaseRequest struct {
 }
 
 type currentCeraShopPurchaseRequestItem struct {
-	CommodityID    uint32
-	AttributeValue byte
+	CommodityID          uint32
+	AttributeValue       byte
+	DiscountCouponItemID uint32
+	DiscountCouponSlot   int16
 }
 
 type currentCeraShopCommitResult struct {
@@ -114,6 +116,8 @@ type currentCeraShopResolvedPurchase struct {
 	AccountCargoUpgradeFrom     int64
 	AccountCargoUpgradeTarget   int64
 	AvatarCouponItemID          int64
+	DiscountCouponItemID        uint32
+	DiscountCouponSlot          int16
 	// PremiumType > 0 means the purchase is consumed at checkout and activates
 	// this account-level premium contract instead of entering any container
 	// (86JP ConsumedOnPurchase). PremiumPackage activates every 魔王契约 devil
@@ -177,6 +181,10 @@ func parseCurrentCeraShopPurchaseRequest(body []byte) (currentCeraShopPurchaseRe
 		request.Items = append(request.Items, currentCeraShopPurchaseRequestItem{
 			CommodityID:    commodityID,
 			AttributeValue: body[itemOffset+1],
+			// Native 0355F500 writes the chosen coupon item, then 0355F543
+			// writes its exact main-bag slot. Both belong to this cart row.
+			DiscountCouponItemID: binary.LittleEndian.Uint32(body[itemOffset+9 : itemOffset+13]),
+			DiscountCouponSlot:   int16(binary.LittleEndian.Uint16(body[itemOffset+13 : itemOffset+15])),
 		})
 	}
 	return request, nil
@@ -471,6 +479,12 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			return currentCeraShopCommitResult{}, err
 		}
 		resolved := currentCeraShopResolvedPurchase{Product: product, AttributeValue: requestItem.AttributeValue}
+		coupon, err := catalog.resolveDiscountCoupon(requestItem, request.PaymentMode, s.gameplayNow())
+		if err != nil {
+			return currentCeraShopCommitResult{}, err
+		}
+		resolved.DiscountCouponItemID = coupon.Item
+		resolved.DiscountCouponSlot = requestItem.DiscountCouponSlot
 		if request.PaymentMode == currentCeraShopPaymentModeAvatarCoupon {
 			couponItemID, err := catalog.resolveAvatarCouponItemID(product)
 			if err != nil {
@@ -702,6 +716,14 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			premiumNow := checkoutNow
 			for _, purchase := range purchases {
 				product := purchase.Product
+				if purchase.DiscountCouponItemID != 0 {
+					entry, err := consumeCurrentCeraDiscountCoupon(inventory, purchase.DiscountCouponItemID, purchase.DiscountCouponSlot, checkoutNow)
+					if err != nil {
+						return dnfcerashop.CheckoutChanges{}, err
+					}
+					entriesByList[dnfrepo.MainInventoryListType] = append(entriesByList[dnfrepo.MainInventoryListType], entry)
+					inventoryChanged = true
+				}
 				if rules := purchase.CharacterRenameRules; rules != nil {
 					if character.Level < int(rules.minimumLevel) || character.Stats[characterdata.RenameEntitlementStat] != 0 || character.Stats[characterdata.RenameNextAllowedUnixStat] > checkoutNow.Unix() || character.Location.DungeonID != 0 {
 						return dnfcerashop.CheckoutChanges{}, characterdata.ErrRenameUnavailable

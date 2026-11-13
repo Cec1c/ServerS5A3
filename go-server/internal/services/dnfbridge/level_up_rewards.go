@@ -94,11 +94,13 @@ func (s *Service) processCurrentLevelUpRewards(parent context.Context, character
 	}
 	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
 	defer cancel()
-	character, found, err := repos.Character.Load(ctx, characterID)
+	probe, found, err := dnfrepo.ProbeLevelUpRewards(ctx, repos.Character, characterID)
 	if err == nil && found {
-		s.refreshCurrentLuckyCharacterAfterProgression(ctx, character)
+		s.refreshCurrentLuckyCharacterAfterProgression(ctx, dnfrepo.CharacterRecord{
+			CharacterID: probe.CharacterID, AccountID: probe.AccountID, Level: probe.Level,
+		})
 	}
-	if err == nil && (!found || !dnfrepo.HasPendingLevelUp(character)) {
+	if err == nil && (!found || !probe.Pending) {
 		return
 	}
 	// Cap revocation is independent of mail contention and retry delays.

@@ -2,25 +2,10 @@ package dnfbridge
 
 import "time"
 
-// Local display completion is independent of the global phase boundary below.
-// The visible qualified party must include the current reward owner and every
-// one of its cards must have committed before native category2 can skip team.
+// Native completion concerns this owner only; the separate phase boundary
+// below still requires every frozen recipient's durable reward.
 func currentLukeLocalPartyDisplayCommitted(f *currentAntonRewardFlow, owner uint16, visible map[uint16]bool) bool {
-	if f == nil || f.Mode != 2 || f.Phase != 0 || f.Single || !visible[owner] {
-		return false
-	}
-	found := false
-	for _, recipient := range f.Recipients {
-		if !visible[recipient.CharacterID] {
-			continue
-		}
-		card := f.Party[recipient.CharacterID]
-		if card == nil || !card.Committed {
-			return false
-		}
-		found = found || recipient.CharacterID == owner
-	}
-	return found
+	return f != nil && f.Mode == 2 && f.Phase == 0 && !f.Single && visible[owner] && currentRaidOwnerRewardsCommitted(f, owner)
 }
 
 // Run after the manual reveal, within the recipient's own session event. A

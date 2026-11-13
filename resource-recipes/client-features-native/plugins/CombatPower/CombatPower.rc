@@ -1,0 +1,11 @@
+#include "resource.h"
+
+IDR_COMBAT_POWER_PANEL_SKIN RCDATA "assets\\panel_skin.bgra"
+IDR_COMBAT_RANK_EXPLORE RCDATA "assets\\rank_explore.bgra"
+IDR_COMBAT_RANK_PIONEER RCDATA "assets\\rank_pioneer.bgra"
+IDR_COMBAT_RANK_FEARLESS RCDATA "assets\\rank_fearless.bgra"
+IDR_COMBAT_RANK_CONQUER RCDATA "assets\\rank_conquer.bgra"
+IDR_COMBAT_RANK_BATTLE RCDATA "assets\\rank_battle.bgra"
+IDR_COMBAT_RANK_HEROIC RCDATA "assets\\rank_heroic.bgra"
+IDR_COMBAT_RANK_MASTERY RCDATA "assets\\rank_mastery.bgra"
+IDR_COMBAT_RANK_TOOLTIP RCDATA "assets\\rank_tooltip.bgra"

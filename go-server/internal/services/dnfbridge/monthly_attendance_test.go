@@ -15,6 +15,7 @@ import (
 func prepareMonthlyBridge(t *testing.T) (*Service, *gameSession, *gameSession, *bufferConn) {
 	t.Helper()
 	s, a, b, c, _ := prepareAccountFriendTest(t)
+	a.ctx, b.ctx = context.Background(), context.Background()
 	loadCurrentAdmissionArchive(t, s)
 	if err := s.initializeActivityControls(context.Background()); err != nil {
 		t.Fatal(err)

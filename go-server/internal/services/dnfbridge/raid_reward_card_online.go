@@ -13,10 +13,12 @@ import (
 )
 
 type currentAntonRewardCard struct {
-	Card      byte
-	Group     byte
-	Plan      currentAntonRewardPlan
-	Committed bool
+	Card        byte
+	Group       byte
+	Plan        currentAntonRewardPlan
+	Committed   bool
+	CommittedAt time.Time
+	Manual      bool
 }
 
 type currentAntonRewardPacket struct {
@@ -39,13 +41,15 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 	if err != nil {
 		return err
 	}
-	if f := latest.Battle.RewardFlow[latest.Battle.Phase]; f != nil && !f.SquadShownAt.IsZero() {
+	identity := currentRaidProjectionIdentity{InstanceID: latest.Battle.InstanceID, Phase: latest.Battle.Phase, CharID: session.selectedCharacterID, Generation: session.characterGeneration}
+	if f := latest.Battle.RewardFlow[latest.Battle.Phase]; currentRaidOwnerRewardsCommitted(f, session.selectedCharacterID) &&
+		(f.squadRequired() || o.rewardSquadDisplayIdentity == identity && !o.rewardSquadDisplayShownAt.IsZero()) {
 		// A delayed click/movie packet must not reopen party masks over the
 		// already committed squad/break screen. A final Anton kind0 reply is
 		// different: it completes the already-owned party card with no gold
 		// descriptors. The clock may settle the squad before that request arrives.
 		var goldReply []byte
-		if !markScreen && latest.Battle.Mode == 1 && latest.Battle.Phase == 1 && !f.Single {
+		if !markScreen {
 			if card := f.Party[session.selectedCharacterID]; card != nil && card.Committed {
 				goldReply, err = raid.BuildRewardListBody(0, []raid.RewardDisplayCard{{CharacterID: session.selectedCharacterID, CardType: card.Card}})
 				if err != nil {
@@ -70,7 +74,6 @@ func (s *Service) sendCurrentAntonRewardPackets(session *gameSession, state runt
 		packets = filtered
 		markScreen = false
 	}
-	identity := currentRaidProjectionIdentity{InstanceID: state.Battle.InstanceID, Phase: state.Battle.Phase, CharID: session.selectedCharacterID, Generation: session.characterGeneration}
 	if markScreen && o.rewardScreenSent && o.rewardScreenIdentity == identity {
 		packets = packets[:1]
 	}
@@ -197,7 +200,7 @@ func (s *Service) handleCurrentAntonMovieCompletion(session *gameSession, op uin
 	o.movieCompleted = true
 	o.mu.Unlock()
 	s.logInfo("dnfbridge raid movie stage", "kind", "game-raid-movie-stage", "char_id", session.selectedCharacterID, "instance_id", state.Battle.InstanceID, "mode", state.Battle.Mode, "phase", state.Battle.Phase, "stage", 1)
-	if flow := state.Battle.RewardFlow[state.Battle.Phase]; flow != nil && !flow.SquadShownAt.IsZero() {
+	if flow := state.Battle.RewardFlow[state.Battle.Phase]; currentRaidOwnerRewardsCommitted(flow, session.selectedCharacterID) && flow.squadRequired() {
 		if err := s.sendCurrentAntonRewardPackets(session, state, []currentAntonRewardPacket{{opcode: op, class: 1, body: []byte{1}}}, false); err != nil {
 			return err
 		}
@@ -416,7 +419,7 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 	if live != nil && live.Battle != nil && live.Battle.InstanceID == command.InstanceID && live.Battle.Phase == command.Phase {
 		selected := live.Battle.RewardCards[command.Phase][session.selectedCharacterID]
 		if selected != nil && selected.Plan.Fingerprint == command.Fingerprint && selected.Card == command.Card {
-			selected.Committed = true
+			markCurrentRaidCardCommitted(selected, time.Now(), true)
 			selected.Plan.FateGranted = result.Plan.FateGranted
 			if flow := live.Battle.RewardFlow[command.Phase]; flow != nil {
 				flow.PartyManual = true
@@ -448,47 +451,8 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 			return err
 		}
 	}
-	s.queueCurrentAntonPartyCardReveal(session, state, display)
+	// The periodic flow projects current-squad reveals to viewers whose movie
+	// is finished. Their completion predicate remains tied to their own row.
 	s.logGameEvent(session, "game-raid-party-card-committed", "raid_key", state.RaidKey, "phase", command.Phase, "card", card.Card, "replayed", result.Replayed, "at", time.Now().Unix())
 	return s.sendCurrentLukeLocalPartyCompletion(session, state)
-}
-
-// Other recipients are queued independently of the caller's input loop, so
-// simultaneous selections in two sessions cannot wait on each other.
-func (s *Service) queueCurrentAntonPartyCardReveal(sender *gameSession, state runtimeRaidState, body []byte) {
-	senderID := sender.selectedCharacterID
-	for _, member := range state.Members {
-		if member.CharID == senderID {
-			continue
-		}
-		peer, found := s.onlineGameSession(member.CharID)
-		if !found || !currentAntonResultDelivered(peer, state) {
-			continue
-		}
-		generation, id := peer.characterGeneration, member.CharID
-		projection := append([]byte(nil), body...)
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-			defer cancel()
-			err := s.callGameSession(ctx, peer, "raid-owned-party-card-reveal", func() error {
-				if peer.characterGeneration != generation || peer.selectedCharacterID != id || !currentAntonResultDelivered(peer, state) {
-					return nil
-				}
-				latest, err := s.latestCurrentRaidProjectionState(peer, state)
-				if err != nil {
-					return err
-				}
-				if !s.currentRaidPartyRewardDisplayMembers(peer, latest)[senderID] {
-					return nil
-				}
-				if err := s.sendCurrentAntonRewardPackets(peer, state, []currentAntonRewardPacket{{opcode: 600, body: projection}}, false); err != nil {
-					return err
-				}
-				return s.sendCurrentLukeLocalPartyCompletion(peer, latest)
-			})
-			if err != nil {
-				s.logGameEvent(peer, "game-raid-party-card-peer-projection-failed", "raid_key", state.RaidKey, "error", err)
-			}
-		}()
-	}
 }

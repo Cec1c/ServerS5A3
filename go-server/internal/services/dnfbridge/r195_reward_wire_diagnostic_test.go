@@ -115,7 +115,12 @@ func TestR195RewardWireDiagnosticKeepsRealSendAndRedactsPayload(t *testing.T) {
 }
 
 func TestR195RewardWireDiagnosticRecordsSquadShownFilterWithoutChangingWire(t *testing.T) {
-	flow := &currentAntonRewardFlow{SquadShownAt: time.Now()}
+	flow := &currentAntonRewardFlow{
+		SquadShownAt: time.Now(),
+		Recipients:   []currentAntonRewardRecipient{{CharacterID: 19}},
+		Party:        map[uint16]*currentAntonRewardCard{19: {Card: 1, Committed: true}},
+		Squad:        map[uint16]*currentAntonRewardCard{19: {Card: 1, Committed: true}},
+	}
 	f, session, logs := r195RewardWireFixture(t, false, flow)
 	teamBody, err := raid.BuildRewardListBody(1, []raid.RewardDisplayCard{{CharacterID: 19, CardType: 1}})
 	if err != nil {
@@ -159,13 +164,14 @@ func TestR195RewardWire600LayoutValidationRejectsTruncation(t *testing.T) {
 	}
 }
 
-func TestR195RewardWireDiagnosticRecordsUncommittedSquadBeforeSend(t *testing.T) {
+func TestR195RewardWireProjectionKeepsUncommittedOwnerPending(t *testing.T) {
 	flow := &currentAntonRewardFlow{
 		InstanceID:   "reward-wire-diag-instance",
 		RaidKey:      23<<16 | 19,
 		Phase:        0,
 		Mode:         1,
-		SquadShownAt: time.Now(),
+		SquadShownAt: time.Now(), // Another owner's whole-raid clock is not a receipt.
+		AutoSelectAt: time.Now().Add(time.Hour),
 		Recipients:   []currentAntonRewardRecipient{{CharacterID: 19}},
 	}
 	f, session, logs := r195RewardWireFixture(t, false, flow)
@@ -176,12 +182,14 @@ func TestR195RewardWireDiagnosticRecordsUncommittedSquadBeforeSend(t *testing.T)
 		CharID:     19,
 		Generation: session.characterGeneration,
 	}
-	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != raid.ErrRewardReceipt {
-		t.Fatalf("uncommitted squad error=%v", err)
+	if currentRaidOwnerRewardsCommitted(flow, 19) {
+		t.Fatal("whole-raid display time was treated as this owner's receipt")
 	}
-	event := r195RewardWireEvent(t, logs, 600)
-	if event["written"] != false || event["reason"] != "squad_card_uncommitted" || event["body_len"] != float64(0) {
-		t.Fatalf("uncommitted squad diagnostic=%v", event)
+	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil {
+		t.Fatalf("pending owner must remain retryable: %v", err)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("pending owner attempted an uncommitted reward send: %s", logs.String())
 	}
 	if f.conn.write.Len() != 0 {
 		t.Fatal("uncommitted squad diagnostic sent a packet")

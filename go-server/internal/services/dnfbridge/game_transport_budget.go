@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+// Fixed metadata only. Buffered batches and provider controls deliberately
+// have no attributed inner opcode; never guess from encrypted wire bytes.
+type gameWritePacketDiagnostic struct {
+	known      bool
+	class      byte
+	msgID      uint16
+	innerBytes int
+}
+
 // Transport cancellation is separate from the event/transaction lifetime.
 // Retiring an account must still wait for its owner to finish committing.
 func (p *gameSession) gameTransportContext() context.Context {
@@ -171,8 +180,12 @@ func (s *Service) logFirstGameTransportFailure(p *gameSession, phase string, sta
 				budget = "deadline_exceeded"
 			}
 		}
-		s.logWarn("dnfbridge first game transport failure", "conn_id", p.connID,
+		fields := []any{"conn_id", p.connID,
 			"phase", phase, "write_stage", stage, "planned_bytes", planned,
-			"written_bytes", written, "write_us", elapsed.Microseconds(), "budget_state", budget)
+			"written_bytes", written, "write_us", elapsed.Microseconds(), "budget_state", budget}
+		if packet := p.wireWritePacket; stage == perfWireDirect && packet.known {
+			fields = append(fields, "inner_msg_id", packet.msgID, "inner_class", packet.class, "inner_bytes", packet.innerBytes)
+		}
+		s.logWarn("dnfbridge first game transport failure", fields...)
 	})
 }

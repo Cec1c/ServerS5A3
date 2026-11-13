@@ -254,7 +254,7 @@ func TestGreen535UnknownPeriodFailsClosedAndNilLimitUnchanged(t *testing.T) {
 	seedNPCShopOwner(t, ctx, repos)
 	owner, _ := NewOwner(repos)
 	now := beijing535(2026, time.October, 16, 12, 0, 0)
-	unknown := PurchaseLimit{ItemID: 603, Scope: "account", Period: "monthly", Maximum: 10, Count: 1}
+	unknown := PurchaseLimit{ItemID: 603, Scope: "account", Period: "yearly", Maximum: 10, Count: 1}
 	if err := buy535(owner, ctx, "77", now, unknown, false); !errors.Is(err, ErrPurchaseLimit) {
 		t.Fatalf("unknown period must fail closed: %v", err)
 	}

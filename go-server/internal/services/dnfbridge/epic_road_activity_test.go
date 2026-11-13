@@ -12,6 +12,7 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	dnftown "longheng.io/server/internal/modules/dnf/town"
 	worldmap "longheng.io/server/internal/modules/dnf/worldmap"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -136,8 +137,24 @@ func TestEpicRoadActualTownTransportRetainsQuestLevelAndControl(t *testing.T) {
 				if got.Stats["town_id"] != 50 || got.Stats["pos_x"] != 441 || got.Stats["pos_y"] != 207 || len(data) == 0 {
 					t.Fatalf("legitimate route not committed %+v len%d", got.Stats, len(data))
 				}
-			} else if got.Stats["town_id"] != sourceTown || len(data) != 0 {
-				t.Fatalf("rejected route mutated %+v len%d", got.Stats, len(data))
+			} else {
+				if !reflect.DeepEqual(got.Stats, c.Stats) {
+					t.Fatalf("rejected route mutated %+v", got.Stats)
+				}
+				if name == "active-quest" || name == "missing-quest" || name == "foreign-record" {
+					// The accepted town-quest text change sends a failure
+					// acknowledgement plus a system notice, never a move.
+					ack, rest := splitCurrentGameServerUpperPacketAuto(t, data)
+					if ack.Header.Classification != 1 || ack.Header.MsgID != 36 || !bytes.Equal(ack.Body, []byte{0, 0, 50, 0}) {
+						t.Fatalf("missing prerequisite failure ack: %+v %x", ack.Header, ack.Body)
+					}
+					notice, trailing := splitCurrentGameServerUpperPacketAuto(t, rest)
+					if notice.Header.Classification != 0 || notice.Header.MsgID != 12 || len(notice.Body) < 12 || len(trailing) != 0 {
+						t.Fatalf("unexpected quest notice or movement: %+v %x", notice.Header, trailing)
+					}
+				} else if len(data) != 0 {
+					t.Fatalf("rejected route sent unexpected data: %x", data)
+				}
 			}
 		})
 	}

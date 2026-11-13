@@ -258,6 +258,12 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 	}
 	var n int
 	var err error
+	previousPacket := session.wireWritePacket
+	session.wireWritePacket = gameWritePacketDiagnostic{}
+	if class, msgID, ok := upperPacketClassMsgID(inner); ok {
+		session.wireWritePacket = gameWritePacketDiagnostic{known: true, class: class, msgID: msgID, innerBytes: len(inner)}
+	}
+	defer func() { session.wireWritePacket = previousPacket }()
 	if session.nativeResultDelivery != nil {
 		n, err = s.writeNativeResultDeliveryLocked(session, wire)
 	} else {

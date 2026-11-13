@@ -684,6 +684,7 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// dungeon_party_completion_return.go（默认档：**保留队伍**，队员由自己的
 		// completed_town_route 回城，最后一个成员到位后重建城镇同屏）。
 		leaderExitInstance = runtime.partyInstance
+		captureCurrentDungeonPartyRetirementLocked(session, runtime)
 		session.dungeon.runtime = nil
 		setCurrentAikenSupportTitleProjection(session, nil)
 		s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)
@@ -918,6 +919,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	// 队长退出副本（回城）提交：先留下共享实例指针，release 会把它置空。
 	leaderExitInstance := runtime.partyInstance
 	leaderExitCharacterID := session.selectedCharacterID
+	captureCurrentDungeonPartyRetirementLocked(session, runtime)
 	session.dungeon.runtime = nil
 	setCurrentAikenSupportTitleProjection(session, nil)
 	s.releaseCurrentTagTournamentAfterTownCommit(session, runtime)

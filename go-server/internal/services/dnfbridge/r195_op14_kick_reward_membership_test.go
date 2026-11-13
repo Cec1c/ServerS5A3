@@ -85,7 +85,7 @@ func TestR195RealOp14KickFiltersNextRewardProjectionAndKeepsFrozenGrants(t *test
 			}
 			initialKinds[packet.Body[0]]++
 			if !r195WantOwners(parsePhase0CardOwners(t, packet.Body), 19, 20) {
-				t.Fatalf("pre-kick kind%d must contain 19 and 20: %x", packet.Body[0], packet.Body)
+				t.Fatalf("pre-kick kind%d must contain only its owner19: %x", packet.Body[0], packet.Body)
 			}
 		}
 	}
@@ -126,27 +126,22 @@ func TestR195RealOp14KickFiltersNextRewardProjectionAndKeepsFrozenGrants(t *test
 		t.Fatalf("op14 changed frozen recipients: %+v", flow.Recipients)
 	}
 
-	// op14's success means the party mutation happened. It does not prove that
-	// the native client removed a row already on screen. In this source state
-	// the handler emits no reward-card projection at all, so assert that gap
-	// separately from the next authoritative projection below.
+	// Membership changes do not themselves send reward packets; the next clock
+	// projection filters the party while retaining frozen team recipients.
 	immediate := r195SummarizeRewardWire(t, f)
 	if immediate.screens != 0 || immediate.kind1Lists != 0 || immediate.kind3Lists != 0 ||
 		len(immediate.kind1Owner) != 0 || len(immediate.kind3Owner) != 0 {
 		t.Fatalf("op14 unexpectedly emitted a reward refresh: %+v", immediate)
 	}
 
-	// Request the production reward projection explicitly. This proves the
-	// server's next party card is filtered; it does not prove native old-row
-	// deletion or that an open client panel refreshed without a request/clock.
+	// Refresh the filtered party list without reopening the reward screen.
 	f.conn.write.Reset()
 	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}
 	afterKick := r195SummarizeRewardWire(t, f)
-	if afterKick.screens != 0 || afterKick.kind1Lists != 1 || afterKick.kind3Lists != 0 ||
-		!r195WantOwners(afterKick.kind1Owner, 19) {
-		t.Fatalf("post-kick party projection = %+v, want only current member 19", afterKick)
+	if afterKick.screens != 0 || afterKick.kind1Lists != 1 || afterKick.kind3Lists != 0 {
+		t.Fatalf("post-kick party projection = %+v, want no repeated personal page", afterKick)
 	}
 
 	// The frozen Recipients still own both pools. Grant the ordinary party
@@ -175,17 +170,16 @@ func TestR195RealOp14KickFiltersNextRewardProjectionAndKeepsFrozenGrants(t *test
 		}
 	}
 
-	// The squad card intentionally follows the frozen Recipients rather than
-	// the current ordinary party, while the ordinary party pool was already
-	// filtered above. The final projection must not duplicate either grant.
+	// Both frozen recipients remain on the team list; the party contains only
+	// current members. Display cannot grant again.
 	f.conn.write.Reset()
 	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}
 	squad := r195SummarizeRewardWire(t, f)
-	if squad.screens != 0 || squad.kind1Lists != 0 || squad.kind3Lists != 1 ||
-		!r195WantOwners(squad.kind3Owner, 19, 20) {
-		t.Fatalf("frozen squad projection = %+v, want 19 and 20", squad)
+	if squad.screens != 0 || squad.kind1Lists != 1 || squad.kind3Lists != 1 ||
+		!r195WantOwners(squad.kind1Owner, 19) || !r195WantOwners(squad.kind3Owner, 19, 20) {
+		t.Fatalf("personal committed projection = %+v, want owner19 in both pools", squad)
 	}
 	for _, id := range []string{"19", "20"} {
 		if got := antonGrantedItemCount(t, f, id, 10304529); got != 30 {

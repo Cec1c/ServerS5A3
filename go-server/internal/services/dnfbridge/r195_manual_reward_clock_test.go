@@ -5,6 +5,9 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"longheng.io/server/internal/modules/dnf/cerashop"
+	"longheng.io/server/internal/modules/dnf/raidcurrency"
 )
 
 // The worker itself is unbounded only in the sense that the test cannot join a
@@ -325,6 +328,20 @@ func r195ManualRewardInventoryTotals(t *testing.T, f *raidStartGuardFixture, ses
 			}
 		}
 	}
+	ledger, ledgerFound, err := f.repos.Account.Load(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledgerFound {
+		wallet := cerashop.WalletBalance(ledger)
+		totals[cerashop.TokenCeraVoucherItemID] += wallet.TokenCera
+		totals[cerashop.HappyTokenCeraVoucherItemID] += wallet.HappyTokenCera
+		currency, err := raidcurrency.Read(ledger, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		totals[int64(raidcurrency.FateItemID)] += int64(currency.Balance)
+	}
 	mailbox, mailboxFound, err := f.repos.Mailbox.Load(context.Background(), strconv.Itoa(int(id)))
 	if err != nil {
 		t.Fatalf("load owner%d mailbox err=%v", id, err)
@@ -356,7 +373,14 @@ func r195ManualRewardExpectedTotals(t *testing.T, flow *currentAntonRewardFlow, 
 			if reward.Count == 0 {
 				t.Fatalf("owner%d has zero-count reward %d", id, reward.Definition.ItemID)
 			}
-			totals[int64(reward.Definition.ItemID)] += int64(reward.Count)
+			count := int64(reward.Count)
+			if reward.Definition.ItemID == raidcurrency.FateItemID {
+				if card.Plan.FateGranted == nil {
+					t.Fatal("committed currency has no actual grant receipt")
+				}
+				count = int64(*card.Plan.FateGranted)
+			}
+			totals[int64(reward.Definition.ItemID)] += count
 		}
 	}
 	return totals

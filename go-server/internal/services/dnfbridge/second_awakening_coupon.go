@@ -194,7 +194,9 @@ func (s *Service) handleCurrentSecondAwakeningCoupon(p *gameSession, r currentQu
 			}
 		}
 		now := s.gameplayNow()
-		return owner.UseClearCoupon(ctx, catalog, quest.UseClearCouponInput{AccountID: p.accountID, CharacterID: id, Slot: r.SourceSlotIndex, Coupon: coupon, Now: now, Profiles: profiles, Skills: skills, ValidateSource: func(c repo.CharacterRecord, held repo.ItemStack) error {
+		return owner.UseClearCoupon(ctx, catalog, quest.UseClearCouponInput{AccountID: p.accountID, CharacterID: id, Slot: r.SourceSlotIndex, Coupon: coupon, Now: now, Profiles: profiles, Skills: skills, NormalizeSource: func(held repo.ItemStack) (repo.ItemStack, error) {
+			return normalizeCurrentQuestCouponSource(held, definition, now)
+		}, ValidateSource: func(c repo.CharacterRecord, held repo.ItemStack) error {
 			if !s.boundGameSessionCharacterCurrent(identity) || itemlock.IsLockedAt(held, now) {
 				return quest.ErrCouponClearUnavailable
 			}

@@ -15,6 +15,7 @@ import (
 	quest "longheng.io/server/internal/modules/dnf/quest"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
+	dnftown "longheng.io/server/internal/modules/dnf/town"
 	platformpvf "longheng.io/server/internal/platform/pvf"
 )
 
@@ -181,6 +182,11 @@ func TestRealPVFFirstAwakeningCouponAndSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := &gameSession{conn: &bufferConn{}, selectedCharacterID: 77}
+	service.townCatalog, err = dnftown.Load(ctx, townMoveTestSource{"town/town.lst": "8 `GuildAgit.twn`", "town/GuildAgit.twn": "[area]\n0 `Guildagit/GuildAgit_W.map` `[normal]`\n[/area]"}, dnftown.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.townPositionSnapshot = currentTownPositionSnapshot{TownID: 8, AreaID: 0, PositionValid: true}
 	handled, err := service.handleCurrentQuestClearCouponUse(session, testQuestClearCouponRequestBody(87, 118))
 	if err != nil || !handled {
 		t.Fatalf("handled=%v err=%v", handled, err)

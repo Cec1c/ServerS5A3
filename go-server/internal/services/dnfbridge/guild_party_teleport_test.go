@@ -24,6 +24,9 @@ func guildTeleportFixture(t *testing.T, n int) (*Service, []*gameSession, r.Grou
 	s, p, repos := guildTextFixture(t)
 	town, template, _ := newTownMoveTest(t)
 	s.townCatalog, s.premiumCatalog = town.townCatalog, town.premiumCatalog
+	// Production has a presence manager. Without it town projection skips
+	// promoteResidentGameSession and cannot expose an owned-reservation wait.
+	s.onlinePlayers = newOnlinePlayerManager()
 	s.runtimePartyManager = party.NewRuntimePartyManager()
 	if n == 4 {
 		c := r.CharacterRecord{CharacterID: "4", AccountID: "a4", Name: "角色4", Job: "1", Level: 90, Stats: map[string]int64{}}
@@ -142,6 +145,18 @@ func TestGuildPartyTeleportFullConsentCommitsAndReplaysOnce(t *testing.T) {
 			reg, _ = guild.Load(context.Background(), repos.Settings)
 			if reg.Guilds[1].Benefits[7].Value != 1 || len(reg.Teleports) != 1 {
 				t.Fatal("repeat charge")
+			}
+			if len(s.characterAssetReservations) != 0 {
+				t.Fatal("completed teleport leaked a character reservation")
+			}
+			for _, peer := range p {
+				if s.onlinePlayers.SessionForCharacter(peer.selectedCharacterID) != peer {
+					t.Fatal("destination presence not installed for canonical session")
+				}
+				s.unbindGameSession(peer)
+				if s.gameSessions[peer.selectedCharacterID] == peer {
+					t.Fatal("teleported session could not finish unbinding")
+				}
 			}
 		})
 	}

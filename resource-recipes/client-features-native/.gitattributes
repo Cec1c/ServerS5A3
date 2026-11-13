@@ -1,0 +1,3 @@
+# Native layouts, upstream assets and source are frozen byte inputs.
+* -text whitespace=cr-at-eol
+*.bgra binary

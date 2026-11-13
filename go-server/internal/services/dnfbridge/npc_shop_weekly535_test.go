@@ -122,7 +122,7 @@ func TestGreen535BridgePurchaseLimitShapes(t *testing.T) {
 		"equipment/pricetable.tbl":          "[rate]\n200 150 30\n",
 		"stackable/weekly_talisman.stk":     "[price]\n200000\n[value]\n1\n[purchase limit]\n`account` `weekly` 70\n",
 		"stackable/legacy_daily.stk":        "[price]\n100\n[daily purchase limit]\n`character` 5\n[reset daily purchase item]\n",
-		"stackable/bad_period.stk":          "[price]\n100\n[purchase limit]\n`account` `monthly` 70\n",
+		"stackable/bad_period.stk":          "[price]\n100\n[purchase limit]\n`account` `yearly` 70\n",
 		"stackable/no_limit.stk":            "[price]\n100\n",
 	}
 	shop, err := newCurrentNPCShopCatalog(source)

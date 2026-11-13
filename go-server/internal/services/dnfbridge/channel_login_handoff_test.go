@@ -54,8 +54,13 @@ func assertFirstChannelLoginSuccess(t *testing.T, s *Service, p *gameSession, ch
 			if len(packet.Body) < 16 || packet.Body[3] != wantType {
 				t.Fatalf("首次LOGIN类型不符：频道%d 正文%x", channel.ID, packet.Body)
 			}
-			ipLen := int(binary.LittleEndian.Uint32(packet.Body[9:13]))
-			portOffset := 13 + ipLen
+			// The current official receiver has no IP DSTR after its token.
+			// Keep the older receiver fixture's variable field only on that version.
+			portOffset := 9
+			if s.options.currentClientVersion != "official-24.9" {
+				ipLen := int(binary.LittleEndian.Uint32(packet.Body[9:13]))
+				portOffset = 13 + ipLen
+			}
 			if portOffset+4 > len(packet.Body) || binary.LittleEndian.Uint32(packet.Body[portOffset:portOffset+4]) != uint32(channel.Port) {
 				t.Fatal("首次LOGIN没有采用同一目标频道的端口")
 			}

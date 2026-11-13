@@ -30,14 +30,19 @@ func (s *Service) sendCurrentAntonRewardReturn(session *gameSession, state runti
 	f := b.RewardFlow[b.Phase]
 	if b.Mode != 1 || !b.PhaseCompleted || b.TimedOut || b.Phase > 1 || b.Single && b.Phase != 0 ||
 		f == nil || f.Single != b.Single || f.Mode != 1 || f.Phase != b.Phase || f.InstanceID != b.InstanceID ||
-		f.RaidKey != state.RaidKey || f.FinishedAt.IsZero() || f.SquadShownAt.IsZero() ||
-		f.FinishedAt.Before(f.SquadShownAt.Add(currentAntonMovieWindow(f))) {
+		f.RaidKey != state.RaidKey || !currentRaidOwnerRewardsCommitted(f, session.selectedCharacterID) {
+		return nil
+	}
+	if b.Single && (f.FinishedAt.IsZero() || f.SquadShownAt.IsZero() || f.FinishedAt.Before(f.SquadShownAt.Add(currentAntonMovieWindow(f)))) {
 		return nil
 	}
 	// Only a successfully displayed, committed final list authorizes the
 	// automatic transition. Never grant or reroll an item from a return path.
 	var cards []raid.RewardDisplayCard
 	for _, recipient := range f.Recipients {
+		if recipient.CharacterID != session.selectedCharacterID {
+			continue
+		}
 		p, q := f.Party[recipient.CharacterID], f.Squad[recipient.CharacterID]
 		if p == nil || !p.Committed || q == nil || !q.Committed {
 			return nil
@@ -154,7 +159,7 @@ func (s *Service) currentSingleAntonRewardReturnReady(session *gameSession, r *r
 	return b.InstanceID == captured.Battle.InstanceID && b.Mode == 1 && b.Single && b.Phase == 0 &&
 		b.PhaseCompleted && !b.TimedOut && len(b.SingleSequence) > 0 &&
 		b.SingleSequence[len(b.SingleSequence)-1] == uint32(r.Dungeon.ID) &&
-		f != nil && f.FinishedAt == captured.Battle.RewardFlow[0].FinishedAt &&
+		currentRaidOwnerRewardsCommitted(f, session.selectedCharacterID) && currentRaidOwnerRewardsCommitted(captured.Battle.RewardFlow[0], session.selectedCharacterID) &&
 		s.currentAntonFlowWeeklyCommittedLocked(f) && participating &&
 		p.Session == session && p.Runtime == r && p.Generation == session.characterGeneration &&
 		p.RunID == e.RunID && p.Phase == e.Phase && p.Attempt == e.Attempt && p.DungeonID == uint32(r.Dungeon.ID)
@@ -186,7 +191,7 @@ func (s *Service) currentAntonRewardReturnReady(session *gameSession, r *runtime
 	}
 	f, frozen := b.RewardFlow[b.Phase], captured.Battle.RewardFlow[b.Phase]
 	p, participating := b.Participation[session.selectedCharacterID]
-	return f != nil && frozen != nil && !f.FinishedAt.IsZero() && f.FinishedAt == frozen.FinishedAt &&
+	return currentRaidOwnerRewardsCommitted(f, session.selectedCharacterID) && currentRaidOwnerRewardsCommitted(frozen, session.selectedCharacterID) &&
 		s.currentAntonFlowWeeklyCommittedLocked(f) && participating &&
 		p.Session == session && p.Runtime == r && p.Generation == session.characterGeneration &&
 		p.RunID == e.RunID && p.Phase == e.Phase && p.Attempt == e.Attempt && p.DungeonID == uint32(r.Dungeon.ID)

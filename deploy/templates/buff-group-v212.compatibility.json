@@ -1,0 +1,6 @@
+{
+  "client_version": "official-24.9",
+  "runtime_compatibility": {
+    "DNFBRIDGE_BUFF_GROUP_SYNC": "on"
+  }
+}

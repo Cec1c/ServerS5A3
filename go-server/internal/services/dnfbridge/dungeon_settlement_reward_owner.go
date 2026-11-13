@@ -643,6 +643,9 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		if err != nil {
 			return currentDungeonSettlementCommitResult{}, err
 		}
+		// The first legitimate clear can activate the season. Its transaction
+		// timestamp must not precede the newly persisted CreatedAt.
+		now = s.gameplayNow()
 		if season.Week(s.gameplayNow()) >= 0 {
 			catalog, err := s.currentWeeklyCatalog(ctx)
 			if err != nil {

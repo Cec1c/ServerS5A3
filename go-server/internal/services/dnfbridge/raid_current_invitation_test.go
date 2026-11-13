@@ -183,7 +183,7 @@ func assertCurrentRaidFailureOnly(t *testing.T, c *bufferConn, op uint16) {
 	}
 }
 func TestCurrentRaidPeerCheckRejectsUnverifiedTargets(t *testing.T) {
-	for _, kind := range []string{"short", "trailing", "foreign_server", "foreign_channel", "own_target", "offline", "target_owner", "source_owner", "source_unbound", "target_unbound", "target_raid", "channel", "scene", "presence_session", "ordinary"} {
+	for _, kind := range []string{"short", "trailing", "foreign_server", "foreign_channel", "own_target", "offline", "target_owner", "source_owner", "source_unbound", "target_unbound", "foreign_raid", "channel", "scene", "presence_session", "ordinary"} {
 		t.Run(kind, func(t *testing.T) {
 			s, a, b, ac, bc, state := prepareCurrentRaidInvitationTest(t)
 			body := []byte{23, 0, 0, byte(s.channelAdvertiseID())}
@@ -209,8 +209,9 @@ func TestCurrentRaidPeerCheckRejectsUnverifiedTargets(t *testing.T) {
 				s.unbindGameSession(a)
 			case "target_unbound":
 				s.unbindGameSession(b)
-			case "target_raid":
+			case "foreign_raid":
 				s.raids[state.RaidKey].Members = append(s.raids[state.RaidKey].Members, runtimeRaidMemberState{CharID: b.selectedCharacterID})
+				s.raids[state.RaidKey].RaidKey ^= 1 << 24
 			case "channel":
 				b.channel.ID = 24
 			case "scene":

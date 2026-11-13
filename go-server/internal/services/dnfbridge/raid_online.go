@@ -379,8 +379,11 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 			return err
 		}
 		s.logGameEvent(session, "game-raid-info-sent", "raid_key", key, "mode", "current_ack1359", "selector", selector)
-		if err := s.sendCurrentRuntimeRaidProfiles(session, state); err != nil {
-			return err
+		profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
+		defer cancelProfiles()
+		profiles := newCurrentRaidProfileBatch(s, profileCtx)
+		if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, profiles, nil); err != nil {
+			return s.currentRaidProfileRequestError(session, err)
 		}
 		if err := s.sendGameUpperRawClassCodec(session, uint16(dnfenum.CmdPacketRequestRaidInfo), reply, 1, true); err != nil {
 			return err
@@ -393,7 +396,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 			if err := s.sendGameUpperRawClassCodec(session, raid.RaidMemberRefreshMsgID, roster, 0, true); err != nil {
 				return err
 			}
-			return s.sendCurrentRuntimeRaidEntryCost(session, state)
+			return s.sendCurrentRuntimeRaidEntryCostWithBatch(session, state, &currentRaidAdmissionBatch{ctx: profiles.ctx})
 		}
 		return nil
 	}
@@ -412,7 +415,13 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 // This is read-only visibility of an existing directory object, not authority
 // to mutate it. Historical layouts retain their members-only behavior.
 func (s *Service) currentRaidInfoVisible(session *gameSession, state runtimeRaidState) bool {
-	if s.options.currentClientVersion != "official-24.9" || !state.CurrentLayout || session == nil || !s.currentRaidAuthenticated(session) {
+	return s.currentRaidInfoContextVisible(session, state) && s.currentRaidAuthenticated(session)
+}
+
+// Routing only. Callers must also supply either currentRaidAuthenticated or
+// this broadcast's repository-derived owner and exact live binding proof.
+func (s *Service) currentRaidInfoContextVisible(session *gameSession, state runtimeRaidState) bool {
+	if s == nil || s.options.currentClientVersion != "official-24.9" || !state.CurrentLayout || session == nil || session.channel.ID <= 0 || session.channel.ID > 255 {
 		return false
 	}
 	route, supported := currentRaidRouteForChannel(int(session.channel.Type))
@@ -555,7 +564,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 		s.logGameEvent(session, "game-raid-start-rejected", "source_char_id", sourceID, "error", err)
 	}
 	if !ok {
-		return s.sendRaidCommandFailure(session, typ)
+		return s.sendRaidStartRejection(session, typ, err)
 	}
 	if err := s.sendGameUpperRawClassCodec(session, typ, []byte{1}, dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
@@ -793,7 +802,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(sourceID)
 	if state == nil || state.LeaderID != sourceID || len(state.Members) == 0 || len(state.Members) > currentRaidMemberMaximum(*state) {
-		return runtimeRaidState{}, false, nil
+		return runtimeRaidState{}, false, &raidStartRejection{message: "请由团长确认攻坚队人数后开始攻坚"}
 	}
 	if state.Started {
 		if !s.currentRaidAuthenticated(session) || state.Battle == nil || state.Battle.MemberAccounts[sourceID] != s.accountIDForSession(session) || state.Battle.ChannelID != session.channel.ID || state.Battle.ChannelType != session.channel.Type {
@@ -816,7 +825,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		startProjection, intentErr = s.prepareCurrentRaidStartPartyIntent(*state)
 		if intentErr != nil {
 			s.logGameEvent(session, "game-raid-start-party-intent-rejected", "raid_key", state.RaidKey, "reason", intentErr)
-			return runtimeRaidState{}, false, nil
+			return runtimeRaidState{}, false, &raidStartRejection{message: "编队状态已变化，请重新确认队伍，每队最多4人", cause: intentErr}
 		}
 	}
 	startCommitted := false
@@ -841,7 +850,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		}
 	}
 	if runtimeRaidHasOversizedGroup(*state) {
-		return runtimeRaidState{}, false, nil
+		return runtimeRaidState{}, false, &raidStartRejection{message: "每个队伍最多编入4人，请调整编队"}
 	}
 	seen := make(map[uint16]bool, len(state.Members))
 	for _, member := range state.Members {
@@ -851,7 +860,7 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		// A retained offline seat is not a paid admission. Bind/restore or
 		// expiry must resolve it before the current aggregate is frozen.
 		if seat, reserved := s.currentRaidDisconnects[member.CharID]; state.CurrentLayout && reserved && seat.Raid == state {
-			return runtimeRaidState{}, false, nil
+			return runtimeRaidState{}, false, &raidStartRejection{message: "队员尚未重新连接，请等待队员归队", members: []uint16{member.CharID}}
 		}
 		seen[member.CharID] = true
 	}
@@ -954,6 +963,9 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	if state.RouteOrRaidType == 2 && state.Started {
 		return runtimeRaidState{}, false, false
 	}
+	if state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(*state, targetGroup, memberID) >= runtimeRaidGroupSize {
+		return runtimeRaidState{}, false, false
+	}
 	if state.RouteOrRaidType == 2 {
 		for i := range state.Members {
 			if state.Members[i].CharID != memberID && state.Members[i].GroupIndex == targetGroup {
@@ -1019,7 +1031,9 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaid
 	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancelProfiles()
 	profiles := newCurrentRaidProfileBatch(s, profileCtx)
-	admission := &currentRaidAdmissionBatch{}
+	// Ownership already read for the profiles belongs to this same broadcast.
+	// Inventory remains a fresh committed read; never retain either across calls.
+	admission := &currentRaidAdmissionBatch{ctx: profiles.ctx}
 	for _, member := range state.Members {
 		session, ok := s.onlineGameSession(member.CharID)
 		if !ok {

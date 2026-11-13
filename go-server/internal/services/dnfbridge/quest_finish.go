@@ -87,6 +87,9 @@ func (s *Service) handleCurrentFinishQuest(session *gameSession, body []byte) er
 		return nil
 	}
 	timing.markQuest(request.QuestID)
+	if request.Reserved != dnfquest.CurrentFinishQuestObservedTailMarker {
+		return s.handleCurrentSingleQuestCoupon(session, request, timing)
+	}
 	// The current live ten-byte request ends in FF FF. The field's domain
 	// meaning remains unproved, so validate only the observed wire marker.
 	if request.QuestID == 0 || request.Multiplier != 1 || request.Reserved != dnfquest.CurrentFinishQuestObservedTailMarker {
@@ -170,8 +173,9 @@ func (s *Service) handleCurrentFinishQuest(session *gameSession, body []byte) er
 }
 
 type currentQuestProfessionResources struct {
-	Profiles     *dnfprofession.Profiles
-	SkillCatalog *dnfskill.Table
+	Profiles          *dnfprofession.Profiles
+	SkillCatalog      *dnfskill.Table
+	SingleQuestCoupon *dnfquest.UseClearCouponInput
 }
 
 // handleCurrentFinishQuestWithResources 是 handleCurrentFinishQuestTimed 的无计时
@@ -210,9 +214,11 @@ func (s *Service) handleCurrentFinishQuestTimed(
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
 	var professionProfiles *dnfprofession.Profiles
 	var skillCatalog *dnfskill.Table
+	var singleCoupon *dnfquest.UseClearCouponInput
 	if len(professionResources) > 0 {
 		professionProfiles = professionResources[0].Profiles
 		skillCatalog = professionResources[0].SkillCatalog
+		singleCoupon = professionResources[0].SingleQuestCoupon
 	}
 	accountID := s.accountIDForSession(session)
 	var experienceBonusPercent int64
@@ -245,6 +251,7 @@ func (s *Service) handleCurrentFinishQuestTimed(
 		Progression:                   tables,
 		ExperienceBonusPercent:        experienceBonusPercent,
 		AllocateItem:                  allocator,
+		SingleQuestCoupon:             singleCoupon,
 		ProfessionProfiles:            professionProfiles,
 		SkillCatalog:                  skillCatalog,
 	})
@@ -881,7 +888,7 @@ func validCurrentFinishQuestSlotExpansionCurrency(currencies []dnfquest.FinishCo
 }
 
 func currentFinishQuestBusinessFailure(err error) bool {
-	return errors.Is(err, dnfquest.ErrFinishQuestNotPending) ||
+	return errors.Is(err, dnfquest.ErrCouponClearUnavailable) || errors.Is(err, dnfquest.ErrFinishQuestNotPending) ||
 		errors.Is(err, dnfquest.ErrFinishQuestionAnswerRequired) ||
 		errors.Is(err, dnfquest.ErrFinishQuestCompletionConflict) ||
 		errors.Is(err, dnfquest.ErrFinishQuestSettlementStale) ||

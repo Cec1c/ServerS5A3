@@ -136,6 +136,7 @@ type Definition struct {
 	// section. An empty Ints result alone can also hide non-integer data.
 	emptyDependGiveItem bool
 	CantGiveUp          bool
+	DisableQuestClear   bool
 	// HasLevel records an explicit [level] with one or two integer tokens.
 	// Legacy LevelMin/LevelMax defaults remain unchanged; percentage rewards
 	// require this evidence as well as a valid range.
@@ -852,6 +853,7 @@ func parseDefinition(entry dnfpvf.ListEntry, doc *dnfpvf.Document) Definition {
 		definition.emptyDependGiveItem = len(tokens) == 0 && sections == 1
 	}
 	_, definition.CantGiveUp = doc.Section("cant giveup")
+	_, definition.DisableQuestClear = doc.Section("disable quest clear")
 	definition.Job = strings.Join(doc.Texts("job"), " ")
 	definition.TargetCharacter = strings.Join(doc.Texts("target character"), " ")
 	if tokens, ok := doc.Section("target character"); ok {

@@ -125,6 +125,7 @@ type FinishCommitInput struct {
 	AllocateItem                  FinishItemAllocator
 	ProfessionProfiles            *profession.Profiles
 	SkillCatalog                  *dnfskill.Table
+	SingleQuestCoupon             *UseClearCouponInput
 }
 
 // FinishCommitResult is a detached post-commit snapshot. Every map, slice and
@@ -330,9 +331,18 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 
 		now := input.CommittedAt.UTC()
+		var couponConsumed []FinishConsumedItem
+		if input.SingleQuestCoupon != nil {
+			used, err := consumeSingleQuestCoupon(&inventory, character, state, definition, *input.SingleQuestCoupon)
+			if err != nil {
+				return err
+			}
+			couponConsumed = append(couponConsumed, used)
+			state.ProgressValue = 0
+		}
 		questFields := []dnfrepo.QuestField{field}
 		var terminalChildren []finishTerminalChild
-		if isActiveQuestStatus(state.Status) {
+		if isActiveQuestStatus(state.Status) && input.SingleQuestCoupon == nil {
 			decision := planFinishQuestClear(catalog, &quests, input.QuestID, now)
 			if decision.clear {
 				if decision.trigger != 0 {
@@ -409,7 +419,16 @@ func (o *Owner) ApplyFinishSettlement(
 		mainQuestExperience := isMainQuestExperienceDefinition(catalog, definition)
 		percentageMainQuestExperience := mainQuestExperiencePercent > 0 &&
 			isPercentMainQuestExperienceDefinition(definition)
-		reward, err := catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
+		var reward FinishRewardPlan
+		if input.SingleQuestCoupon == nil {
+			reward, err = catalog.PlanFinishReward(eligibility, input.QuestID, input.RewardSelectIndex, input.HasRewardSelect)
+		} else {
+			difficulty := strings.ToUpper(strings.TrimSpace(definition.Difficulty))
+			if difficulty == "" {
+				difficulty = "G"
+			}
+			reward = FinishRewardPlan{QuestID: definition.ID, PVFPath: definition.Path, QuestLevel: definition.LevelMin, Difficulty: difficulty, IgnoreLevel4Exp: definition.IgnoreQuestLevel4Exp}
+		}
 		if err != nil {
 			return err
 		}
@@ -492,7 +511,11 @@ func (o *Owner) ApplyFinishSettlement(
 		if err != nil {
 			return err
 		}
-		paidCurrency, err := consumeFinishRequiredGold(&character, definition)
+		costDefinition := definition
+		if input.SingleQuestCoupon != nil {
+			costDefinition = Definition{}
+		}
+		paidCurrency, err := consumeFinishRequiredGold(&character, costDefinition)
 		if err != nil {
 			return err
 		}
@@ -510,12 +533,12 @@ func (o *Owner) ApplyFinishSettlement(
 		if err != nil {
 			return err
 		}
-		requiredItems := finishRequiredItemRules(catalog, definition, eligibility)
+		requiredItems := finishRequiredItemRules(catalog, costDefinition, eligibility)
 		consumedItems, err := consumeFinishRequiredItems(&inventory, &accountInventory, requiredItems)
 		if err != nil {
 			return err
 		}
-		consumedItems = append(terminalChildConsumed, consumedItems...)
+		consumedItems = append(append(terminalChildConsumed, consumedItems...), couponConsumed...)
 		currency, err := applyFinishRewardCurrency(&character, input.Progression, reward)
 		if err != nil {
 			return err
@@ -526,6 +549,9 @@ func (o *Owner) ApplyFinishSettlement(
 		}
 
 		source := "quest_pvf:" + reward.PVFPath
+		if input.SingleQuestCoupon != nil {
+			source = "quest_coupon_exp_only:" + reward.PVFPath
+		}
 		items, err := allocateFinishRewardItems(&inventory, reward.Items, input.AllocateItem, FinishItemGrantRequest{
 			QuestID: input.QuestID, CompletionKey: completionKey, Source: source,
 		})

@@ -553,7 +553,12 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 			"body_len", len(userStateBody),
 			"user_state", currentDungeonPlayerUserState,
 			"body_source", "working_current_client_trace_op3_after_op120_room_object_manager_commit")
-		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyUserState), userStateBody, 0); err != nil {
+		activate := func() error {
+			return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyUserState), userStateBody, 0)
+		}
+		if plan := session.partyLoadingPrepared; plan != nil {
+			plan.activation = append(plan.activation, activate)
+		} else if err := activate(); err != nil {
 			return err
 		}
 	} else if suppressInitialUserState {
@@ -619,13 +624,20 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	// 而什么都不做，也不会被标记），失败只记日志、不能让进图失败。
 	s.recordDungeonPartyRunKey(session, runtime, scene)
 	s.recordCurrentRaidParticipation(session, runtime)
-	if err := s.projectDungeonPartyPeerActors(session, source+"_party_peer_copresence"); err != nil {
-		s.logGameEvent(session, "game-dungeon-party-peer-actor-failed",
-			"conn_id", session.connID,
-			"source", source+"_party_peer_copresence",
-			"char_id", session.selectedCharacterID,
-			"party_id", runtimePartyStateSnapshot(session).PartyID,
-			"error", err)
+	after := func() error {
+		if err := s.projectDungeonPartyPeerActors(session, source+"_party_peer_copresence"); err != nil {
+			s.logGameEvent(session, "game-dungeon-party-peer-actor-failed",
+				"conn_id", session.connID,
+				"source", source+"_party_peer_copresence",
+				"char_id", session.selectedCharacterID,
+				"party_id", runtimePartyStateSnapshot(session).PartyID,
+				"error", err)
+		}
+		return nil
 	}
-	return nil
+	if plan := session.partyLoadingPrepared; plan != nil {
+		plan.after = append(plan.after, after)
+		return nil
+	}
+	return after()
 }

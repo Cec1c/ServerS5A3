@@ -30,7 +30,11 @@ func (m *OnlinePlayerManager) requireRaidStartWaitingArea(scope currentRaidWaiti
 	}
 	if len(outside) != 0 {
 		sort.Ints(outside)
-		return fmt.Errorf("%w：角色%v", errCurrentRaidMembersOutsideWaitingArea, outside)
+		ids := make([]uint16, len(outside))
+		for i, id := range outside {
+			ids[i] = uint16(id)
+		}
+		return &raidStartRejection{message: "队员未进入本团等候区或连接已变化，请先到齐", members: ids, cause: fmt.Errorf("%w：角色%v", errCurrentRaidMembersOutsideWaitingArea, outside)}
 	}
 	return nil
 }

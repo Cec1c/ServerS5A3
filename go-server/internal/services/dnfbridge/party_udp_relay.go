@@ -352,6 +352,8 @@ type currentPartyUDPRelay struct {
 	portStart int
 	portCount int
 	usedPorts map[int]struct{}
+	// Last ordinary-party owner of each pool port; bounded by portCount.
+	portOwners map[int]currentPartyUDPRelayLegKey
 	// pvpReleasedAt 记 PVP 腿端口的释放时刻，用于"下一局换一个端口"。
 	// 见 pvpRelayPortQuarantine 的现场依据。受 r.mu 保护。
 	pvpReleasedAt map[int]time.Time
@@ -789,8 +791,25 @@ func (r *currentPartyUDPRelay) newLegLocked(key currentPartyUDPRelayLegKey, bind
 // newLegLockedPass 是 newLegLocked 的单趟扫描。honorQuarantine 为真时跳过
 // 仍处于静默期的 PVP 端口。
 func (r *currentPartyUDPRelay) newLegLockedPass(key currentPartyUDPRelayLegKey, binding currentPartyUDPRelayBinding, honorQuarantine bool) (*currentPartyUDPRelayLeg, error) {
-	for offset := 0; offset < r.portCount; offset++ {
+	preferred := -1
+	if !key.pvp {
+		for port, owner := range r.portOwners {
+			if owner == key {
+				preferred = port
+				break
+			}
+		}
+	}
+	for offset := -1; offset < r.portCount; offset++ {
 		port := r.portStart + offset
+		if offset == -1 {
+			port = preferred
+		} else if port == preferred {
+			continue
+		}
+		if port < r.portStart || port >= r.portStart+r.portCount {
+			continue
+		}
 		// Native keepalives keep targeting probe ports after party formation.
 		// Reusing one as a directed leg lets a same-NAT peer overwrite its owner.
 		if r.probeListener != nil {
@@ -811,6 +830,14 @@ func (r *currentPartyUDPRelay) newLegLockedPass(key currentPartyUDPRelayLegKey, 
 			continue
 		}
 		r.usedPorts[port] = struct{}{}
+		if r.portOwners == nil {
+			r.portOwners = make(map[int]currentPartyUDPRelayLegKey)
+		}
+		if key.pvp {
+			delete(r.portOwners, port)
+		} else {
+			r.portOwners[port] = key
+		}
 		return &currentPartyUDPRelayLeg{
 			key:           key,
 			binding:       binding,
@@ -854,6 +881,11 @@ func (r *currentPartyUDPRelay) notePVPPortReleasedLocked(port int) {
 }
 
 func (r *currentPartyUDPRelay) removePartyLocked(partyID uint16) []*currentPartyUDPRelayLeg {
+	for port, key := range r.portOwners {
+		if key.partyID == partyID && !key.pvp {
+			delete(r.portOwners, port)
+		}
+	}
 	legs := make([]*currentPartyUDPRelayLeg, 0)
 	for key, leg := range r.legs {
 		if key.partyID != partyID || key.pvp {

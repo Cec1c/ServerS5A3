@@ -44,6 +44,8 @@ type currentAntonRewardFlow struct {
 	FinishedAt         time.Time
 	BreakUntil         time.Time
 	NextAttempt        time.Time
+	OwnerNextAttempt   map[uint16]time.Time
+	TeamDisplayReady   map[uint16]bool
 }
 
 func (f *currentAntonRewardFlow) squadRequired() bool {
@@ -77,6 +79,18 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 		return out
 	}
 	v.Party, v.Squad = clone(f.Party), clone(f.Squad)
+	if f.TeamDisplayReady != nil {
+		v.TeamDisplayReady = make(map[uint16]bool, len(f.TeamDisplayReady))
+		for id, ready := range f.TeamDisplayReady {
+			v.TeamDisplayReady[id] = ready
+		}
+	}
+	if f.OwnerNextAttempt != nil {
+		v.OwnerNextAttempt = make(map[uint16]time.Time, len(f.OwnerNextAttempt))
+		for id, at := range f.OwnerNextAttempt {
+			v.OwnerNextAttempt[id] = at
+		}
+	}
 	if f.PartySelectAfter != nil {
 		v.PartySelectAfter = make(map[uint16]time.Time, len(f.PartySelectAfter))
 		for id, at := range f.PartySelectAfter {
@@ -95,7 +109,7 @@ const currentRaidNativeCardChoiceWindow = 15 * time.Second
 
 func (s *Service) markCurrentRaidPartySelectionShownLocked(instance string, phase byte, character uint16, at time.Time) {
 	f := s.antonRewardFlows[currentAntonFlowKey(instance, phase)]
-	if f == nil || at.IsZero() || !(f.Mode == 3 || !f.Single && (f.Mode == 1 || f.Mode == 2) && f.Phase == 1) {
+	if f == nil || at.IsZero() {
 		return
 	}
 	for _, owner := range f.Recipients {
@@ -403,77 +417,45 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 			}
 			continue
 		}
-		failed := false
-		if privateActivityFinalRaid(f) {
-			for _, owner := range owners {
-				if owner.Clears < f.Rewards.MinimumClears {
-					continue
-				}
+		// Failures and native choice clocks belong to the recipient. A slow
+		// movie, absent connection or failed grant must not hold another page.
+		for _, owner := range owners {
+			s.raidMu.Lock()
+			deferred := now.Before(f.OwnerNextAttempt[owner.CharacterID])
+			s.raidMu.Unlock()
+			if deferred {
+				continue
+			}
+			if privateActivityFinalRaid(f) && owner.Clears >= f.Rewards.MinimumClears {
 				ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 				err := s.persistPrivateActivity(ctx, owner.AccountID, strconv.Itoa(int(owner.CharacterID)), 4, now, f.CompletedAt)
 				cancel()
 				if err != nil {
 					errors = append(errors, err)
-					failed = true
-					break
-				}
-			}
-			if failed {
-				continue
-			}
-		}
-		for _, kind := range []byte{1, 3} {
-			if kind == 3 && !f.squadRequired() {
-				continue
-			}
-			if kind == 3 {
-				s.raidMu.Lock()
-				if markCurrentAntonPartyCommittedLocked(f, now) && f.Mode == 1 && !f.Single && f.Phase == 0 && !f.PartyManual && now.Before(f.PartyCommittedAt.Add(currentRaidNativeCardChoiceWindow)) {
+					s.raidMu.Lock()
+					deferCurrentRaidRewardOwner(f, owner.CharacterID, now)
 					s.raidMu.Unlock()
 					continue
 				}
-				s.raidMu.Unlock()
 			}
-			for _, owner := range owners {
+			for _, kind := range []byte{1, 3} {
 				s.raidMu.Lock()
-				if kind == 1 {
-					selectAt := f.AutoSelectAt
-					if f.Mode == 1 && f.Phase == 0 && !f.Single {
-						selectAt = currentAntonPartySelectAt(f, movie)
+				if kind == 3 && currentRaidOwnerSquadReady(f, owner.CharacterID, now) {
+					if f.TeamDisplayReady == nil {
+						f.TeamDisplayReady = make(map[uint16]bool)
 					}
-					if f.Mode == 3 || !f.Single && (f.Mode == 1 || f.Mode == 2) && f.Phase == 1 {
-						// An owner whose card screen really reached its socket uses
-						// exactly the frozen display window. The unattended deadline
-						// remains a fallback only for owners that never displayed, so
-						// a late display cannot be shortened by an earlier fallback.
-						if shown := f.PartySelectAfter[owner.CharacterID]; !shown.IsZero() {
-							selectAt = shown
-						}
-					}
-					if now.Before(selectAt) {
-						s.raidMu.Unlock()
-						continue
-					}
+					f.TeamDisplayReady[owner.CharacterID] = true
 				}
-				if kind == 3 {
-					allParty := true
-					for _, peer := range owners {
-						card := f.Party[peer.CharacterID]
-						if card == nil || !card.Committed {
-							allParty = false
-							break
-						}
-					}
-					if !allParty {
-						s.raidMu.Unlock()
-						continue
-					}
+				if kind == 1 && now.Before(currentRaidOwnerPartySelectAt(f, owner.CharacterID)) ||
+					kind == 3 && (!f.squadRequired() || !currentRaidTeamRewardGrantReady(f, now)) {
+					s.raidMu.Unlock()
+					continue
 				}
 				card, command, prepareErr := freezeCurrentAntonAutomaticCard(f, owner, kind, catalog, roll)
 				if prepareErr != nil {
+					deferCurrentRaidRewardOwner(f, owner.CharacterID, now)
 					s.raidMu.Unlock()
 					errors = append(errors, prepareErr)
-					failed = true
 					break
 				}
 				if card.Committed {
@@ -487,27 +469,24 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 				cancel()
 				s.raidMu.Lock()
 				if grantErr == nil {
-					card.Committed = true
+					markCurrentRaidCardCommitted(card, now, false)
 					card.Plan.FateGranted = granted.Plan.FateGranted
 				} else {
-					f.NextAttempt = now.Add(2 * time.Second)
+					deferCurrentRaidRewardOwner(f, owner.CharacterID, now)
 				}
 				s.raidMu.Unlock()
 				if grantErr != nil {
 					errors = append(errors, grantErr)
-					failed = true
 					break
 				}
 			}
-			if failed {
-				break
-			}
 		}
 		s.raidMu.Lock()
-		all := !failed
+		markCurrentAntonPartyCommittedLocked(f, now)
+		all := true
 		for _, owner := range owners {
 			p, q := f.Party[owner.CharacterID], f.Squad[owner.CharacterID]
-			if p == nil || !p.Committed || f.squadRequired() && (q == nil || !q.Committed) {
+			if p == nil || !p.Committed || f.squadRequired() && (q == nil || !q.Committed || !currentRaidOwnerSquadReady(f, owner.CharacterID, now)) {
 				all = false
 			}
 		}

@@ -1119,8 +1119,11 @@ func (s *Service) buildCurrentCompleteActivityInfo(session *gameSession, catalog
 
 // 一次发布的108与855使用相同服务日，避免构包横跨06:00时分别取时。
 func (s *Service) buildCurrentCompleteActivityInfoForDay(session *gameSession, catalog *currentSpendTimeRuntimeCatalog, includeJoust bool, dayDungeonEvent uint16) ([]byte, bool, error) {
-	season, weeklyErr := s.currentWeeklySeason(session)
-	includeWeekly := weeklyErr == nil && season.Week(s.gameplayNow()) >= 0
+	// Entry visibility is a catalog policy, independent of character binding
+	// and the account season transaction. Selector/channel refresh replaces
+	// the entire catalog; a transient season read must not remove the icon.
+	// Opening/claiming still loads the account season through its owner.
+	includeWeekly := s.currentWeeklyAttendanceEnabled()
 	// Optional image town-NPC rows are resolved independently. The operator
 	// policy is read first: with every optional switch off there is nothing
 	// to validate and the resource archive is not read at all. When any

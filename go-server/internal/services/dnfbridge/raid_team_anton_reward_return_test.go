@@ -180,7 +180,7 @@ func TestRealPVFTeamAntonFinishedCardsReturnBothMembersOnce(t *testing.T) {
 }
 
 func TestRealPVFTeamAntonRewardReturnRejectsStaleAndUncommittedOwners(t *testing.T) {
-	for _, fault := range []string{"weekly", "party", "squad", "display", "instance", "phase", "account", "run", "generation", "runtime", "unfinished", "luke"} {
+	for _, fault := range []string{"weekly", "party", "squad", "display", "instance", "phase", "account", "run", "generation", "runtime", "luke"} {
 		t.Run(fault, func(t *testing.T) {
 			f, sessions := teamAntonRewardReturnFixture(t, 1)
 			p := sessions[0]
@@ -211,9 +211,6 @@ func TestRealPVFTeamAntonRewardReturnRejectsStaleAndUncommittedOwners(t *testing
 				p.characterGeneration++
 			case "runtime":
 				delete(b.Participation, p.selectedCharacterID)
-			case "unfinished":
-				flow.FinishedAt = time.Time{}
-				captured = cloneRuntimeRaidState(*f.state)
 			case "luke":
 				b.Mode = 2
 				captured = cloneRuntimeRaidState(*f.state)

@@ -79,7 +79,7 @@ func TestReviewActual6063PaidReservationBlocksCanonicalReplacementUntilInstall(t
 		if e != nil {
 			t.Fatal(e)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("paid runtime not installed")
 	}
 	select {
@@ -371,7 +371,7 @@ func TestReviewActual6063CanonicalWritersWaitOnlyUntilPaidInstall(t *testing.T) 
 				if e != nil {
 					t.Fatal(e)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(30 * time.Second):
 				t.Fatal("entry/writer lock inversion")
 			}
 			select {

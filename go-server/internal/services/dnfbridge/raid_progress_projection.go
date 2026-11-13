@@ -76,6 +76,8 @@ type currentRaidProjectionOwner struct {
 	rewardFlowSignature         [32]byte
 	rewardDisplayIdentity       currentRaidProjectionIdentity
 	rewardDisplaySignature      [32]byte
+	rewardListIdentity          currentRaidProjectionIdentity
+	rewardListSignatures        [4][32]byte
 	rewardDisplayShownAt        time.Time
 	rewardSquadDisplayIdentity  currentRaidProjectionIdentity
 	rewardSquadDisplaySignature [32]byte

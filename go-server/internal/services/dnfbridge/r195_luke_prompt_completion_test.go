@@ -41,20 +41,24 @@ func TestR195LukeAllPartyCommittedHasNoPhantomSquadMovieDelay(t *testing.T) {
 	}
 }
 
-func TestR195LukeLocalCompletionStillWaitsForVisiblePartyMember(t *testing.T) {
+func TestR195LukeLocalCompletionDoesNotWaitForVisiblePartyMember(t *testing.T) {
 	f, session, flow := r195LukeCompletedPartyFixture(t)
 	r195RewardParty(t, f.service, 19, 20)
 	f.state.Members[1].GroupIndex = f.state.Members[0].GroupIndex
 	dispatchAntonCardRequest(t, f, session, 659, []byte{1})
 	f.conn.write.Reset()
 	dispatchAntonCardRequest(t, f, session, 660, []byte{1, 0})
+	// The owned click reveals itself, then the shared projection restores the
+	// whole party (including its pending peer) before the no-team notice.
+	r195LukeWantCompletionWire(t, r195LukeCompletionWire(t, f.conn.write.Bytes()), "kind1", "kind1", "empty3")
 	f.conn.write.Reset()
 	if err := f.service.sendCurrentAntonRewardFlowProjection(session, cloneRuntimeRaidState(*f.state)); err != nil {
 		t.Fatal(err)
 	}
-	// The full visible roster can refresh, but the unchosen member must
-	// retain their card-selection window and the group cannot finish yet.
-	r195LukeWantCompletionWire(t, r195LukeCompletionWire(t, f.conn.write.Bytes()), "kind1")
+	// An unchanged personal page must stay silent while the peer is pending.
+	if f.conn.write.Len() != 0 {
+		t.Fatal("personal completion replayed")
+	}
 	if flow.Party[20] != nil && flow.Party[20].Committed || !flow.FinishedAt.IsZero() {
 		t.Fatal("local completion invented another member's selection")
 	}
@@ -69,7 +73,7 @@ func TestR195LukeLocalCompletionRequiresQualifiedOwner(t *testing.T) {
 		want    bool
 	}{
 		{"one completed local group", 19, map[uint16]bool{19: true}, true},
-		{"uncommitted visible peer", 19, map[uint16]bool{19: true, 20: true}, false},
+		{"uncommitted visible peer", 19, map[uint16]bool{19: true, 20: true}, true},
 		{"spectator with another owner's reward", 21, map[uint16]bool{19: true, 21: true}, false},
 		{"owner absent from visible group", 19, map[uint16]bool{20: true}, false},
 		{"empty group", 19, nil, false},

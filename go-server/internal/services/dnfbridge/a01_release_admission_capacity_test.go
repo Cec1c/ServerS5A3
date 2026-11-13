@@ -176,16 +176,14 @@ func a01AdmissionCapacityCase(t *testing.T, duplicates, upgrade bool) {
 		s.releasePartyDungeonLoadingCycle(partyID, cycle, members, initialTail, trigger)
 		close(releaseDone)
 	}()
-	// Only this healthy loop receives observation events while the peer is full.
-	healthyCtx, cancelHealthy := context.WithTimeout(waitCtx, 5*time.Second)
-	healthyState, healthyErr := a01ReleaseQueueAwaitComplete(healthyCtx, s, healthy)
-	cancelHealthy()
-	if healthyErr != nil {
-		t.Fatalf("healthy member failed while peer queue was full: state=%+v err=%v", healthyState, healthyErr)
+	// Readiness is now two-phase: a healthy loop may prepare, but may not
+	// activate its scene before the saturated peer prepares as well.
+	healthyState, healthyErr := a01AdmissionObserve(waitCtx, s, healthy)
+	if healthyErr != nil || !healthyState.Observed || healthyState.State || healthyState.Completion {
+		t.Fatalf("healthy member activated before peer preparation: state=%+v err=%v", healthyState, healthyErr)
 	}
-	a01ReleaseQueueAssertWire(t, healthyConn, healthyStart, "healthy while peer queue full")
-	if got := a01AdmissionTailCounts(t, healthyConn, healthyStart); got != [3]int{1, 1, 1} {
-		t.Fatalf("healthy member must receive exactly one placement/op37/op30 before gate opens, got %v", got)
+	if got := a01AdmissionTailCounts(t, healthyConn, healthyStart); got != [3]int{} {
+		t.Fatalf("early activation: %v", got)
 	}
 	select {
 	case <-releaseDone:
@@ -294,6 +292,13 @@ func a01AdmissionCapacityCase(t *testing.T, duplicates, upgrade bool) {
 	case <-waitCtx.Done():
 		t.Fatal("finite gate caller did not complete")
 	}
+	healthyCtx, cancelHealthy := context.WithTimeout(waitCtx, 5*time.Second)
+	_, healthyErr = a01ReleaseQueueAwaitComplete(healthyCtx, s, healthy)
+	cancelHealthy()
+	if healthyErr != nil {
+		t.Fatal("healthy member did not release after all preparation: ", healthyErr)
+	}
+	a01ReleaseQueueAssertWire(t, healthyConn, healthyStart, "healthy after peer preparation")
 	// FIFO within medium: this successful sentinel is behind all 512 fillers.
 	// It reads only; it does not call arrival, op37, release or a retry hook.
 	state, err := a01AdmissionObserve(waitCtx, s, blocked)

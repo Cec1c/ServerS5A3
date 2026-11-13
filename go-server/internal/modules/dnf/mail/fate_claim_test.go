@@ -337,7 +337,9 @@ func TestMailboxFateCommitFailureRollsBackAccountAndMail(t *testing.T) {
 	beforeMailbox, _, _ := group.Mailbox.Load(ctx, "77")
 	broken := group
 	broken.MailboxAssets = fateClaimRejectAssets{MailboxAssetUnitOfWork: group.MailboxAssets}
-	if _, err := NewOwner(broken).Claim(ctx, "77", ExtractRequest{MailIDs: ids}); err == nil {
+	brokenOwner := NewOwner(broken)
+	brokenOwner.now = func() time.Time { return now }
+	if _, err := brokenOwner.Claim(ctx, "77", ExtractRequest{MailIDs: ids}); err == nil {
 		t.Fatal("commit failure returned success")
 	}
 	afterAccount, _, _ := group.Account.Load(ctx, "account-fate")
@@ -345,7 +347,9 @@ func TestMailboxFateCommitFailureRollsBackAccountAndMail(t *testing.T) {
 	if !reflect.DeepEqual(beforeAccount, afterAccount) || !reflect.DeepEqual(beforeMailbox, afterMailbox) {
 		t.Fatal("Fate account credit and mail settlement did not roll back together")
 	}
-	result, err := NewOwner(group).Claim(ctx, "77", ExtractRequest{MailIDs: ids})
+	retryOwner := NewOwner(group)
+	retryOwner.now = func() time.Time { return now }
+	result, err := retryOwner.Claim(ctx, "77", ExtractRequest{MailIDs: ids})
 	if err != nil || !result.FateCurrencyChanged {
 		t.Fatalf("retry after rollback result=%+v err=%v", result, err)
 	}

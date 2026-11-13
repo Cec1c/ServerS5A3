@@ -13,7 +13,16 @@ type partyDungeonDeathDelivery struct {
 	objectKey uint32
 	body      []byte
 	source    string
+	phase     partyDeathDeliveryPhase
 }
+
+type partyDeathDeliveryPhase byte
+
+const (
+	partyDeathFull partyDeathDeliveryPhase = iota
+	partyDeathVisualOnly
+	partyDeathStateOnly
+)
 
 func (s *Service) deliverPartyDungeonDeath(d partyDungeonDeathDelivery) error {
 	peer := d.identity.session
@@ -41,6 +50,9 @@ func (s *Service) deliverPartyDungeonDeath(d partyDungeonDeathDelivery) error {
 		s.logGameEvent(peer, "game-dungeon-party-instance-death-broadcast-failed",
 			"object_key", d.objectKey, "from_char_id", d.from, "phase", "write", "error", err)
 		return err
+	}
+	if d.phase == partyDeathVisualOnly {
+		return nil // no quest, scene-clear or reward transition before experience
 	}
 	s.dispatchQuestMaterialPeer(peer)
 	if cleared {

@@ -71,11 +71,8 @@ func r195LoadingReleasedLine(logText string, charID uint16) bool {
 	return false
 }
 
-// A blocked member loop must not delay its peer. The leader's real event loop is
-// held by a gate event; the follower has to finish its own release while that
-// gate is still closed. The observable is the follower's first socket write plus
-// the absence of the leader's "-released" line, so no sleep or timing threshold
-// decides the result.
+// Each loop can prepare independently, but neither scene may activate while
+// one loop remains blocked. This replaces the earlier independent-release rule.
 func TestR195LoadingReleaseRunsMembersOnTheirOwnLoops(t *testing.T) {
 	service, leader, follower, _, _ := partyDungeonDeathFixture(t)
 	logger, _ := newPeerEndpointTestLogger(t)
@@ -122,20 +119,49 @@ func TestR195LoadingReleaseRunsMembersOnTheirOwnLoops(t *testing.T) {
 		close(done)
 	}()
 
+	deadline := time.Now().Add(5 * time.Second)
+	prepared := false
+	for time.Now().Before(deadline) {
+		service.partyDungeonLoadingMu.Lock()
+		p := cycle.preparing[follower.selectedCharacterID]
+		prepared = p != nil && p.ready
+		service.partyDungeonLoadingMu.Unlock()
+		if prepared {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !prepared {
+		t.Fatal("healthy loop did not prepare while peer was blocked")
+	}
 	select {
 	case <-signal.wrote:
-	case <-time.After(10 * time.Second):
-		t.Fatalf("follower was never released while the leader's loop was blocked:\n%s", testPacketLogText(t, service))
+		t.Fatal("follower activated before blocked peer prepared")
+	default:
 	}
-	if text := testPacketLogText(t, service); r195LoadingReleasedLine(text, leader.selectedCharacterID) {
-		t.Fatalf("leader release finished before the follower could start; members are still serialized:\n%s", text)
-	}
-
 	openGate()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("release did not return after the gate opened")
+	}
+	for _, session := range []*gameSession{leader, follower} {
+		limit, cancelWait := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelWait()
+		for {
+			ready := false
+			if err := service.callGameSession(limit, session, "loading-shared-activation-observe", func() error { g := session.finishLoadingGateSnapshot(); ready = g.State && g.Completion; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if ready {
+				break
+			}
+			select {
+			case <-limit.Done():
+				t.Fatal("shared activation lost")
+			case <-time.After(time.Millisecond):
+			}
+		}
 	}
 	text := testPacketLogText(t, service)
 	for _, id := range members {
@@ -172,8 +198,8 @@ func TestR195LoadingReleaseStaleCycleDoesNotRelease(t *testing.T) {
 }
 
 // The owner guard is evaluated inside the session event: a member whose scene
-// owner changed after the cycle froze its owners is skipped, while the other
-// member still releases normally.
+// owner changed after the cycle froze its owners is skipped; the peer also
+// waits for the replacement scene instead of showing an incomplete party.
 func TestR195LoadingReleaseStaleOwnerIsNotReleased(t *testing.T) {
 	service, leader, follower, _, _ := partyDungeonDeathFixture(t)
 	logger, _ := newPeerEndpointTestLogger(t)
@@ -200,8 +226,8 @@ func TestR195LoadingReleaseStaleOwnerIsNotReleased(t *testing.T) {
 	if r195LoadingReleasedLine(text, leader.selectedCharacterID) {
 		t.Fatalf("stale owner was released:\n%s", text)
 	}
-	if !r195LoadingReleasedLine(text, follower.selectedCharacterID) || followerConn.write.Len() == 0 {
-		t.Fatalf("valid member was not released:\n%s", text)
+	if r195LoadingReleasedLine(text, follower.selectedCharacterID) || followerConn.write.Len() != 0 {
+		t.Fatalf("peer was released while replacement owner was not ready:\n%s", text)
 	}
 }
 

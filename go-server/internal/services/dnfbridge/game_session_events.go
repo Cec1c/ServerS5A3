@@ -126,8 +126,12 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 				}
 			}
 			ran = true
+			if task.source != "game-session-shutdown" {
+				s.drainPartyDeathVisuals(session)
+			}
 			err := task.run()
 			if task.source != "game-session-shutdown" {
+				s.drainPartyDeathVisuals(session)
 				s.captureLauncherContext(session, false)
 			}
 			return eventloop.Result{Err: err}

@@ -14,16 +14,20 @@ func (s *Service) currentFiendWarChannelAvailable(session *gameSession) bool {
 		s.initialEquipmentMu.Unlock()
 		err = loadErr
 		if err == nil {
-			_, err = raid.LoadFiendWarRewardConfiguration(source)
-		}
-		if err == nil {
-			var ids []uint32
-			for _, area := range config.Battle.Areas {
-				if area.Dungeon > 0 {
-					ids = append(ids, uint32(area.Dungeon))
+			s.fiendWarVisibilityOnce.Do(func() {
+				_, err = raid.LoadFiendWarRewardConfiguration(source)
+				if err == nil {
+					var ids []uint32
+					for _, area := range config.Battle.Areas {
+						if area.Dungeon > 0 {
+							ids = append(ids, uint32(area.Dungeon))
+						}
+					}
+					err = raid.ValidateDungeonDependencies(source, ids)
 				}
-			}
-			err = raid.ValidateDungeonDependencies(source, ids)
+				s.fiendWarVisibilityErr = err
+			})
+			err = s.fiendWarVisibilityErr
 		}
 	}
 	if err != nil {

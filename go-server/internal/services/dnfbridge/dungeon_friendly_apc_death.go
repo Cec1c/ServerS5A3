@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strings"
 
@@ -55,6 +56,17 @@ func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, s
 		if currentDungeonRoomContainsFriendlyContributor(runtime.Room, scene, kind, key, false) {
 			return true
 		}
+		// A native NPC retirement may precede the deaths caused by its last
+		// projectile/lasting effect. Retired state alone is not ownership proof:
+		// require this room's exact server-recorded non-hostile retirement ACK.
+		// Keep tutorial and previous-room admission on their existing policy.
+		if !tutorial && kind == 0x111 && currentDungeonRoomConfirmedRetiredFriendlyAPC(runtime.Room, scene, key) {
+			s.logInfo("dnfbridge cooperative NPC lingering contribution proven",
+				"dungeon_id", runtime.Dungeon.ID, "map_id", scene.Map.Map.ID,
+				"npc_object_key", key, "target_object_key", request.RuntimeObjectKey,
+				"proof", "same_room_retirement_receipt")
+			return true
+		}
 		if tutorial {
 			// The reported tutorial APC does not follow across rooms. Do not
 			// extend the new tutorial allowance to a stale contributor from an
@@ -71,6 +83,28 @@ func (s *Service) currentDungeonFriendlyAPCDeath(runtime *runtimeDungeonState, s
 		}
 	}
 	return false
+}
+
+func currentDungeonRoomConfirmedRetiredFriendlyAPC(room *runtimeDungeonRoom, scene worldmap.DungeonRoomScene, key uint32) bool {
+	if room == nil || key == 0 {
+		return false
+	}
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+	if room.coordinate != scene.Coordinate || room.mapID != scene.Map.Map.ID {
+		return false
+	}
+	index, found := room.extendedByObjectKey[key]
+	if !found || index < 0 || index >= len(room.extendedActors) {
+		return false
+	}
+	actor := room.extendedActors[index]
+	if actor.ObjectKey != key || actor.Kind != runtimeDungeonActorAICharacter ||
+		actor.HostileReference != nil || actor.Packet.Blocking != 0 || actor.State != runtimeDungeonMonsterDefeated {
+		return false
+	}
+	expected, err := buildCurrentDungeonDeathNotificationBody(key, currentDungeonDeathResponseAICharacter)
+	return err == nil && bytes.Equal(room.deathBodies[key], expected)
 }
 
 // currentDungeonFriendlyOwnerDeath proves the real object key path written by

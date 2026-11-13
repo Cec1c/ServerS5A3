@@ -155,9 +155,6 @@ func (s *Service) broadcastRuntimeRaidEntryCostInventoryRefresh(state runtimeRai
 		if !online || !s.boundGameSessionCharacterCurrent(identity) || identity.character != member.CharID {
 			continue
 		}
-		if !s.currentRaidAdmissionVisible(identity.session, state) {
-			continue
-		}
 		if err := s.sendCurrentRuntimeRaidEntryCostWithBatch(identity.session, state, batch); err != nil {
 			s.logGameEvent(identity.session, "game-raid-entry-cost-inventory-refresh-failed",
 				"raid_key", state.RaidKey,

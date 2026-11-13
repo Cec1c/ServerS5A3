@@ -14,8 +14,18 @@ import (
 // This is initial entry only: NOTI120 also restores HP/MP, so actor refreshes
 // and arbitrary later peer replays must never call this helper.
 func (s *Service) sendInitialDungeonActorPlacements(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, source string) error {
-	if s.options.currentClientVersion != "official-24.9" || runtime == nil || runtime.partyInstance == nil || s.options.partyDungeonLoadingBarrier != partyDungeonLoadingBarrierVendor {
+	localPlacement := func() error {
 		return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRequestBlacklist), buildCurrentSceneActorPlacementBody(), 0)
+	}
+	prepareOrSendLocal := func() error {
+		if plan := session.partyLoadingPrepared; plan != nil {
+			plan.activation = append(plan.activation, localPlacement)
+			return nil
+		}
+		return localPlacement()
+	}
+	if s.options.currentClientVersion != "official-24.9" || runtime == nil || runtime.partyInstance == nil || s.options.partyDungeonLoadingBarrier != partyDungeonLoadingBarrierVendor {
+		return prepareOrSendLocal()
 	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
 	if !bound {
@@ -23,7 +33,7 @@ func (s *Service) sendInitialDungeonActorPlacements(session *gameSession, runtim
 	}
 	snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(identity.character, identity.generation)
 	if !found || len(snapshot.Members) == 0 {
-		return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketRequestBlacklist), buildCurrentSceneActorPlacementBody(), 0)
+		return prepareOrSendLocal()
 	}
 	state := snapshot.StateFor(identity.character)
 	membership := s.currentPartyProjectionMembershipGuard(identity, &state)
@@ -75,26 +85,33 @@ func (s *Service) sendInitialDungeonActorPlacements(session *gameSession, runtim
 			return err
 		}
 	}
-	return s.withGameWire(session, func() error {
-		if !membership() || !s.boundGameSessionCharacterCurrent(identity) {
-			return fmt.Errorf("initial party placement became stale")
-		}
-		for _, guard := range roomGuards {
-			if !guard() {
-				return fmt.Errorf("initial party placement room changed")
+	activate := func() error {
+		return s.withGameWire(session, func() error {
+			if !membership() || !s.boundGameSessionCharacterCurrent(identity) {
+				return fmt.Errorf("initial party placement became stale")
 			}
-		}
-		for _, slot := range slots {
-			if err := s.sendGameUpperRawClassCodecLocked(session, uint16(dnfenum.CmdPacketRequestBlacklist), []byte{slot, 0}, 0, true); err != nil {
-				return err
+			for _, guard := range roomGuards {
+				if !guard() {
+					return fmt.Errorf("initial party placement room changed")
+				}
 			}
-		}
-		s.logGameEvent(session, "game-party-initial-slot-placement",
-			"char_id", identity.character, "party_id", snapshot.ID,
-			"slots", slots, "slot_count", len(slots), "map_id", scene.Map.Map.ID,
-			"source", source, "peer_profiles_before_placement", true)
+			for _, slot := range slots {
+				if err := s.sendGameUpperRawClassCodecLocked(session, uint16(dnfenum.CmdPacketRequestBlacklist), []byte{slot, 0}, 0, true); err != nil {
+					return err
+				}
+			}
+			s.logGameEvent(session, "game-party-initial-slot-placement",
+				"char_id", identity.character, "party_id", snapshot.ID,
+				"slots", slots, "slot_count", len(slots), "map_id", scene.Map.Map.ID,
+				"source", source, "peer_profiles_before_placement", true)
+			return nil
+		})
+	}
+	if plan := session.partyLoadingPrepared; plan != nil {
+		plan.activation = append(plan.activation, activate)
 		return nil
-	})
+	}
+	return activate()
 }
 
 func (s *Service) currentLocalDungeonPlacementBody(session *gameSession) []byte {

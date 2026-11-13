@@ -176,13 +176,20 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 	default:
 		return currentNPCShopBuyResult{}, fmt.Errorf("%w: exchange item=%d kind=%s", errCurrentNPCShopProductUnavailable, request.ItemID, pricing.Definition.Kind)
 	}
-	if pricing.NeedMaterialItem == 0 || pricing.NeedMaterialCount <= 0 || pricing.NeedMaterialCount > math.MaxInt64/int64(request.Count) {
-		return currentNPCShopBuyResult{}, fmt.Errorf("%w: exchange item=%d cost=%d x%d", errCurrentNPCShopProductUnavailable, request.ItemID, pricing.NeedMaterialItem, pricing.NeedMaterialCount)
-	}
-	totalMaterial := pricing.NeedMaterialCount * int64(request.Count)
-	fateCost := pricing.NeedMaterialItem == raidcurrency.FateItemID
-	if fateCost && totalMaterial > math.MaxInt32 {
-		return currentNPCShopBuyResult{}, errCurrentNPCShopMaterialInsufficient
+	materials := append([]currentNPCShopMaterialCost{{ItemID: pricing.NeedMaterialItem, Count: pricing.NeedMaterialCount}}, pricing.AdditionalMaterials...)
+	fateCost := false
+	for i := range materials {
+		cost := &materials[i]
+		if cost.ItemID == 0 || cost.Count <= 0 || cost.Count > math.MaxInt64/int64(request.Count) {
+			return currentNPCShopBuyResult{}, fmt.Errorf("%w: exchange item=%d invalid material cost", errCurrentNPCShopProductUnavailable, request.ItemID)
+		}
+		cost.Count *= int64(request.Count)
+		if cost.ItemID == raidcurrency.FateItemID {
+			fateCost = true
+			if cost.Count > math.MaxInt32 {
+				return currentNPCShopBuyResult{}, errCurrentNPCShopMaterialInsufficient
+			}
+		}
 	}
 	if pricing.ExchangeGold < 0 || pricing.ExchangeGold > math.MaxInt64/int64(request.Count) {
 		return currentNPCShopBuyResult{}, errCurrentNPCShopGoldOverflow
@@ -215,70 +222,75 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 
 			// Consume the material cost.
 			accountDirty := false
-			if fateCost {
-				state, debitErr := raidcurrency.Debit(assets.Account, uint32(totalMaterial), s.gameplayNow())
-				if debitErr != nil {
-					return dnfnpcshop.Changes{}, fmt.Errorf("%w: %v", errCurrentNPCShopMaterialInsufficient, debitErr)
-				}
-				result.CostItemID = raidcurrency.FateItemID
-				result.CostItemNewCount = int64(state.Balance)
-			} else if pricing.NeedMaterialItem == uint32(wedding.LovePointItemID) {
-				if err := wedding.DebitLovePoints(character, totalMaterial); err != nil {
-					return dnfnpcshop.Changes{}, err
-				}
-				state, err := wedding.Read(*character)
-				if err != nil {
-					return dnfnpcshop.Changes{}, err
-				}
-				result.CostItemID = uint32(wedding.LovePointItemID)
-				result.CostItemNewCount = state.LovePoints
-			} else if materialSlot, warehouseMaterial := currentDisjointWarehouseFixedSlots[pricing.NeedMaterialItem]; warehouseMaterial {
-				key := dnfrepo.AccountSharedInventorySlotKey(materialSlot)
-				stack, exists := account.Slots[key]
-				if !exists || stack.ItemID != int64(pricing.NeedMaterialItem) || stack.Count < totalMaterial {
-					return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d need=%d have=%d", errCurrentNPCShopMaterialInsufficient, pricing.NeedMaterialItem, totalMaterial, stack.Count)
-				}
-				stack.Count -= totalMaterial
-				entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, materialSlot, stack)
-				stack.RawEntry = append([]byte(nil), entry.data[:]...)
-				account.Slots[key] = stack
-				accountDirty = true
-				result.CostItemID = pricing.NeedMaterialItem
-				result.CostItemNewCount = stack.Count
-				updates = append(updates, entry)
-			} else {
-				materialSlot := int16(-1)
-				var materialKey string
-				var materialStack dnfrepo.ItemStack
-				for slot := int16(0); slot <= dnfrepo.SoulWarehouseLastSlot; slot++ {
-					if dnfrepo.IsAccountSharedInventorySlot(dnfrepo.MainInventoryListType, slot) {
-						continue
+			for _, material := range materials {
+				materialItem, totalMaterial := material.ItemID, material.Count
+				if materialItem == raidcurrency.FateItemID {
+					state, debitErr := raidcurrency.Debit(assets.Account, uint32(totalMaterial), s.gameplayNow())
+					if debitErr != nil {
+						return dnfnpcshop.Changes{}, fmt.Errorf("%w: %v", errCurrentNPCShopMaterialInsufficient, debitErr)
 					}
-					key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
-					stack, exists := inventory.Slots[key]
-					if exists && stack.ItemID == int64(pricing.NeedMaterialItem) && stack.Count >= totalMaterial {
-						materialSlot, materialKey, materialStack = slot, key, stack
-						break
+					result.CostItemID = raidcurrency.FateItemID
+					result.CostItemNewCount = int64(state.Balance)
+				} else if materialItem == uint32(wedding.LovePointItemID) {
+					if err := wedding.DebitLovePoints(character, totalMaterial); err != nil {
+						return dnfnpcshop.Changes{}, err
 					}
-				}
-				if materialSlot < 0 {
-					return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d need=%d", errCurrentNPCShopMaterialInsufficient, pricing.NeedMaterialItem, totalMaterial)
-				}
-				materialStack.Count -= totalMaterial
-				if materialStack.Count <= 0 {
-					delete(inventory.Slots, materialKey)
-					var removed currentItemListEntry
-					removed.patchCore(materialSlot, math.MaxUint32, 0)
-					updates = append(updates, removed)
-				} else {
-					entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, materialSlot, materialStack)
-					materialStack.RawEntry = append([]byte(nil), entry.data[:]...)
-					inventory.Slots[materialKey] = materialStack
+					state, err := wedding.Read(*character)
+					if err != nil {
+						return dnfnpcshop.Changes{}, err
+					}
+					result.CostItemID = uint32(wedding.LovePointItemID)
+					result.CostItemNewCount = state.LovePoints
+				} else if materialSlot, warehouseMaterial := currentDisjointWarehouseFixedSlots[materialItem]; warehouseMaterial {
+					key := dnfrepo.AccountSharedInventorySlotKey(materialSlot)
+					stack, exists := account.Slots[key]
+					if !exists || stack.ItemID != int64(materialItem) || stack.Count < totalMaterial {
+						return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d need=%d have=%d", errCurrentNPCShopMaterialInsufficient, materialItem, totalMaterial, stack.Count)
+					}
+					stack.Count -= totalMaterial
+					entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, materialSlot, stack)
+					stack.RawEntry = append([]byte(nil), entry.data[:]...)
+					account.Slots[key] = stack
+					accountDirty = true
+					result.CostItemID = materialItem
+					result.CostItemNewCount = stack.Count
 					updates = append(updates, entry)
+				} else {
+					materialSlot := int16(-1)
+					var materialKey string
+					var materialStack dnfrepo.ItemStack
+					for slot := int16(0); slot <= dnfrepo.SoulWarehouseLastSlot; slot++ {
+						if dnfrepo.IsAccountSharedInventorySlot(dnfrepo.MainInventoryListType, slot) {
+							continue
+						}
+						key := currentCeraShopInventorySlotKey(dnfrepo.MainInventoryListType, slot)
+						stack, exists := inventory.Slots[key]
+						if exists && stack.ItemID == int64(materialItem) && stack.Count >= totalMaterial {
+							materialSlot, materialKey, materialStack = slot, key, stack
+							break
+						}
+					}
+					if materialSlot < 0 {
+						return dnfnpcshop.Changes{}, fmt.Errorf("%w: item=%d need=%d", errCurrentNPCShopMaterialInsufficient, materialItem, totalMaterial)
+					}
+					materialStack.Count -= totalMaterial
+					if materialStack.Count <= 0 {
+						delete(inventory.Slots, materialKey)
+						var removed currentItemListEntry
+						removed.patchCore(materialSlot, math.MaxUint32, 0)
+						updates = append(updates, removed)
+					} else {
+						entry := currentItemListEntryFromStack(dnfrepo.MainInventoryListType, materialSlot, materialStack)
+						materialStack.RawEntry = append([]byte(nil), entry.data[:]...)
+						inventory.Slots[materialKey] = materialStack
+						updates = append(updates, entry)
+					}
+					result.CostItemID = materialItem
+					result.CostItemNewCount = materialStack.Count
 				}
-				result.CostItemID = pricing.NeedMaterialItem
-				result.CostItemNewCount = materialStack.Count
+				result.MaterialBalances = append(result.MaterialBalances, currentNPCShopMaterialCost{ItemID: result.CostItemID, Count: result.CostItemNewCount})
 			}
+			result.CostItemID, result.CostItemNewCount = result.MaterialBalances[0].ItemID, result.MaterialBalances[0].Count
 
 			// Grant the purchase.
 			grantSlots, grantedAccount, _, grantErr := s.grantCurrentNPCShopProductToContainers(account, inventory, pricing.Definition, request.Count)
@@ -333,16 +345,19 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 			result.ItemID = request.ItemID
 			result.Count = request.Count
 			character.Stats["gold"] = gold
-			countedCost := pricing.NeedMaterialItem == 10158964 || pricing.NeedMaterialItem == dnfrepo.BattlePassFateItemID
-			if countedCost {
-				dnfrepo.AddBattlePassCounter(character, 28, int64(pricing.NeedMaterialItem), 1, s.gameplayNow())
-			}
+			countedCost, lovePointCost := false, false
 			var colorlessSpent int64
-			if int64(pricing.NeedMaterialItem) == dnfrepo.ColorlessCubeItemID {
-				colorlessSpent = totalMaterial
+			for _, material := range materials {
+				if material.ItemID == 10158964 || material.ItemID == dnfrepo.BattlePassFateItemID {
+					dnfrepo.AddBattlePassCounter(character, 28, int64(material.ItemID), 1, s.gameplayNow())
+					countedCost = true
+				}
+				if int64(material.ItemID) == dnfrepo.ColorlessCubeItemID {
+					colorlessSpent += material.Count
+				}
+				lovePointCost = lovePointCost || material.ItemID == uint32(wedding.LovePointItemID)
 			}
 			fields := []dnfrepo.CharacterField{}
-			lovePointCost := pricing.NeedMaterialItem == uint32(wedding.LovePointItemID)
 			if lovePointCost {
 				fields = append(fields, dnfrepo.CharacterFieldWedding)
 			}
