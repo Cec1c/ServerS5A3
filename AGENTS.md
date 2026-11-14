@@ -89,17 +89,22 @@
 
 ## Validation commands
 
-Run from `go-server`:
+- 日常本地验证按改动与依赖选择领域包，bridge 指定能覆盖原问题的 `-run`，加相关 vet 和 Linux server 构建。默认使用 Go 测试缓存；真实数据库、外部资源、时间/并发复现或明确需要新执行时加 `-count=1`。`-run` 减少执行的用例，不缩小 Go 的 package 编译单位。
+- Windows 开发机的 Linux 构建/测试使用 Docker；不启动或借用 Kali。`LOCAL_VERIFY.bat` 直接只读挂载源码，共享命名 Go 缓存卷，不为验证打全仓 tar。见 [本地验证与精简载荷](Docs/LOCAL_CICD.md)。
+- 新的独立纯逻辑/SQL/编解码测试优先放在所属小包；需要 bridge 会话/协议集成的回归保留在 bridge，不为目录拆分扩大修改。
+- 仓储契约、事务/锁、会话排序、公共依赖或跨领域改造扩大相关验证，必要时执行全量。普通单点修复不固定重跑全部领域、bridge 和部署脚本；云端现有完整检查与手动全量入口保留。
+- 主干前进后实际 merge/rebase 并审查累计 diff。纯文档变化且运行输入不变可沿用原测试证据；代码变化按依赖补受影响检查。新 READY 绑定新 SHA，引用旧测试与新增检查，不声称旧 READY 验证了新 SHA；文件不相交不等于语义无依赖。
+
+在干净已提交工作树运行（输出目录每次独立）：
 
 ```text
-gofmt -w <changed-go-files>
-go list -buildvcs=false ./...
-go test -buildvcs=false -count=1 ./internal/modules/dnf/...
-go test -buildvcs=false -count=1 ./internal/services/dnfbridge
-go test -buildvcs=false -count=1 ./cmd/server/control
-go vet ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -o ../runtime/bin/DNF90Server ./cmd/server/dnf90
+LOCAL_VERIFY.bat --package ./internal/modules/dnf/inventory/... --output runtime/verify/inventory-01
+LOCAL_VERIFY.bat --package ./internal/services/dnfbridge --run "TestAuction" --output runtime/verify/auction-01
+LOCAL_VERIFY.bat --package ./internal/modules/dnf/repository/mysql --race --uncached --output runtime/verify/mysql-01
+LOCAL_VERIFY.bat --full --output runtime/verify/full-01
 ```
+
+改 Go 文件先 `gofmt`。仅文档/工具变化运行相应校验，不触发 Go 全量。Linux CI 的 `sh scripts/ci/test_core.sh` 仍执行原完整范围，默认允许测试缓存；`GO_TEST_UNCACHED=1` 可强制新执行。prepare 仍只做最新权威源码新构建，不重复贡献测试。
 
 Run deployment preflight without a database:
 
