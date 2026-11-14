@@ -3,8 +3,9 @@ package dnfbridge
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/text/encoding/simplifiedchinese"
 	"strings"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 )
@@ -24,8 +25,10 @@ func (s *Service) sendRaidStartRejection(session *gameSession, typ uint16, reaso
 	if err := s.sendRaidCommandFailure(session, typ); err != nil {
 		return err
 	}
-	// Preserve other raid consumers and the existing negative command ACK.
-	if session == nil || s.options.currentClientVersion != "official-24.9" || session.channel.Type != dnfenum.RaidChannelType {
+	// Official Anton and Luke share this text notification. Preserve other
+	// raid consumers and the existing negative command ACK.
+	if session == nil || s.options.currentClientVersion != "official-24.9" ||
+		(session.channel.Type != dnfenum.RaidChannelType && session.channel.Type != dnfenum.HiddenRaidType) {
 		return nil
 	}
 	message := "请确认全员在线、已进入本团等候区，并满足人数、入场材料、前置任务及次数要求"

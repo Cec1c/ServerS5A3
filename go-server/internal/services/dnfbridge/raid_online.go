@@ -854,8 +854,14 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	}
 	seen := make(map[uint16]bool, len(state.Members))
 	for _, member := range state.Members {
-		if member.CharID == 0 || seen[member.CharID] || member.GroupIndex > currentRaidGroupMaximum(*state) {
-			return runtimeRaidState{}, false, nil
+		if member.CharID == 0 {
+			return runtimeRaidState{}, false, &raidStartRejection{message: "攻坚队存在无效角色，请重新确认成员名单"}
+		}
+		if seen[member.CharID] {
+			return runtimeRaidState{}, false, &raidStartRejection{message: "攻坚队成员重复，请重新确认成员名单", members: []uint16{member.CharID}}
+		}
+		if member.GroupIndex > currentRaidGroupMaximum(*state) {
+			return runtimeRaidState{}, false, &raidStartRejection{message: "队员组别无效，请重新调整编队", members: []uint16{member.CharID}}
 		}
 		// A retained offline seat is not a paid admission. Bind/restore or
 		// expiry must resolve it before the current aggregate is frozen.
