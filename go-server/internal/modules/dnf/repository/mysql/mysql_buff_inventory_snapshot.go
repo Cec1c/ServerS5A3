@@ -11,7 +11,7 @@ import (
 type mysqlBuffInventoryStore struct{ mysqlBagStore }
 
 func (s *mysqlBuffInventoryStore) Load(ctx context.Context, characterID string) (repository.InventoryRecord, bool, error) {
-	if !s.router.lockReads {
+	if !s.router.lockReads && !s.router.consistentRead {
 		return repository.InventoryRecord{}, false, repository.ErrBuffOwnedSnapshotUnavailable
 	}
 	table, err := s.router.readTable(mysqlBagTable, characterID)
@@ -38,13 +38,13 @@ func (s *mysqlBuffInventoryStore) Load(ctx context.Context, characterID string) 
 		return repository.InventoryRecord{}, ok, scanErr
 	}
 	record.Slots, err = loadBuffLockedItemStackCollection(
-		ctx, s.router.db, itemsTable, extraTable, "character_id", characterID, "slots", true,
+		ctx, s.router.db, itemsTable, extraTable, "character_id", characterID, "slots", true, s.router.lockReads,
 	)
 	if err != nil {
 		return repository.InventoryRecord{}, false, err
 	}
 	record.Warehouse, err = loadBuffLockedItemStackCollection(
-		ctx, s.router.db, itemsTable, extraTable, "character_id", characterID, "warehouse", true,
+		ctx, s.router.db, itemsTable, extraTable, "character_id", characterID, "warehouse", true, s.router.lockReads,
 	)
 	if err != nil {
 		return repository.InventoryRecord{}, false, err
@@ -57,15 +57,19 @@ func loadBuffLockedItemStackCollection(
 	ctx context.Context,
 	database SQLDB,
 	itemTable, extraTable, ownerColumn, ownerID, collection string,
-	withCollection bool,
+	withCollection bool, lockRead ...bool,
 ) (map[string]repository.ItemStack, error) {
+	suffix := " FOR UPDATE"
+	if len(lockRead) > 0 && !lockRead[0] {
+		suffix = ""
+	}
 	where := quoteSQLIdentifier(ownerColumn) + " = ?"
 	args := []any{ownerID}
 	if withCollection {
 		where += " AND collection_name = ?"
 		args = append(args, collection)
 	}
-	query := "SELECT entry_key, item_id, item_count, bind_flag, expire_at, raw_entry FROM " + itemTable + " WHERE " + where + " ORDER BY entry_key FOR UPDATE"
+	query := "SELECT entry_key, item_id, item_count, bind_flag, expire_at, raw_entry FROM " + itemTable + " WHERE " + where + " ORDER BY entry_key" + suffix
 	rows, err := database.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -101,7 +105,7 @@ func loadBuffLockedItemStackCollection(
 		extraWhere += " AND collection_name = ?"
 		extraArgs = append(extraArgs, collection)
 	}
-	extraQuery := "SELECT entry_key, extra_key, extra_value FROM " + extraTable + " WHERE " + extraWhere + " ORDER BY entry_key, extra_key FOR UPDATE"
+	extraQuery := "SELECT entry_key, extra_key, extra_value FROM " + extraTable + " WHERE " + extraWhere + " ORDER BY entry_key, extra_key" + suffix
 	extras, err := database.QueryContext(ctx, extraQuery, extraArgs...)
 	if err != nil {
 		return nil, err

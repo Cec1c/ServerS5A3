@@ -19,6 +19,7 @@ type reviewBuffSQLState struct {
 	base                 semesterSQLState
 	openRows, closedRows int
 	isolation            driver.IsolationLevel
+	readOnly             bool
 	scenario             string
 }
 type reviewBuffSQLConnector struct{ s *reviewBuffSQLState }
@@ -43,6 +44,8 @@ func (c reviewBuffSQLConn) Begin() (driver.Tx, error) {
 }
 func (c reviewBuffSQLConn) BeginTx(_ context.Context, o driver.TxOptions) (driver.Tx, error) {
 	c.s.isolation = o.Isolation
+	c.s.readOnly = o.ReadOnly
+	c.s.base.readOnly = o.ReadOnly
 	c.s.base.begins++
 	return semesterSQLTx{&c.s.base}, nil
 }
@@ -51,6 +54,12 @@ func (c reviewBuffSQLConn) ExecContext(context.Context, string, []driver.NamedVa
 	return nil, errors.New("read-only fixture forbids writes")
 }
 func (c reviewBuffSQLConn) QueryContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
+	if c.s.readOnly && strings.Contains(q, "FOR UPDATE") {
+		return nil, errors.New("read-only snapshot acquired write lock")
+	}
+	if !c.s.readOnly && !strings.HasSuffix(q, " FOR UPDATE") {
+		return nil, errors.New("locking fixture requires FOR UPDATE")
+	}
 	if c.s.openRows != 0 {
 		return nil, errors.New("next query before previous rows closed")
 	}
@@ -77,25 +86,25 @@ func (c reviewBuffSQLConn) QueryContext(ctx context.Context, q string, args []dr
 		pair.rows = [][]driver.Value{{"4", "", false, nil}}
 	}
 	if reviewBuffSQLFromTable(q, mysqlInventoryItemsTable) && strings.HasPrefix(q, "SELECT entry_key, item_id, item_count, bind_flag, expire_at, raw_entry") {
-		if !strings.Contains(q, "ORDER BY entry_key FOR UPDATE") {
+		if !strings.Contains(q, "ORDER BY entry_key") {
 			return nil, errors.New("current item key lock order missing")
 		}
 		pair.rows = [][]driver.Value{{"0:54", int64(123), int64(1), false, nil, []byte{1, 2}}}
 	}
 	if reviewBuffSQLFromTable(q, mysqlInventoryExtraTable) && strings.HasPrefix(q, "SELECT entry_key, extra_key, extra_value") {
-		if !strings.Contains(q, "ORDER BY entry_key, extra_key FOR UPDATE") {
+		if !strings.Contains(q, "ORDER BY entry_key, extra_key") {
 			return nil, errors.New("current extra key lock order missing")
 		}
 		pair.rows = [][]driver.Value{{"0:54", "quality", "9"}}
 	}
 	if reviewBuffSQLFromTable(q, "legacy_character_items") && strings.HasPrefix(q, "SELECT item_uid, owner_scope,") {
-		if len(args) != 2 || fmt.Sprint(args[0].Value) != "4" || !strings.Contains(q, "WHERE owner_scope = 'character' AND owner_id = ? AND list_type = ? ORDER BY slot_index, item_uid FOR UPDATE") {
+		if len(args) != 2 || fmt.Sprint(args[0].Value) != "4" || !strings.Contains(q, "WHERE owner_scope = 'character' AND owner_id = ? AND list_type = ? ORDER BY slot_index, item_uid") {
 			return nil, errors.New("legacy owner/list/key range missing")
 		}
 		pair.rows = [][]driver.Value{{int64(7000), "character", int64(4), int64(4), "equipment", int64(0), int64(54), int64(123), int64(1), int64(0), int64(0), int64(0), int64(0), int64(0), int64(0)}}
 	}
 	if reviewBuffSQLFromTable(q, mysqlLegacyItemExtraTable) && strings.HasPrefix(q, "SELECT item.item_uid, extra.extra_key, extra.extra_value") {
-		if len(args) != 3 || fmt.Sprint(args[0].Value) != "4" || fmt.Sprint(args[1].Value) != "4" || !strings.Contains(q, " extra JOIN "+mysqlTable("write", "dnf", "legacy_character_items")+" item ON item.item_uid = extra.item_uid WHERE ") || !strings.Contains(q, "item.item_uid = extra.item_uid") || !strings.Contains(q, "item.character_id = ? AND item.list_type = ? ORDER BY item.item_uid, extra.extra_key FOR UPDATE") {
+		if len(args) != 3 || fmt.Sprint(args[0].Value) != "4" || fmt.Sprint(args[1].Value) != "4" || !strings.Contains(q, " extra JOIN "+mysqlTable("write", "dnf", "legacy_character_items")+" item ON item.item_uid = extra.item_uid WHERE ") || !strings.Contains(q, "item.item_uid = extra.item_uid") || !strings.Contains(q, "item.character_id = ? AND item.list_type = ? ORDER BY item.item_uid, extra.extra_key") {
 			return nil, errors.New("legacy extra UID/owner join missing")
 		}
 		uid := int64(7000)
@@ -206,7 +215,7 @@ func TestReviewBuffSQLOwnedScopeIsolationOrderAndRollback(t *testing.T) {
 				}
 				return nil
 			})
-			if state.isolation != driver.IsolationLevel(sql.LevelRepeatableRead) || state.base.begins != 1 || state.base.writes != 0 || state.openRows != 0 {
+			if !state.readOnly || state.isolation != driver.IsolationLevel(sql.LevelRepeatableRead) || state.base.begins != 1 || state.base.writes != 0 || state.openRows != 0 {
 				t.Fatalf("physical isolation/close/write mismatch: %+v err%v", state, err)
 			}
 			last := 0

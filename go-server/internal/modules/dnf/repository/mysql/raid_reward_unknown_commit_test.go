@@ -145,6 +145,8 @@ func (tx raidCommitSQLTx) Rollback() error {
 	return nil
 }
 func TestMySQLRaidRewardUnknownCommitReceiptReplay(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, outcome := range []string{"durable", "not_durable"} {
 		t.Run(outcome, func(t *testing.T) {
 			state := &raidCommitSQLState{outcome: outcome, durable: map[string]int64{}}

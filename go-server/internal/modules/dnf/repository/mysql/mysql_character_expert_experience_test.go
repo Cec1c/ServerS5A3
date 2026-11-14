@@ -13,6 +13,8 @@ import (
 )
 
 func TestMySQLExpertExperienceOnlyWritesOwnedExperience(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	db := &fakeSQLDB{}
 	repos := newTestMySQLGroup(t, db)
 	scoped := &characterSettlementScopedCharacterRepository{characterID: "19", base: repos.Character}

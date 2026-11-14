@@ -10,6 +10,7 @@ import (
 	driver "github.com/go-sql-driver/mysql"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,12 +39,12 @@ func TestPreparedSQLDisposableMySQL(t *testing.T) {
 	defer admin.Exec("DROP DATABASE `" + name + "`")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	for _, mode := range []string{"ordinary", "prepared", "interpolate"} {
+	for _, mode := range []string{"ordinary", "prepared", "interpolate", "interpolate-no-backslash"} {
 		t.Run(mode, func(t *testing.T) {
 			c := cfg.Clone()
 			c.DBName = name
 			c.ParseTime = true
-			c.InterpolateParams = mode == "interpolate"
+			c.InterpolateParams = strings.HasPrefix(mode, "interpolate")
 			db, err := sql.Open("mysql", c.FormatDSN())
 			if err != nil {
 				t.Fatal(err)
@@ -51,6 +52,11 @@ func TestPreparedSQLDisposableMySQL(t *testing.T) {
 			defer db.Close()
 			db.SetMaxOpenConns(1)
 			db.SetMaxIdleConns(1)
+			if mode == "interpolate-no-backslash" {
+				if _, err := db.Exec("SET SESSION sql_mode='NO_BACKSLASH_ESCAPES'"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			table := "`" + mode + "`"
 			if _, err = db.Exec("CREATE TABLE " + table + " (id INT PRIMARY KEY, txt TEXT, raw LONGBLOB, val BIGINT UNSIGNED, nullable TEXT NULL, stamp DATETIME(6))"); err != nil {
 				t.Fatal(err)
@@ -99,7 +105,7 @@ func TestPreparedSQLDisposableMySQL(t *testing.T) {
 			if mode == "prepared" && count != 2 {
 				t.Fatalf("prepared count=%d", count)
 			}
-			if mode == "interpolate" && count != 0 {
+			if strings.HasPrefix(mode, "interpolate") && count != 0 {
 				t.Fatalf("interpolate count=%d", count)
 			}
 			if mode == "ordinary" && count != 200 {
@@ -137,6 +143,11 @@ func TestPreparedSQLDisposableMySQL(t *testing.T) {
 				// query on the replacement connection without losing result semantics.
 				db.SetMaxIdleConns(0)
 				db.SetMaxIdleConns(1)
+				if mode == "interpolate-no-backslash" {
+					if _, err := db.Exec("SET SESSION sql_mode='NO_BACKSLASH_ESCAPES'"); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if err := adapter.QueryRowContext(ctx, selectQ, 0).Scan(&got, &blob, &n, &null, &stamp); err != nil {
 					t.Fatal(err)
 				}

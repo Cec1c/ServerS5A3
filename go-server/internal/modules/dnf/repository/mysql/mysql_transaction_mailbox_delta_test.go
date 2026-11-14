@@ -110,7 +110,8 @@ func mailboxDeltaWithoutEntry(lines map[string][]string, entryKey string) map[st
 }
 
 func TestMySQLMailboxAssetInventoryDeltaWritesOnlyChangedSlot(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	const rows = 40
 	const changedKey = "0:1"
@@ -206,7 +207,7 @@ func TestMySQLMailboxAssetInventoryDeltaWritesOnlyChangedSlot(t *testing.T) {
 }
 
 func TestMySQLMailboxAssetInventoryDeltaFallsBackWithoutBeforeImage(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	const rows = 12
 	const changedKey = "0:0"
@@ -282,7 +283,7 @@ func TestMySQLMailboxAssetInventoryDeltaFallsBackWithoutBeforeImage(t *testing.T
 }
 
 func TestMySQLMailboxAssetInventoryDeltaRollsBackFailures(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	const rows = 20
 	const changedKey = "0:3"
@@ -331,7 +332,7 @@ func TestMySQLMailboxAssetInventoryDeltaRollsBackFailures(t *testing.T) {
 }
 
 func TestMySQLMailboxAssetInventoryDeltaKeepsSingleOwnerScope(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := newRowModelDB()
 	seedMailboxDeltaInventory(t, db, mailboxDeltaAssetOwner, 5)

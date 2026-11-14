@@ -155,5 +155,8 @@ func (s *mysqlCharStore) SaveProgressionCharacter(ctx context.Context, before, a
 			return err
 		}
 	}
+	stageLevelUpChange(s.router.db, s.router.levelUpChanges, after, &before, map[repository.CharacterField]struct{}{
+		repository.CharacterFieldBase: {}, repository.CharacterFieldStats: {},
+	})
 	return nil
 }

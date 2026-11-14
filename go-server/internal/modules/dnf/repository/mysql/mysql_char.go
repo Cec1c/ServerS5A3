@@ -445,6 +445,7 @@ func (s *mysqlCharStore) SaveFields(ctx context.Context, record repository.Chara
 			saveErr = saveCharacterSupplement(ctx, database, s.router, characterID, record, dirty)
 		}
 		if saveErr == nil {
+			stageLevelUpChange(database, s.router.levelUpChanges, record, previous, dirty)
 			if _, stats := dirty[repository.CharacterFieldStats]; stats {
 				if previous != nil && previous.CharacterID == characterID {
 					stageBattlePassCounters(database, s.router, record, previous.Stats)

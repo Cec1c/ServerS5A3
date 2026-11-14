@@ -108,6 +108,7 @@ func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repos
 	base := mysqlStoreBase{router: router}
 	group := repository.Group{
 		BattlePassChanges: router.battlePassChanges,
+		LevelUpChanges:    router.levelUpChanges,
 		Activity:          &mysqlActivityStore{mysqlStoreBase: base},
 		LocalLogin:        localLoginStore(router),
 		Account:           &mysqlAccountStore{mysqlStoreBase: base},
@@ -155,6 +156,9 @@ func newMySQLGroupFromRouter(router mysqlRouter, includeTransactions bool) repos
 // transaction that loads inventories for several characters through the same
 // store.
 func enableInventoryDeltaTracking(group repository.Group) {
+	if store, ok := group.Equipment.(*mysqlEquipmentStore); ok {
+		store.trackEntryChanges = true
+	}
 	if store, ok := group.Inventory.(*mysqlBagStore); ok {
 		store.trackSlotChanges = true
 	}

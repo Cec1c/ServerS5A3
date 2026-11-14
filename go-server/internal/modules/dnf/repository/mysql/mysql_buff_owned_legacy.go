@@ -22,7 +22,7 @@ func (s *mysqlBuffOwnedLegacyStore) SelectOwnedBuffItems(ctx context.Context, ch
 	if err := ctxErr(ctx); err != nil {
 		return nil, err
 	}
-	if s == nil || !s.router.lockReads || strings.TrimSpace(characterID) != s.characterID {
+	if s == nil || (!s.router.lockReads && !s.router.consistentRead) || strings.TrimSpace(characterID) != s.characterID {
 		return nil, repository.ErrBuffOwnedSnapshotUnavailable
 	}
 	id, err := strconv.ParseInt(characterID, 10, 64)
@@ -49,8 +49,8 @@ func (s *mysqlBuffOwnedLegacyStore) SelectOwnedBuffItems(ctx context.Context, ch
 		seenLists[list] = true
 		// Exact owner-container index range; the enclosing transaction must use
 		// RepeatableRead. Even an empty range is selected before registration.
-		query := "SELECT item_uid, owner_scope, owner_id, character_id, item_kind, list_type, slot_index, item_template_id, stack_count, instance_value, durability, seal_flag, option_value, marker_16, pet_serial_or_handle FROM " + table + " WHERE owner_scope = 'character' AND owner_id = ? AND list_type = ? ORDER BY slot_index, item_uid FOR UPDATE"
-		rows, err := s.router.db.QueryContext(ctx, query, id, int(list))
+		query := "SELECT item_uid, owner_scope, owner_id, character_id, item_kind, list_type, slot_index, item_template_id, stack_count, instance_value, durability, seal_flag, option_value, marker_16, pet_serial_or_handle FROM " + table + " WHERE owner_scope = 'character' AND owner_id = ? AND list_type = ? ORDER BY slot_index, item_uid"
+		rows, err := s.router.db.QueryContext(ctx, s.router.selectQuery(query), id, int(list))
 		if err != nil {
 			return nil, err
 		}
@@ -93,8 +93,8 @@ func (s *mysqlBuffOwnedLegacyStore) SelectOwnedBuffItems(ctx context.Context, ch
 		if err != nil {
 			return nil, err
 		}
-		extraQuery := "SELECT item.item_uid, extra.extra_key, extra.extra_value FROM " + extraTable + " extra JOIN " + table + " item ON item.item_uid = extra.item_uid WHERE item.owner_scope = 'character' AND item.owner_id = ? AND item.character_id = ? AND item.list_type = ? ORDER BY item.item_uid, extra.extra_key FOR UPDATE"
-		extras, err := s.router.db.QueryContext(ctx, extraQuery, id, id, int(list))
+		extraQuery := "SELECT item.item_uid, extra.extra_key, extra.extra_value FROM " + extraTable + " extra JOIN " + table + " item ON item.item_uid = extra.item_uid WHERE item.owner_scope = 'character' AND item.owner_id = ? AND item.character_id = ? AND item.list_type = ? ORDER BY item.item_uid, extra.extra_key"
+		extras, err := s.router.db.QueryContext(ctx, s.router.selectQuery(extraQuery), id, id, int(list))
 		if err != nil {
 			return nil, err
 		}

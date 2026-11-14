@@ -74,7 +74,11 @@ func newRepoComponent(env *appkit.Env, cfg RepositoryConfig) (*RepoComponent, er
 	if openSQL == nil {
 		return nil, fmt.Errorf("%w: sql opener is required", ErrConfigInvalid)
 	}
-	db, err := openSQL("mysql", cfg.MySQLDSN)
+	dsn, interpolated, err := performanceMySQLDSN(cfg.MySQLDSN)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid MySQL DSN", ErrConfigInvalid)
+	}
+	db, err := openSQL("mysql", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +115,7 @@ func newRepoComponent(env *appkit.Env, cfg RepositoryConfig) (*RepoComponent, er
 	}
 	var database mysql.SQLDB = mysql.SQLDBAdapter{DB: db}
 	var prepared *mysql.PreparedSQLDB
-	if cfg.MySQLPreparedCacheSize != nil && *cfg.MySQLPreparedCacheSize > 0 {
+	if !interpolated && cfg.MySQLPreparedCacheSize != nil && *cfg.MySQLPreparedCacheSize > 0 {
 		prepared = mysql.NewPreparedSQLDB(db, *cfg.MySQLPreparedCacheSize)
 		database = prepared
 	}

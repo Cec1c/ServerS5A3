@@ -1,11 +1,5 @@
-// 本文件是 O-A（批量 INSERT）的语句流证据。
-//
-// 判据有两条，缺一不可：
-//  1. 默认档（未配置 / =1）产出的语句流必须与改动前**逐字节相同**（同文本、同参数、
-//     同顺序）—— 所以默认部署等于什么都没改；
-//  2. 批量档只减少往返：行集合与行顺序必须与默认档完全一致。
-//
-// 反过来说：任何"默认档也批量了"或"批量档改了行顺序"的改动都会让本文件失败。
+// Explicit batch=1 retains the legacy byte stream. The default batch=200
+// must preserve the same rows and transaction rollback semantics.
 package mysql
 
 import (
@@ -20,10 +14,10 @@ import (
 	"longheng.io/server/internal/modules/dnf/repository"
 )
 
-// TestMySQLInventoryDefaultBatchStreamIsByteIdenticalToToday 钉住默认档的语句流。
+// TestMySQLInventoryLegacyBatchStreamIsByteIdenticalToToday 钉住默认档的语句流。
 // 期望值是**手写**的（不经过生产构造函数），因此它同时是"今天长什么样"的存档。
-func TestMySQLInventoryDefaultBatchStreamIsByteIdenticalToToday(t *testing.T) {
-	t.Setenv(currentMysqlInsertBatchEnv, "")
+func TestMySQLInventoryLegacyBatchStreamIsByteIdenticalToToday(t *testing.T) {
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := &fakeSQLDB{}
 	group := newTestMySQLGroup(t, db)
@@ -84,10 +78,10 @@ func idxNormalizeArgs(args []any) []any {
 	return args
 }
 
-// TestMySQLInventoryDefaultBatchStreamKeepsOneRowPerStatement 用更大的容器钉住
+// TestMySQLInventoryLegacyBatchStreamKeepsOneRowPerStatement 用更大的容器钉住
 // "默认档每条语句只写一行"（批量档下这条断言必须失败）。
-func TestMySQLInventoryDefaultBatchStreamKeepsOneRowPerStatement(t *testing.T) {
-	t.Setenv(currentMysqlInsertBatchEnv, "")
+func TestMySQLInventoryLegacyBatchStreamKeepsOneRowPerStatement(t *testing.T) {
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := &fakeSQLDB{}
 	group := newTestMySQLGroup(t, db)
@@ -137,8 +131,8 @@ func TestMySQLInventoryBatchedInsertLandsSameRowsInSameOrder(t *testing.T) {
 		}
 	}
 
-	single := runInventorySave(t, record, "")
-	batched := runInventorySave(t, record, "200")
+	single := runInventorySave(t, record, "1")
+	batched := runInventorySave(t, record, "")
 
 	// 表内行顺序必须一致（跨表交错顺序无语义，见 rowInsertBatcher 的不变量）。
 	if got, want := rowSequence(batched), rowSequence(single); !reflect.DeepEqual(got, want) {

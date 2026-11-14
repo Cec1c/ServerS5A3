@@ -26,6 +26,7 @@ type semesterSQLState struct {
 	writes    int
 	queries   []string
 	scenario  string
+	readOnly  bool
 
 	// rollbackDone is closed once the driver Rollback has actually run. Tests
 	// that cancel the transaction context join on it before reading the counters;
@@ -102,7 +103,7 @@ func (c semesterSQLConn) QueryContext(_ context.Context, q string, args []driver
 	if begins != 1 {
 		return nil, errors.New("read escaped physical transaction")
 	}
-	if !strings.Contains(q, "FOR UPDATE") {
+	if !c.s.readOnly && !strings.Contains(q, "FOR UPDATE") {
 		return nil, errors.New("owner read did not lock")
 	}
 	if strings.Contains(q, "readonly") {

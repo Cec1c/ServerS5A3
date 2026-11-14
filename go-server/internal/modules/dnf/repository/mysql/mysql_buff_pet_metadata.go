@@ -19,7 +19,7 @@ func (s *mysqlBuffPetMetadataStore) LoadBuffPetEntries(ctx context.Context, char
 	if err := ctxErr(ctx); err != nil {
 		return repository.PetRecord{}, false, err
 	}
-	if s == nil || !s.router.lockReads || strings.TrimSpace(characterID) != s.characterID {
+	if s == nil || (!s.router.lockReads && !s.router.consistentRead) || strings.TrimSpace(characterID) != s.characterID {
 		return repository.PetRecord{}, false, repository.ErrBuffOwnedSnapshotUnavailable
 	}
 	table, err := s.router.readTable(mysqlPetTable, characterID)

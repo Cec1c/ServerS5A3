@@ -8,6 +8,8 @@ import (
 )
 
 func TestMySQLAssetStateDeltaPreservesFullSaveAndRollback(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, scenario := range []string{"single_stat", "delete_stat", "permanent_receipt", "second_save", "write_failure", "no_snapshot"} {
 		t.Run(scenario, func(t *testing.T) {
 			var snapshots []map[string][]string
