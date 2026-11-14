@@ -71,11 +71,15 @@ func (s *Service) loadAdventureGroupTable(ctx context.Context) (*adventuregroup.
 }
 
 func (s *Service) currentAccountAdventureGroupSummary(ctx context.Context, selected dnfrepo.CharacterRecord, hasSelected bool, sessions ...*gameSession) (adventuregroup.Summary, error) {
-	state, err := s.currentAccountAdventureGroupState(ctx, selected, hasSelected, sessions...)
+	state, err := s.readAccountAdventureGroupState(ctx, selected, hasSelected, false, sessions...)
 	return state.Summary, err
 }
 
 func (s *Service) currentAccountAdventureGroupState(ctx context.Context, selected dnfrepo.CharacterRecord, hasSelected bool, sessions ...*gameSession) (accountAdventureGroupState, error) {
+	return s.readAccountAdventureGroupState(ctx, selected, hasSelected, true, sessions...)
+}
+
+func (s *Service) readAccountAdventureGroupState(ctx context.Context, selected dnfrepo.CharacterRecord, hasSelected, full bool, sessions ...*gameSession) (accountAdventureGroupState, error) {
 	if s == nil {
 		return accountAdventureGroupState{}, errAdventureGroupTableUnavailable
 	}
@@ -89,7 +93,7 @@ func (s *Service) currentAccountAdventureGroupState(ctx context.Context, selecte
 		}
 		return accountAdventureGroupState{}, errAdventureGroupTableUnavailable
 	}
-	repositories, ok := s.repositoryGroup()
+	repositories, ok := s.repositoryGroupFor(ctx)
 	if !ok || repositories.Character == nil {
 		return accountAdventureGroupState{}, errAdventureGroupRosterUnavailable
 	}
@@ -100,27 +104,39 @@ func (s *Service) currentAccountAdventureGroupState(ctx context.Context, selecte
 			return accountAdventureGroupState{}, fmt.Errorf("%w: selected=%q current=%q", errAdventureGroupOwnerMismatch, selectedAccountID, accountID)
 		}
 	}
-	characters, err := repositories.Character.ListByAccount(ctx, accountID, defaultCharacterSlots)
-	if err != nil {
-		return accountAdventureGroupState{}, fmt.Errorf("list dnf adventure-group account characters: %w", err)
-	}
-	rows := make([]adventuregroup.Character, 0, len(characters))
-	for _, character := range characters {
-		rows = append(rows, adventuregroup.Character{Level: character.Level, Deleted: character.Stats["delete_flag"] != 0})
+	var characters []dnfrepo.CharacterRecord
+	var rows []adventuregroup.Character
+	if full {
+		var err error
+		characters, err = repositories.Character.ListByAccount(ctx, accountID, defaultCharacterSlots)
+		if err != nil {
+			return accountAdventureGroupState{}, fmt.Errorf("list dnf adventure-group account characters: %w", err)
+		}
+		for _, ch := range characters {
+			rows = append(rows, adventuregroup.Character{Level: ch.Level, Deleted: ch.Stats["delete_flag"] != 0})
+		}
+	} else {
+		levels, err := dnfrepo.ListAccountCharacterLevels(ctx, repositories.Character, accountID, defaultCharacterSlots)
+		if err != nil {
+			return accountAdventureGroupState{}, fmt.Errorf("list dnf adventure-group account levels: %w", err)
+		}
+		for _, ch := range levels {
+			rows = append(rows, adventuregroup.Character{Level: ch.Level, Deleted: ch.Deleted})
+		}
 	}
 	var earned uint64
 	if table.UsesAccountExperience() {
 		if repositories.Account == nil {
 			return accountAdventureGroupState{}, errAdventureGroupRosterUnavailable
 		}
-		account, found, loadErr := repositories.Account.Load(ctx, accountID)
+		honor, found, loadErr := dnfrepo.LoadAccountHonorExperience(ctx, repositories.Account, accountID)
 		if loadErr != nil {
 			return accountAdventureGroupState{}, loadErr
 		}
-		if !found || account.AccountID != accountID {
+		if !found {
 			return accountAdventureGroupState{}, errAdventureGroupOwnerMismatch
 		}
-		earned = account.HonorExp
+		earned = honor
 	}
 	summary, err := table.CalculateCombinedExperience(rows, earned)
 	if err != nil {
