@@ -150,8 +150,8 @@ func TestPerformanceHotReadDisposableMySQL(t *testing.T) {
 		}
 	})
 	t.Run("buff_snapshot_does_not_block_writer_and_stays_consistent", func(t *testing.T) {
-		u := g.CeraShopAssets.(r.BuffOwnedSnapshotUnitOfWork)
-		err := u.WithinBuffOwnedSnapshot(ctx, "account", "1", "character:1:buff_swap_native", func(_ r.CharacterRepository, i r.InventoryRepository, e r.EquipmentRepository, _ r.SettingsRepository, _ r.BuffPetMetadataReader, _ r.OwnedLegacyInventoryRepository) error {
+		u := g.CeraShopAssets.(r.BuffOwnedReadSnapshotUnitOfWork)
+		err := u.WithinBuffOwnedReadSnapshot(ctx, "account", "1", "character:1:buff_swap_native", func(_ r.CharacterRepository, i r.InventoryRepository, e r.EquipmentRepository, _ r.SettingsRepository, _ r.BuffPetMetadataReader, _ r.OwnedLegacyInventoryRepository) error {
 			before, _, err := e.Load(ctx, "1")
 			if err != nil {
 				return err

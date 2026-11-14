@@ -197,7 +197,7 @@ func TestReviewBuffSQLOwnedScopeIsolationOrderAndRollback(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			db, state := reviewBuffSQL(t, scenario)
 			u := &mysqlCeraShopAssetUnitOfWork{router: mysqlRouter{db: SQLDBAdapter{DB: db}, readDBs: []string{"readonly"}, writeDBs: []string{"write"}, tablePrefix: "dnf", now: time.Now}}
-			err := u.WithinBuffOwnedSnapshot(context.Background(), "a4", "4", "character:4:buff_swap_native", func(_ repo.CharacterRepository, i repo.InventoryRepository, e repo.EquipmentRepository, _ repo.SettingsRepository, p repo.BuffPetMetadataReader, l repo.OwnedLegacyInventoryRepository) error {
+			err := u.WithinBuffOwnedReadSnapshot(context.Background(), "a4", "4", "character:4:buff_swap_native", func(_ repo.CharacterRepository, i repo.InventoryRepository, e repo.EquipmentRepository, _ repo.SettingsRepository, p repo.BuffPetMetadataReader, l repo.OwnedLegacyInventoryRepository) error {
 				if _, _, err := i.Load(context.Background(), "4"); err != nil {
 					return err
 				}
