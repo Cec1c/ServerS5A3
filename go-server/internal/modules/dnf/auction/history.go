@@ -68,6 +68,23 @@ func auctionSaleRecords(slots map[string]repo.ItemStack) []SaleRecord {
 	return rows
 }
 
+func (o *Owner) loadSaleHistorySlots(ctx context.Context, itemID int64) (map[string]repo.ItemStack, error) {
+	inventory := o.repositories.Inventory
+	if itemID > 0 {
+		if reader, ok := inventory.(repo.InventorySlotItemPrefixReader); ok {
+			return reader.LoadInventorySlotItemPrefix(ctx, EscrowCharacterID, saleHistoryPrefix, itemID)
+		}
+	}
+	if reader, ok := inventory.(repo.InventorySlotPrefixReader); ok {
+		return reader.LoadInventorySlotPrefix(ctx, EscrowCharacterID, saleHistoryPrefix)
+	}
+	bag, found, err := inventory.Load(ctx, EscrowCharacterID)
+	if err != nil || !found {
+		return nil, err
+	}
+	return bag.Slots, nil
+}
+
 // SaleHistory校验角色归属，只暴露该角色参与的已完成交易。
 func (o *Owner) SaleHistory(ctx context.Context, characterID, accountID string) ([]SaleRecord, error) {
 	if o == nil || strings.TrimSpace(characterID) == "" || strings.TrimSpace(accountID) == "" {
@@ -80,12 +97,12 @@ func (o *Owner) SaleHistory(ctx context.Context, characterID, accountID string) 
 	if !found || c.AccountID != accountID || c.Stats["delete_flag"] != 0 {
 		return nil, ErrNotOwner
 	}
-	bag, found, err := o.repositories.Inventory.Load(ctx, EscrowCharacterID)
-	if err != nil || !found {
+	slots, err := o.loadSaleHistorySlots(ctx, 0)
+	if err != nil {
 		return nil, err
 	}
 	var rows []SaleRecord
-	for _, row := range auctionSaleRecords(bag.Slots) {
+	for _, row := range auctionSaleRecords(slots) {
 		if row.SellerID == characterID || row.BuyerID == characterID {
 			rows = append(rows, row)
 		}
@@ -99,22 +116,16 @@ func (o *Owner) RecentSaleAverage(ctx context.Context, itemID int64) (int64, int
 	if o == nil || itemID <= 0 {
 		return 0, 0, ErrInvalidRequest
 	}
-	bag, found, err := o.repositories.Inventory.Load(ctx, EscrowCharacterID)
-	if err != nil || !found {
+	slots, err := o.loadSaleHistorySlots(ctx, itemID)
+	if err != nil {
 		return 0, 0, err
 	}
 	total, quantity := new(big.Int), new(big.Int)
 	samples := 0
-	for _, row := range auctionSaleRecords(bag.Slots) {
-		if row.ItemID != itemID {
-			continue
-		}
+	for _, row := range recentAuctionSaleRecords(slots, itemID, 20) {
 		total.Add(total, big.NewInt(row.TotalGold))
 		quantity.Add(quantity, big.NewInt(row.Count))
 		samples++
-		if samples == 20 {
-			break
-		}
 	}
 	if samples == 0 {
 		return 0, 0, nil

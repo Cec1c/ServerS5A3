@@ -20,6 +20,12 @@ type InventorySlotPrefixReader interface {
 	LoadInventorySlotPrefix(context.Context, string, string) (map[string]ItemStack, error)
 }
 
+// InventorySlotItemPrefixReader narrows a read-only slot projection to one
+// item type. Like InventorySlotPrefixReader, it is never an asset before-image.
+type InventorySlotItemPrefixReader interface {
+	LoadInventorySlotItemPrefix(context.Context, string, string, int64) (map[string]ItemStack, error)
+}
+
 // InventoryRecord 是角色背包仓储记录。
 type InventoryRecord struct {
 	CharacterID string               `json:"character_id"`
