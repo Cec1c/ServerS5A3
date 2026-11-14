@@ -224,6 +224,8 @@ func rowModelMoveCases() []struct {
 // 七类真实 op19（穿 / 脱 / 脱且改落点 / 换装 / 穿戴槽互换 / 时装列表 / 仓库列表）
 // 在 collection 档与 slot+entry 档下落库后的六张表行集合必须**逐行相同**。
 func TestMySQLWriteScopeEquivalenceAcrossOp19MoveSet(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, testCase := range rowModelMoveCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			collectionRun := runRowModelEquipMove(t, testCase.cmd, "collection", "collection")
@@ -373,7 +375,7 @@ func sortStrings(values []string) {
 // TestMySQLSaveItemStackSlotDeltaWritesOnlyRequestedKeys 钉住增量写的语句集合：
 // 父表 upsert + 只含请求 key 的 IN-list DELETE + 只含请求 key 的 INSERT。
 func TestMySQLSaveItemStackSlotDeltaWritesOnlyRequestedKeys(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := newRowModelDB()
 	group := newRowModelGroup(t, db, false)
@@ -421,7 +423,7 @@ func TestMySQLSaveItemStackSlotDeltaWritesOnlyRequestedKeys(t *testing.T) {
 
 // TestMySQLSaveEquipmentEntryDeltaWritesOnlyRequestedKeys 同上，穿戴表口径。
 func TestMySQLSaveEquipmentEntryDeltaWritesOnlyRequestedKeys(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := newRowModelDB()
 	group := newRowModelGroup(t, db, false)
@@ -467,7 +469,8 @@ func TestMySQLSaveEquipmentEntryDeltaWritesOnlyRequestedKeys(t *testing.T) {
 // TestMySQLItemStackDeltaFallsBackToCollectionWhenKeysUnavailable 钉住回退：
 // 空 key 集合必须整容器重写（含两条不带 IN 的 DELETE），而不是静默不写。
 func TestMySQLItemStackDeltaFallsBackToCollectionWhenKeysUnavailable(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	events := captureWriteEvents(t)
 
 	ctx := context.Background()
@@ -520,7 +523,7 @@ func TestMySQLItemStackDeltaFallsBackToCollectionWhenKeysUnavailable(t *testing.
 // TestMySQLDeltaGuardsRejectSilentNoWrite 钉住"最坏形状在结构上不可能"：
 // 底层 key 集合为空 ⇒ 硬错误（事务回滚）；collection 不认识 ⇒ 硬错误。
 func TestMySQLDeltaGuardsRejectSilentNoWrite(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := newRowModelDB()
 	group := newRowModelGroup(t, db, false)

@@ -143,7 +143,7 @@ func TestLevelUpRewardProbeStillRevokesLuckyAtCap(t *testing.T) {
 	if err := s.sendCurrentLuckyCharacterState(session); err != nil {
 		t.Fatal(err)
 	}
-	if !session.luckyPreparedActive {
+	if !session.luckyPreparedActive.Load() {
 		t.Fatal("lucky fixture inactive")
 	}
 	c.Level = 90
@@ -154,7 +154,7 @@ func TestLevelUpRewardProbeStillRevokesLuckyAtCap(t *testing.T) {
 	repos.Character = p
 	s.repositoryProvider = func() (r.Group, bool) { return repos, true }
 	s.afterCurrentLevelUpRewardCommand(session)
-	if session.luckyPreparedActive || p.probes != 1 {
+	if session.luckyPreparedActive.Load() || p.probes != 1 {
 		t.Fatal("cap revocation depended on reward mail", p.probes)
 	}
 }

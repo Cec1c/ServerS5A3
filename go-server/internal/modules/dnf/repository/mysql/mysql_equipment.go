@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/repository"
+	"reflect"
 	"time"
 )
 
@@ -13,10 +14,15 @@ const mysqlEquipmentTable = "equipments"
 
 type mysqlEquipmentStore struct {
 	mysqlStoreBase
+	trackEntryChanges bool
+	loadedSnapshot    *repository.EquipmentRecord
 }
 
 // Load 按角色 ID 从 MySQL 读取穿戴装备记录。
 func (s *mysqlEquipmentStore) Load(ctx context.Context, characterID string) (repository.EquipmentRecord, bool, error) {
+	if s.trackEntryChanges {
+		s.loadedSnapshot = nil
+	}
 	table, err := s.router.readTable(mysqlEquipmentTable, characterID)
 	if err != nil {
 		return repository.EquipmentRecord{}, false, err
@@ -45,6 +51,10 @@ func (s *mysqlEquipmentStore) Load(ctx context.Context, characterID string) (rep
 		return repository.EquipmentRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackEntryChanges {
+		snapshot := repository.CloneEquipment(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.CloneEquipment(record), true, nil
 }
 
@@ -55,6 +65,10 @@ func (s *mysqlEquipmentStore) Save(ctx context.Context, record repository.Equipm
 
 // SaveFields 保存穿戴装备 dirty 字段。
 func (s *mysqlEquipmentStore) SaveFields(ctx context.Context, record repository.EquipmentRecord, fields ...repository.EquipmentField) error {
+	var previous *repository.EquipmentRecord
+	if s.trackEntryChanges {
+		previous, s.loadedSnapshot = s.loadedSnapshot, nil
+	}
 	characterID, err := requireRecordKey(repository.EquipmentKey, record, "equipment")
 	if err != nil {
 		return err
@@ -88,6 +102,13 @@ func (s *mysqlEquipmentStore) SaveFields(ctx context.Context, record repository.
 		if !saveEntries {
 			return nil
 		}
+		if s.trackEntryChanges && previous != nil && previous.CharacterID == characterID {
+			keys := changedEquipmentEntryKeys(previous.Entries, record.Entries)
+			if len(keys) == 0 {
+				return nil
+			}
+			return replaceEquipmentEntryKeys(ctx, database, entriesTable, extraTable, characterID, record.Entries, keys)
+		}
 		return replaceEquipmentEntries(ctx, database, entriesTable, extraTable, characterID, record.Entries)
 	})
 }
@@ -105,6 +126,9 @@ func (s *mysqlEquipmentStore) SaveEquipmentEntryDelta(
 	record repository.EquipmentRecord,
 	keys []string,
 ) error {
+	if s.trackEntryChanges {
+		s.loadedSnapshot = nil
+	} // Partial deltas invalidate the preimage.
 	characterID, err := requireRecordKey(repository.EquipmentKey, record, "equipment")
 	if err != nil {
 		return err
@@ -137,6 +161,21 @@ func (s *mysqlEquipmentStore) SaveEquipmentEntryDelta(
 		}
 		return replaceEquipmentEntryKeys(ctx, database, entriesTable, extraTable, characterID, record.Entries, keys)
 	})
+}
+
+func changedEquipmentEntryKeys(before, after map[string]repository.EquipmentEntry) []string {
+	var keys []string
+	for key, old := range before {
+		if next, found := after[key]; !found || !reflect.DeepEqual(old, next) {
+			keys = append(keys, key)
+		}
+	}
+	for key := range after {
+		if _, found := before[key]; !found {
+			keys = append(keys, key)
+		}
+	}
+	return sortedUniqueStrings(keys)
 }
 
 func (s *mysqlEquipmentStore) upsertRecord(

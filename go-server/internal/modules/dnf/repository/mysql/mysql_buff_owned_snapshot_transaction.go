@@ -32,7 +32,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinBuffOwnedSnapshot(
 	if !ok {
 		return repository.ErrBuffOwnedSnapshotUnavailable
 	}
-	tx, err := beginObservedSQLTransaction(ctx, beginner, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	tx, err := beginObservedSQLTransaction(ctx, beginner, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,8 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinBuffOwnedSnapshot(
 	router.db = newSQLTransactionDB(tx.Tx, router.db)
 	router.readDBs = append([]string(nil), u.router.writeDBs...)
 	router.writeDBs = append([]string(nil), u.router.writeDBs...)
-	router.lockReads = true
+	router.lockReads = false
+	router.consistentRead = true
 	group := newMySQLGroupFromRouter(router, false)
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: group.Character}
 	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: &mysqlBuffInventoryStore{mysqlBagStore{mysqlStoreBase: mysqlStoreBase{router: router}}}}
@@ -56,7 +57,7 @@ func (u *mysqlCeraShopAssetUnitOfWork) WithinBuffOwnedSnapshot(
 	if !found || character.CharacterID != characterID || character.AccountID != accountID {
 		return errors.Join(repository.ErrBuffLegacyOwnerMismatch, tx.Rollback())
 	}
-	// Lock/read exact Settings before any asset container. No snapshot is written.
+	// Read exact Settings before assets in the same consistent MVCC snapshot.
 	if _, _, err := settings.Load(ctx, settingsScope); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}

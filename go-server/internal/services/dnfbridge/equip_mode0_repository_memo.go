@@ -98,6 +98,8 @@ type repositoryMemo struct {
 	equipment     map[string]memoEquipmentEntry
 	character     map[string]memoCharacterEntry
 	account       map[string]memoAccountEntry
+	levels        map[memoAccountLevelsKey][]dnfrepo.AccountCharacterLevel
+	honor         map[string]memoHonorEntry
 	invalidatedAt int
 	loads         int
 }
@@ -117,11 +119,23 @@ type memoAccountEntry struct {
 	found  bool
 }
 
+type memoAccountLevelsKey struct {
+	account string
+	limit   int
+}
+type memoHonorEntry struct {
+	value uint64
+	found bool
+}
+
 // withEquipMode0RepositoryMemo 把一份空记忆挂到 ctx 上，返回新 ctx 与记忆本体。
 // 调用方负责在本次调用结束时丢弃它（不需要显式清理）。
 func withEquipMode0RepositoryMemo(ctx context.Context) (context.Context, *repositoryMemo) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if memo := repositoryMemoFromContext(ctx); memo != nil {
+		return ctx, memo
 	}
 	memo := &repositoryMemo{}
 	return context.WithValue(ctx, repositoryMemoKey{}, memo), memo
@@ -177,6 +191,8 @@ func (m *repositoryMemo) invalidate() {
 	m.equipment = nil
 	m.character = nil
 	m.account = nil
+	m.levels = nil
+	m.honor = nil
 	m.invalidatedAt++
 	m.mu.Unlock()
 }
@@ -255,6 +271,41 @@ func (r memoCharacterRepository) Save(ctx context.Context, record dnfrepo.Charac
 
 func (r memoCharacterRepository) ListByAccount(ctx context.Context, accountID string, limit int) ([]dnfrepo.CharacterRecord, error) {
 	return r.inner.ListByAccount(ctx, accountID, limit)
+}
+
+func (r memoCharacterRepository) ListAccountCharacterLevels(ctx context.Context, account string, limit int) ([]dnfrepo.AccountCharacterLevel, error) {
+	r.memo.mu.Lock()
+	defer r.memo.mu.Unlock()
+	key := memoAccountLevelsKey{account, limit}
+	if rows, ok := r.memo.levels[key]; ok {
+		return append([]dnfrepo.AccountCharacterLevel(nil), rows...), nil
+	}
+	rows, err := dnfrepo.ListAccountCharacterLevels(ctx, r.inner, account, limit)
+	if err != nil {
+		return nil, err
+	}
+	if r.memo.levels == nil {
+		r.memo.levels = make(map[memoAccountLevelsKey][]dnfrepo.AccountCharacterLevel)
+	}
+	r.memo.levels[key] = append([]dnfrepo.AccountCharacterLevel(nil), rows...)
+	return rows, nil
+}
+
+func (r memoAccountRepository) LoadAccountHonorExperience(ctx context.Context, account string) (uint64, bool, error) {
+	r.memo.mu.Lock()
+	defer r.memo.mu.Unlock()
+	if row, ok := r.memo.honor[account]; ok {
+		return row.value, row.found, nil
+	}
+	value, found, err := dnfrepo.LoadAccountHonorExperience(ctx, r.inner, account)
+	if err != nil {
+		return 0, false, err
+	}
+	if r.memo.honor == nil {
+		r.memo.honor = make(map[string]memoHonorEntry)
+	}
+	r.memo.honor[account] = memoHonorEntry{value, found}
+	return value, found, nil
 }
 
 func (r memoCharacterRepository) FindIDByName(ctx context.Context, name string) (string, bool, error) {

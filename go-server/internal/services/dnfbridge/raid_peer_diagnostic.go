@@ -3,31 +3,7 @@ package dnfbridge
 // Preserve bounded model/barrier delivery evidence when raw packet logging is
 // disabled. Deliberately exclude packet bodies, account data and error strings.
 func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
-	switch kind {
-	case "game-dungeon-party-peer-actor-delivered",
-		"game-party-initial-slot-placement",
-		"game-dungeon-local-slot-placement",
-		"game-dungeon-party-life-notify-sent",
-		"game-party-entry-rejected",
-		"game-party-entry-confirmed",
-		"game-peer-userinfo-profile-refresh-sent",
-		"game-peer-userinfo-profile-refresh-failed",
-		"game-dungeon-party-peer-actor-send",
-		"game-current-party-frame-op9-send",
-		"game-current-party-frame-op9-remove-send",
-		"game-party-dungeon-peer-actor-landing-resend",
-		"game-dungeon-party-peer-actor-resend",
-		"game-raid-volcano-barrier-symbols-sent",
-		"game-fiendwar-party-admission",
-		"game-party-dungeon-loading-ready",
-		"game-party-dungeon-loading-released",
-		"game-party-dungeon-post-start-map-placement-deferred",
-		"game-party-dungeon-post-start-map-placement-released",
-		"game-party-dungeon-post-start-map-placement-skipped",
-		"game-party-peer-endpoint-registration-rejected",
-		"party-udp-relay-silent-peer-kick",
-		"party-udp-relay-silent-peer-kick-failed":
-	default:
+	if !isRaidPeerDiagnostic(kind) {
 		return
 	}
 	args := []any{"kind", kind}
@@ -149,6 +125,37 @@ func isPartyDungeonLoadingDiagnosticKind(kind string) bool {
 		"game-party-dungeon-post-start-map-placement-deferred",
 		"game-party-dungeon-post-start-map-placement-released",
 		"game-party-dungeon-post-start-map-placement-skipped":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRaidPeerDiagnostic(kind string) bool {
+	switch kind {
+	case "game-dungeon-party-peer-actor-delivered",
+		"game-party-initial-slot-placement",
+		"game-dungeon-local-slot-placement",
+		"game-dungeon-party-life-notify-sent",
+		"game-party-entry-rejected",
+		"game-party-entry-confirmed",
+		"game-peer-userinfo-profile-refresh-sent",
+		"game-peer-userinfo-profile-refresh-failed",
+		"game-dungeon-party-peer-actor-send",
+		"game-current-party-frame-op9-send",
+		"game-current-party-frame-op9-remove-send",
+		"game-party-dungeon-peer-actor-landing-resend",
+		"game-dungeon-party-peer-actor-resend",
+		"game-raid-volcano-barrier-symbols-sent",
+		"game-fiendwar-party-admission",
+		"game-party-dungeon-loading-ready",
+		"game-party-dungeon-loading-released",
+		"game-party-dungeon-post-start-map-placement-deferred",
+		"game-party-dungeon-post-start-map-placement-released",
+		"game-party-dungeon-post-start-map-placement-skipped",
+		"game-party-peer-endpoint-registration-rejected",
+		"party-udp-relay-silent-peer-kick",
+		"party-udp-relay-silent-peer-kick-failed":
 		return true
 	default:
 		return false

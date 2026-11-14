@@ -320,6 +320,8 @@ func seedDeathDeltaState(t *testing.T, router mysqlRouter) {
 	}
 }
 func TestMySQLDeathSettlementStateDeltaMatchesFullSaveAndRollback(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	for _, scenario := range []string{"经验熟练度胶囊", "升级及永久事件", "删除普通键", "同事务二次保存", "无完整快照", "历史影子属性回退", "写入失败", "账号元数据失败", "错误角色"} {
 		t.Run(scenario, func(t *testing.T) {

@@ -108,7 +108,7 @@ func (c *Config) Normalize(env *appkit.Env) {
 		repo.MySQLMaxOpenConns = 32
 	}
 	if repo.MySQLMaxIdleConns <= 0 {
-		repo.MySQLMaxIdleConns = 8
+		repo.MySQLMaxIdleConns = repo.MySQLMaxOpenConns
 	}
 	if repo.MySQLConnMaxLifetime <= 0 {
 		repo.MySQLConnMaxLifetime = 300

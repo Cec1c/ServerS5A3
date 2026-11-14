@@ -515,6 +515,7 @@ func (u *mysqlCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Contex
 	// Reuse only the complete FOR UPDATE snapshot from this transaction.
 	// Partial/missing snapshots and second saves retain the established fallback.
 	txGroup.Character.(*mysqlCharStore).trackStatChanges = true
+	enableInventoryDeltaTracking(txGroup)
 	// 账本按账号键分库；仍然复用本次物理事务，不能沿用角色单库路由。
 	activityRouter := txRouter
 	activityRouter.readDBs = append([]string(nil), u.router.writeDBs...)
@@ -572,6 +573,7 @@ func (u *mysqlRentalAssetUnitOfWork) WithinRentalAssets(
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	enableInventoryDeltaTracking(txGroup)
 	// 账本按账号键分库；仍然复用本次物理事务，不能沿用角色单库路由。
 	activityRouter := txRouter
 	activityRouter.readDBs = append([]string(nil), u.router.writeDBs...)

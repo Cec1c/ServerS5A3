@@ -52,11 +52,14 @@ func (p *gameSession) closeGameTransport() {
 // Combine explicit caller cancellation, the connection lifetime and the
 // default upper bound. No context here is used to cancel an asset transaction.
 func gameTransportBudget(p *gameSession, parent context.Context) (context.Context, context.CancelFunc) {
+	lifetime := p.gameTransportContext()
+	if parent == nil || parent == context.Background() || parent == lifetime {
+		return context.WithTimeout(lifetime, createWriteTimeout)
+	}
 	if parent == nil {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
-	lifetime := p.gameTransportContext()
 	stop := context.AfterFunc(lifetime, cancel)
 	if lifetime.Err() != nil {
 		cancel()
@@ -65,9 +68,19 @@ func gameTransportBudget(p *gameSession, parent context.Context) (context.Contex
 }
 
 func (s *Service) lockGameWire(p *gameSession, parent context.Context) error {
+	if parent != nil && parent.Err() != nil {
+		return parent.Err()
+	}
+	if err := p.gameTransportContext().Err(); err != nil {
+		return err
+	}
+	started := s.performanceStart()
+	if p.wireMu.TryLock() {
+		s.performanceEnd(perfWireLock, started, nil)
+		return nil
+	}
 	ctx, cancel := gameTransportBudget(p, parent)
 	defer cancel()
-	started := s.performanceStart()
 	err := lockCurrentCrossSceneProfile(ctx, &p.wireMu)
 	s.performanceEnd(perfWireLock, started, err)
 	return err
@@ -77,11 +90,19 @@ func (s *Service) lockGameWire(p *gameSession, parent context.Context) error {
 // Nested scopes inherit the earlier deadline and cancellation; on exit the
 // parent is restored. Only the actual write owns a socket deadline/callback.
 func beginGameWriteBudgetLocked(p *gameSession, parent context.Context) (func(), error) {
-	ctx, cancel := gameTransportBudget(p, parent)
 	previous := p.wireWriteContext
+	if previous != nil && (parent == nil || parent.Done() == nil || parent == previous) {
+		if err := previous.Err(); err != nil {
+			return nil, err
+		}
+		return func() {}, nil
+	}
+	ctx, cancel := gameTransportBudget(p, parent)
 	var stop func() bool
 	if previous != nil {
-		if deadline, ok := previous.Deadline(); ok {
+		deadline, ok := previous.Deadline()
+		current, hasDeadline := ctx.Deadline()
+		if ok && (!hasDeadline || deadline.Before(current)) {
 			var childCancel context.CancelFunc
 			ctx, childCancel = context.WithDeadline(ctx, deadline)
 			oldCancel := cancel

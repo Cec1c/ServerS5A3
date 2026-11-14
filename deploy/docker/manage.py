@@ -247,7 +247,31 @@ def prepare(args):
     print(f"Prepared {catalog['channels']} real channels; configuration: {instance}")
 
 
+def performance_resource_config(config):
+    """Explicit host budget; ordinary small deployments retain their defaults."""
+    c = dict(config)
+    profile = c.get("performance_profile")
+    if profile not in (None, "shared-4c-16g"):
+        raise ValueError("unsupported performance_profile")
+    if profile == "shared-4c-16g":
+        for key, value in {"server_memory_limit": "10g", "go_memory_limit": "8GiB",
+                           "database_memory_limit": "3g", "database_buffer_pool_size": "1g"}.items():
+            c.setdefault(key, value)
+    pool = c.get("database_buffer_pool_size")
+    if pool is not None:
+        def size(value):
+            match = re.fullmatch(r"([1-9][0-9]*)([kmgt]?)(?:i?b)?", str(value).lower())
+            if not match:
+                raise ValueError("invalid database memory size")
+            return int(match[1]) * 1024 ** ("kmgt".find(match[2]) + 1 if match[2] else 0)
+        limit = c.get("database_memory_limit")
+        if limit is None or size(pool) > min(size(limit) * 3 // 5, size(limit) - 256 * 1024**2):
+            raise ValueError("database_buffer_pool_size needs database_memory_limit with working headroom")
+    return c
+
+
 def generate(c, catalog):
+    c = performance_resource_config(c)
     owner_range = c.get("channel_directory_owner_range")
     if "channel_directory_owner_range" in c and owner_range not in ("off", "u8"):
         raise ValueError("channel_directory_owner_range must be off or u8")
@@ -309,7 +333,7 @@ def generate(c, catalog):
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
         directory.mkdir(parents=True, exist_ok=True)
-    dsn = f"dnf:{c['database_password']}@tcp({c['database_ip']}:3306)/dnf_local?parseTime=true&charset=utf8mb4,utf8"
+    dsn = f"dnf:{c['database_password']}@tcp({c['database_ip']}:3306)/dnf_local?parseTime=true&charset=utf8mb4,utf8&interpolateParams=true"
     q = json.dumps
     config = f'''[service]
 name = "dnfbridge"
@@ -352,7 +376,7 @@ store_kind = "memory"
 enabled = true
 mysql_dsn = {q(dsn)}
 mysql_max_open_conns = 32
-mysql_max_idle_conns = 8
+mysql_max_idle_conns = 32
 mysql_conn_max_lifetime_seconds = 300
 shard_id = "9999"
 table_prefix = "dnf"
@@ -436,6 +460,8 @@ create_databases = false
     }
     if c.get("database_memory_limit"):
         spec["services"]["db"]["mem_limit"] = c["database_memory_limit"]
+    if c.get("database_buffer_pool_size"):
+        spec["services"]["db"]["command"].append("--innodb-buffer-pool-size=" + str(c["database_buffer_pool_size"]))
     for service in spec["services"].values():
         service["restart"] = c.get("restart", "no")
     write(RUNTIME / "compose.json", json.dumps(spec, indent=2) + "\n")

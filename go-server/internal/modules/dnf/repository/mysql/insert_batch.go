@@ -5,7 +5,7 @@
 // 跨度实测 = 0.191 ms × 事务内语句数，截距约 0。把 N 行合成一条多行 INSERT 只减少
 // **往返次数**，行集合、行内容、行顺序、DELETE 语义一个字节都不改。
 //
-// 硬约束（本文件的存在理由）：默认档（未配置 / =1）必须与改动前**逐字节相同** ——
+// 显式兼容档（=1）与原逐行写入逐字节相同 ——
 // 同一条 SQL 文本、同一组参数、同一语句顺序。因此批量器在 batch<=1 时不做任何聚合，
 // 而且多行语句只在 batch>1 时才被拼出来。
 package mysql
@@ -20,12 +20,11 @@ import (
 )
 
 const (
-	// currentMysqlInsertBatchEnv 是一条多行 INSERT 里最多几行。默认 1 = 逐行一条
-	// INSERT（= 改动前的口径，默认部署不改任何语句流）；建议值 200（见 §7-O-A）。
+	// currentMysqlInsertBatchEnv 是一条多行 INSERT 里最多几行，默认 200。
 	currentMysqlInsertBatchEnv = "DNFBRIDGE_MYSQL_INSERT_BATCH"
 
 	// mysqlInsertBatchDefault 是未配置时的批量。
-	mysqlInsertBatchDefault = 1
+	mysqlInsertBatchDefault = 200
 
 	// mysqlInsertBatchMaxRows 是行数硬上限：配置超过它一律钳到这里。
 	// 为什么是 1000：按本仓最宽的这两张表算，8 列 × 1000 行 = 8000 个占位符，
@@ -77,7 +76,7 @@ func mysqlInsertBatchRowsFor(columnCounts ...int) int {
 }
 
 // configuredMysqlInsertBatch 解析 DNFBRIDGE_MYSQL_INSERT_BATCH。
-// 取值规则：未配置 = 1（今天）；非法/<=0 = 1（今天）并记一条事件；>1000 = 钳到 1000 并记一条事件。
+// 未配置、非法/<=0 使用默认批量；>1000 钳到 1000。显式 1 保留逐行写。
 // 每个不同的原始取值只记一次事件（结果按原始字符串缓存）。
 func configuredMysqlInsertBatch() int {
 	raw := strings.TrimSpace(os.Getenv(currentMysqlInsertBatchEnv))
@@ -90,7 +89,7 @@ func configuredMysqlInsertBatch() int {
 	}
 	insertBatchMu.Unlock()
 
-	if cached.eventKind != "" {
+	if !ok && cached.eventKind != "" {
 		notifyWriteEvent(WriteEvent{
 			Kind:      cached.eventKind,
 			Rows:      cached.rows,

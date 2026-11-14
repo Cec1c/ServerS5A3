@@ -4,13 +4,7 @@ package dnfbridge
 // raw packet logging. A constructed actor and a delivered pair are distinct;
 // server timings do not measure native resource loading or rendered frames.
 func (s *Service) logTownLoadingDiagnostic(kind string, fields ...any) {
-	switch kind {
-	case "game-town-copresence-actor-state-send",
-		"game-town-copresence-actor-state-delivered",
-		"game-main-finish-loading-state-send",
-		"game-town-set-user-area-committed",
-		"game-town-presence-published":
-	default:
+	if !isTownLoadingDiagnostic(kind) {
 		return
 	}
 	args := []any{"kind", kind}
@@ -30,4 +24,17 @@ func (s *Service) logTownLoadingDiagnostic(kind string, fields ...any) {
 		}
 	}
 	s.logInfo("dnfbridge town loading diagnostic", args...)
+}
+
+func isTownLoadingDiagnostic(kind string) bool {
+	switch kind {
+	case "game-town-copresence-actor-state-send",
+		"game-town-copresence-actor-state-delivered",
+		"game-main-finish-loading-state-send",
+		"game-town-set-user-area-committed",
+		"game-town-presence-published":
+		return true
+	default:
+		return false
+	}
 }

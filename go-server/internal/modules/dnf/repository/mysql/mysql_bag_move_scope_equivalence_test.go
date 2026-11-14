@@ -344,7 +344,8 @@ func bagDeltaKeysByCollection(writes []fakeSQLCall, table string) map[string][]s
 // 跨容器两个方向 / 跨容器合并 / 时装页 / 勋章页）在 collection 档与 slot 档下落库后的
 // 六张表行集合必须**逐行相同**，且增量档写到的 key 恰好是本次改动的那几格。
 func TestMySQLBagMoveWriteScopeEquivalenceAcrossMoveSet(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, testCase := range bagMoveCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			collectionRun := runRowModelBagMove(t, testCase, "collection")
@@ -417,7 +418,8 @@ func TestMySQLBagMoveWriteScopeEquivalenceAcrossMoveSet(t *testing.T) {
 // 背包内移动必须整容器重写（两个 collection 都重写、且是**不带 IN** 的整容器 DELETE），
 // 绝不能出现"只写了其中一个容器"或"key 集合不全却照写"的部分写。
 func TestMySQLBagMoveDeltaFallsBackToCollectionWhenKeysUnavailable(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	t.Setenv("DNFBRIDGE_INVENTORY_SAVE_SCOPE", "slot")
 	events := captureInventoryWriteFallbacks(t)
 
@@ -499,7 +501,7 @@ func TestMySQLBagMoveDeltaFallsBackToCollectionWhenKeysUnavailable(t *testing.T)
 // 仓储入口（SaveItemStackSlotDelta）那一层则是"整容器写 + item_stack_keys_unavailable
 // 事件"，由 TestMySQLItemStackDeltaFallsBackToCollectionWhenKeysUnavailable 覆盖。
 func TestMySQLBagMoveDeltaLowLevelRejectsEmptyKeys(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	ctx := context.Background()
 	db := newRowModelDB()
 	group := newRowModelBagGroup(t, db)
@@ -528,7 +530,7 @@ func TestMySQLBagMoveDeltaLowLevelRejectsEmptyKeys(t *testing.T) {
 // "主背包 ↔ 仓库"的一次移动必须对两个 collection 各写一次增量删除+插入；
 // 只写其中一个就是静默数据丢失。
 func TestMySQLBagMoveCrossContainerWritesBothCollections(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, testCase := range bagMoveCases() {
 		if len(testCase.wantWarehouse) == 0 || len(testCase.wantSlots) == 0 {
 			continue
@@ -550,7 +552,7 @@ func TestMySQLBagMoveCrossContainerWritesBothCollections(t *testing.T) {
 // 参考实现一次背包内移动是 8 条 SQL，我们的口径是"父表 upsert + 每个 collection
 // 2 条 IN-DELETE + 该 collection 自己被改动的那几行 INSERT"。
 func TestMySQLBagMoveIncrementalStatementCount(t *testing.T) {
-	t.Setenv("DNFBRIDGE_MYSQL_INSERT_BATCH", "")
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, testCase := range bagMoveCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			run := runRowModelBagMove(t, testCase, "slot")

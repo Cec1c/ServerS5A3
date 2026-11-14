@@ -393,11 +393,12 @@ func (l *Loop) SubmitBlocking(ctx context.Context, event Event) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	retryTimer := time.NewTimer(time.Millisecond)
-	if !retryTimer.Stop() {
-		<-retryTimer.C
-	}
-	defer retryTimer.Stop()
+	var retryTimer *time.Timer
+	defer func() {
+		if retryTimer != nil {
+			retryTimer.Stop()
+		}
+	}()
 	// SubmitBlocking 会等待队列容量、ctx 取消或 loop 关闭。
 	for {
 		if err := ctx.Err(); err != nil {
@@ -416,6 +417,10 @@ func (l *Loop) SubmitBlocking(ctx context.Context, event Event) error {
 			return nil
 		default:
 			l.submitMu.Unlock()
+		}
+		if retryTimer == nil {
+			retryTimer = time.NewTimer(time.Hour)
+			retryTimer.Stop()
 		}
 		select {
 		case <-ctx.Done():

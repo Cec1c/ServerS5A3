@@ -10,6 +10,22 @@ import manage
 
 
 class DeploymentBoundaries(unittest.TestCase):
+    def test_performance_resource_budget_and_small_deployment(self):
+        self.assertEqual(manage.performance_resource_config({}), {})
+        budget = manage.performance_resource_config({"performance_profile": "shared-4c-16g"})
+        self.assertEqual(budget["go_memory_limit"], "8GiB")
+        self.assertEqual(budget["database_memory_limit"], "3g")
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            manage.generate(self.gm_config() | budget, {"ports": [10006]})
+            compose = json.loads((Path(directory) / "compose.json").read_text())
+            self.assertIn("--innodb-buffer-pool-size=1g", compose["services"]["db"]["command"])
+            self.assertIn("GOMEMLIMIT=8GiB", (Path(directory) / "server.env").read_text())
+        for invalid in ({"database_buffer_pool_size": "1g"},
+                        {"database_buffer_pool_size": "1g", "database_memory_limit": "1g"},
+                        {"database_buffer_pool_size": "invalid", "database_memory_limit": "3g"}):
+            with self.assertRaises(ValueError):
+                manage.performance_resource_config(invalid)
+
     def test_guild_solo_creation_requires_explicit_boolean(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
             for value in [None, False, True]:

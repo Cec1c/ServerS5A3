@@ -473,13 +473,13 @@ func (s *Service) sendCurrentLuckyCharacterState(session *gameSession) error {
 	if !active {
 		c = nil
 	}
-	if session.luckyPreparedCharacter != session.selectedCharacterID || session.luckyPreparedGeneration != session.characterGeneration || session.luckyPreparedActorGeneration != session.sceneBootstrapActorGeneration || session.luckyPreparedActive != active {
+	if session.luckyPreparedCharacter != session.selectedCharacterID || session.luckyPreparedGeneration != session.characterGeneration || session.luckyPreparedActorGeneration != session.sceneBootstrapActorGeneration || session.luckyPreparedActive.Load() != active {
 		if err := s.sendGameUpperRawClass(session, currentLuckyCharacterStateID, buildCurrentLuckyCharacterBody(c), 0); err != nil {
 			return err
 		}
 		session.luckyPreparedCharacter, session.luckyPreparedGeneration = session.selectedCharacterID, session.characterGeneration
 		session.luckyPreparedActorGeneration = session.sceneBootstrapActorGeneration
-		session.luckyPreparedActive = active
+		session.luckyPreparedActive.Store(active)
 	}
 	return s.sendCurrentLuckyFatigueState(session, false)
 }

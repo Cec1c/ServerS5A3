@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"errors"
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"time"
 
 	"longheng.io/server/internal/platform/eventloop"
@@ -43,6 +44,7 @@ func (s *Service) guildRosterCounter(kind int, n int64) {
 type currentGuildPresenceRefresh struct {
 	peer            boundGameSessionCharacter
 	guildID         uint32
+	shared          *guildPresenceReadCache
 	revision        uint64
 	queued, running bool
 	retries         int
@@ -82,7 +84,7 @@ func (s *Service) discardCurrentGuildPresenceRefresh(p *currentGuildPresenceRefr
 	session.guild.mu.Unlock()
 }
 
-func (s *Service) requestCurrentGuildPresenceRefresh(peer boundGameSessionCharacter, guildID uint32) {
+func (s *Service) requestCurrentGuildPresenceRefresh(peer boundGameSessionCharacter, guildID uint32, shared ...*guildPresenceReadCache) {
 	s.guildRosterCounter(guildRefreshRequested, 1)
 	if peer.session == nil {
 		return
@@ -111,6 +113,9 @@ func (s *Service) requestCurrentGuildPresenceRefresh(peer boundGameSessionCharac
 		if session.ctx != nil {
 			p.stopContext = context.AfterFunc(session.ctx, func() { s.discardCurrentGuildPresenceRefresh(p) })
 		}
+	}
+	if len(shared) > 0 {
+		p.shared = shared[0]
 	}
 	p.revision++
 	if p.queued || p.running || p.timer != nil {
@@ -175,6 +180,7 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 	}
 	p.queued, p.running = false, true
 	revision := p.revision
+	shared := p.shared
 	session.guild.mu.Unlock()
 	s.guildRosterCounter(guildRefreshExecuted, 1)
 	defer func() {
@@ -209,11 +215,31 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	for _, notice := range []bool{true, false} {
-		if err := s.refreshCurrentGuildTextPeer(ctx, p.guildID, p.peer, boundGameSessionCharacter{}, notice); err != nil {
-			s.guildRosterCounter(guildRefreshFailed, 1)
-			return nil // optional refresh failure does not revoke a healthy socket
-		}
+	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{p.peer})
+	if err != nil {
+		return nil
 	}
+	defer release()
+	session.guild.mu.Lock()
+	requested := session.guild.memberListRequested
+	session.guild.mu.Unlock()
+	g, err := s.readCurrentGuildDisplayShared(ctx, p.peer, false, requested, shared)
+	if err != nil {
+		s.guildRosterCounter(guildRefreshFailed, 1)
+		return nil
+	}
+	if g == nil || g.ID != p.guildID || !s.boundGameSessionCharacterCurrent(p.peer) {
+		return nil
+	}
+	if requested {
+		var build, write time.Duration
+		err = s.sendCurrentGuildRosterDisplay(ctx, p.peer, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, "presence", true, &build, &write)
+	} else {
+		err = s.sendCurrentGuildManagementState(session, g)
+	}
+	if err != nil {
+		s.guildRosterCounter(guildRefreshFailed, 1)
+	}
+
 	return nil
 }

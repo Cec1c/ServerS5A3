@@ -22,6 +22,16 @@ func (m *OnlinePlayerManager) presenceCurrent(snapshot onlinePlayerInfo) bool {
 // Never run inline or wait for capacity: the producer can hold its own town
 // lock. Required scene traffic that cannot be queued fails only this recipient.
 func (s *Service) queueTownPeerDelivery(target onlinePlayerInfo, source string, valid func() bool, run func() error) {
+	s.queueTownPeerDeliveryPolicy(target, source, valid, run, false, nil)
+}
+
+func (s *Service) queueTownPeerDeliveryPolicy(target onlinePlayerInfo, source string, valid func() bool, run func() error, replaceable bool, discard func()) {
+	accepted := false
+	defer func() {
+		if !accepted && discard != nil {
+			discard()
+		}
+	}()
 	p := target.Session
 	if p == nil || p.conn == nil || p.loginRevoked.Load() || p.gameTransportContext().Err() != nil {
 		return
@@ -43,11 +53,14 @@ func (s *Service) queueTownPeerDelivery(target onlinePlayerInfo, source string, 
 	}
 	err := p.events.loop.Submit(eventloop.Event{
 		Type: source, Priority: eventloop.PriorityMedium, Context: p.gameTransportContext(),
-		Data: gameSessionEventTask{source: source, characterID: identity.character, characterGeneration: identity.generation, async: true, run: func() error {
+		Data: gameSessionEventTask{source: source, characterID: identity.character, characterGeneration: identity.generation, async: true, discard: discard, run: func() error {
+			if discard != nil {
+				defer discard()
+			}
 			ctx, cancel := context.WithTimeout(p.gameTransportContext(), createWriteTimeout)
 			defer cancel()
 			if err := lockCurrentCrossSceneProfile(ctx, &p.townMu); err != nil {
-				if !errors.Is(err, context.Canceled) {
+				if !replaceable && !errors.Is(err, context.Canceled) {
 					p.closeGameTransport()
 				}
 				return nil
@@ -59,7 +72,7 @@ func (s *Service) queueTownPeerDelivery(target onlinePlayerInfo, source string, 
 			// Presence can outlive a dungeon transition until its owner finishes
 			// cleanup. Never replay queued town traffic into a newer dungeon run.
 			if err := lockCurrentCrossSceneProfile(ctx, &p.dungeon.mu); err != nil {
-				if !errors.Is(err, context.Canceled) {
+				if !replaceable && !errors.Is(err, context.Canceled) {
 					p.closeGameTransport()
 				}
 				return nil
@@ -83,11 +96,71 @@ func (s *Service) queueTownPeerDelivery(target onlinePlayerInfo, source string, 
 	})
 	if err != nil {
 		s.logGameEvent(p, "game-town-peer-delivery-unavailable", "source", source, "reason", "recipient_queue_rejected", "error", err)
-		p.closeGameTransport()
+		if !replaceable {
+			p.closeGameTransport()
+		}
 	}
+	accepted = err == nil
+}
+
+type townMoveKey struct {
+	actor                   uint16
+	actorEpoch, targetEpoch uint64
+}
+type townMovePending struct{ body []byte }
+
+func (s *Service) queueTownPeerMovement(target onlinePlayerInfo, actor onlinePlayerInfo, op uint16, body []byte, source string) {
+	p := target.Session
+	if p == nil || actor.Session == nil {
+		return
+	}
+	currentTarget, ok := s.onlinePlayers.PlayerForCharacter(target.CharacterID)
+	if !ok || currentTarget.Session != p || (target.presenceGeneration != 0 && target.presenceGeneration != currentTarget.presenceGeneration) {
+		return
+	}
+	currentActor, ok := s.onlinePlayers.PlayerForCharacter(actor.CharacterID)
+	if !ok || currentActor.Session != actor.Session || (actor.presenceGeneration != 0 && actor.presenceGeneration != currentActor.presenceGeneration) {
+		return
+	}
+	target, actor = currentTarget, currentActor
+	key := townMoveKey{actor.CharacterID, actor.presenceGeneration, target.presenceGeneration}
+	p.townMoveMu.Lock()
+	if pending := p.townMoves[key]; pending != nil {
+		pending.body = append(pending.body[:0], body...)
+		p.townMoveMu.Unlock()
+		return
+	}
+	pending := &townMovePending{body: append([]byte(nil), body...)}
+	if p.townMoves == nil {
+		p.townMoves = make(map[townMoveKey]*townMovePending)
+	}
+	p.townMoves[key] = pending
+	p.townMoveMu.Unlock()
+	discard := func() {
+		p.townMoveMu.Lock()
+		if p.townMoves[key] == pending {
+			delete(p.townMoves, key)
+		}
+		p.townMoveMu.Unlock()
+	}
+	s.queueTownPeerDeliveryPolicy(target, source, func() bool { return s.onlinePlayers.presenceCurrent(actor) }, func() error {
+		p.townMoveMu.Lock()
+		latest := pending.body
+		if p.townMoves[key] == pending {
+			delete(p.townMoves, key)
+		}
+		p.townMoveMu.Unlock()
+		return s.sendCurrentSceneFixedClass0Packet(p, op, latest, source)
+	}, true, discard)
 }
 
 func (s *Service) queueTownPeerPacket(target onlinePlayerInfo, actor *onlinePlayerInfo, op uint16, body []byte, source string) {
+	// op22 is replaceable position state. Enter/leave/control keep their FIFO
+	// delivery contract; a failed socket write still retires a corrupted stream.
+	if op == 22 && actor != nil {
+		s.queueTownPeerMovement(target, *actor, op, body, source)
+		return
+	}
 	body = append([]byte(nil), body...)
 	var valid func() bool
 	if actor != nil {

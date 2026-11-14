@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (s *Service) handleCurrentAccountFriendCommand(session *gameSession, op uint16, classification byte, body []byte) (bool, error) {
@@ -383,6 +384,17 @@ func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source str
 	if !bound {
 		return nil
 	}
+	// Room changes do not change this account-wide directory. Mutations and
+	// peer presence pushes still refresh immediately; periodically reconcile
+	// pending invitation expiry and changes made by another process.
+	previousView := session.currentAccountFriendInfo
+	if source == "finish_loading_after_player_state" && previousView.ready &&
+		previousView.character == identity.character && previousView.generation == identity.generation &&
+		!session.accountFriendRefreshAt.IsZero() && s.gameplayNow().Sub(session.accountFriendRefreshAt) >= 0 &&
+		s.gameplayNow().Sub(session.accountFriendRefreshAt) < 30*time.Second {
+		return s.sendGameUpperRawClassCodec(session, 1372, session.accountFriendPendingBody, 0, true)
+	}
+	session.accountFriendRefreshAt = time.Time{}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	repositories, available := s.repositoryGroup()
@@ -463,6 +475,8 @@ func (s *Service) sendCurrentAccountFriendLists(session *gameSession, source str
 	if err := s.sendGameUpperRawClassCodec(session, 1372, pendingBody, 0, true); err != nil {
 		return err
 	}
+	session.accountFriendRefreshAt = s.gameplayNow()
+	session.accountFriendPendingBody = slices.Clone(pendingBody)
 	s.logGameEvent(session, "game-account-friend-list-send", "source", source, "characters", len(rows), "pending", len(pending), "removed", len(removals), "info_unchanged", unchanged)
 	return nil
 }
@@ -485,17 +499,50 @@ func (s *Service) refreshCurrentAccountFriendOwners(exclude *gameSession, owners
 	s.mu.Unlock()
 	for _, peer := range peers {
 		peer := peer
-		_ = s.postGameSessionCharacterEvent(peer.session, "account_friend_"+source, peer.character, peer.generation, func() error {
+		err := s.postGameSessionCharacterEvent(peer.session, "account_friend_"+source, peer.character, peer.generation, func() error {
 			if !s.boundGameSessionCharacterCurrent(peer) {
 				return nil
 			}
-			return s.sendCurrentAccountFriendLists(peer.session, source)
+			err := s.sendCurrentAccountFriendLists(peer.session, source)
+			if (err != nil || peer.session.accountFriendRefreshAt.IsZero()) && exclude != nil {
+				s.invalidateAccountFriendPresence(exclude)
+			}
+			return err
 		})
+		if err != nil && exclude != nil {
+			s.invalidateAccountFriendPresence(exclude)
+		}
 	}
+}
+
+type accountFriendPresenceKey struct {
+	account    string
+	character  uint16
+	generation uint64
+	channel    int
+	online     bool
+}
+
+func (s *Service) accountFriendPresenceLocked(p *gameSession) accountFriendPresenceKey {
+	return accountFriendPresenceKey{account: s.accountIDForSession(p), character: p.selectedCharacterID,
+		generation: p.characterGeneration, channel: int(p.channel.ID), online: p.selectedCharacterID != 0 && s.gameSessions[p.selectedCharacterID] == p && !p.loginRevoked.Load()}
+}
+
+func (s *Service) invalidateAccountFriendPresence(p *gameSession) {
+	s.mu.Lock()
+	p.accountFriendPresenceReady = false
+	s.mu.Unlock()
 }
 
 func (s *Service) refreshCurrentAccountFriendPresence(session *gameSession, source string) {
 	if s.options.currentClientVersion != "official-24.9" || session == nil || !session.loginPacketSeen || !session.accountFromToken {
+		return
+	}
+	s.mu.Lock()
+	key := s.accountFriendPresenceLocked(session)
+	unchanged := session.accountFriendPresenceReady && session.accountFriendPresence == key
+	s.mu.Unlock()
+	if unchanged {
 		return
 	}
 	repositories, ok := s.repositoryGroup()
@@ -508,6 +555,13 @@ func (s *Service) refreshCurrentAccountFriendPresence(session *gameSession, sour
 	if err != nil {
 		return
 	}
+	s.mu.Lock()
+	if s.accountFriendPresenceLocked(session) != key {
+		s.mu.Unlock()
+		return
+	}
+	session.accountFriendPresence, session.accountFriendPresenceReady = key, true
+	s.mu.Unlock()
 	var owners []string
 	for _, entry := range entries {
 		if entry.Relation.State == accountfriend.Friend {

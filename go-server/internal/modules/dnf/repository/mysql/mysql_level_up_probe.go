@@ -21,8 +21,8 @@ func (s *mysqlCharStore) LoadLevelUpRewardProbe(ctx context.Context, id string) 
 	// The existing (character_id, stat_key) PK bounds this join to one character;
 	// no schema change, cached absence, or display/roster loading is needed.
 	query := "SELECT c.character_id, c.account_id, c.level, s.stat_key, s.stat_value FROM " + characters +
-		" c LEFT JOIN " + stats + " s ON s.character_id=c.character_id AND LEFT(s.stat_key, ?) = ? AND s.stat_value > 0 WHERE c.character_id = ?"
-	rows, err := s.router.db.QueryContext(ctx, s.router.selectQuery(query), len(r.LevelUpEventStatPrefix), r.LevelUpEventStatPrefix, id)
+		" c LEFT JOIN " + stats + " s ON s.character_id=c.character_id AND s.stat_key LIKE ? ESCAPE '=' AND s.stat_value > 0 WHERE c.character_id = ?"
+	rows, err := s.router.db.QueryContext(ctx, s.router.selectQuery(query), levelUpEventLikePrefix, id)
 	if err != nil {
 		return r.LevelUpRewardProbe{}, false, err
 	}

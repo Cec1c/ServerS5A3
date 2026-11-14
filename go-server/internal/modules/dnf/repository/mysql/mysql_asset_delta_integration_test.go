@@ -17,6 +17,7 @@ import (
 )
 
 func TestAssetDeltaDisposableMySQL(t *testing.T) {
+	t.Setenv(currentMysqlInsertBatchEnv, "1") // historical row-by-row comparison
 	if os.Getenv("DNF_RUNTIME_DISPOSABLE_DB") != "1" {
 		t.Fatal("requires disposable database")
 	}

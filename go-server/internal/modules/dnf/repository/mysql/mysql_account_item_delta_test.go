@@ -134,6 +134,8 @@ func cargoDeltaUOW(s *cargoDeltaSQLState) (*mysqlAccountCharacterItemUnitOfWork,
 }
 
 func TestMySQLAccountItemDeltaMatchesFullSaveAndPreservesUnrelatedRows(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, mode := range []string{"move", "merge", "split", "raw_and_extra", "warehouse", "same_transaction_twice", "same_transaction_revert", "partial_then_other_collection"} {
 		t.Run(mode, func(t *testing.T) {
 			var snapshots []map[string][]string
@@ -278,6 +280,8 @@ func TestMySQLAccountItemDeltaMatchesFullSaveAndPreservesUnrelatedRows(t *testin
 }
 
 func TestMySQLAccountItemDeltaRollsBackAfterCharacterAndCargoDeletes(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	model, _, _ := cargoDeltaFixture(t, 10)
 	before := model.model.snapshot()
 	state := &cargoDeltaSQLState{db: model, failAt: 9}
@@ -306,6 +310,8 @@ func TestMySQLAccountItemDeltaRollsBackAfterCharacterAndCargoDeletes(t *testing.
 }
 
 func TestMySQLAccountItemDeltaRequiresLoadedSnapshotAndSkipsUnchangedRows(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, mode := range []string{"no_load", "unchanged", "foreign_account", "foreign_character"} {
 		t.Run(mode, func(t *testing.T) {
 			model, i, a := cargoDeltaFixture(t, 10)

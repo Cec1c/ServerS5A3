@@ -12,6 +12,8 @@ import (
 
 // 通过生产资产事务与真实 database/sql 接口复现分解、提取的写入放大；不连接本机玩家库。
 func TestMySQLAccountAssetDeltaMatchesFullSave(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, scenario := range []string{"分解合并产物", "提取原始字段", "分开保存背包仓库", "同事务二次保存"} {
 		t.Run(scenario, func(t *testing.T) {
 			var snapshots []map[string][]string
@@ -154,6 +156,8 @@ func TestMySQLAccountAssetDeltaRollbackAtEveryWrite(t *testing.T) {
 }
 
 func TestMySQLAccountAssetDeltaSnapshotAndScopeGuards(t *testing.T) {
+	// Exercise the historical single-row stream and its write failure points.
+	t.Setenv(currentMysqlInsertBatchEnv, "1")
 	for _, scenario := range []string{"未加载快照", "没有槽位变化", "跨账号", "跨角色"} {
 		t.Run(scenario, func(t *testing.T) {
 			model, inventory, account := cargoDeltaFixture(t, 10)

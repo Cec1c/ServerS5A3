@@ -29,7 +29,7 @@ func TestMySQLPendingLevelUpRecoveryReadsCommittedWriterAndBindsCursor(t *testin
 			t.Fatalf("query lacks %q: %s", part, query.Query)
 		}
 	}
-	if !reflect.DeepEqual(query.Args, []any{len(repository.LevelUpEventStatPrefix), repository.LevelUpEventStatPrefix, "55", 2}) {
+	if !reflect.DeepEqual(query.Args, []any{"level=_up=_event=_%", "55", 2}) {
 		t.Fatalf("bound arguments=%#v", query.Args)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

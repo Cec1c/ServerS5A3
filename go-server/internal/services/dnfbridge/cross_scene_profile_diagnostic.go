@@ -3,9 +3,7 @@ package dnfbridge
 // Keep bounded profile delivery evidence when raw packet logging is disabled.
 // Packet bodies, account information and raw error strings are excluded.
 func (s *Service) logCrossSceneProfileDiagnostic(kind string, fields ...any) {
-	switch kind {
-	case "game-peer-userinfo-profile-refresh-sent", "game-peer-userinfo-profile-refresh-failed":
-	default:
+	if !isCrossSceneProfileDiagnostic(kind) {
 		return
 	}
 	args := []any{"kind", kind}
@@ -20,4 +18,13 @@ func (s *Service) logCrossSceneProfileDiagnostic(kind string, fields ...any) {
 		}
 	}
 	s.logInfo("dnfbridge raid peer diagnostic", args...)
+}
+
+func isCrossSceneProfileDiagnostic(kind string) bool {
+	switch kind {
+	case "game-peer-userinfo-profile-refresh-sent", "game-peer-userinfo-profile-refresh-failed":
+		return true
+	default:
+		return false
+	}
 }

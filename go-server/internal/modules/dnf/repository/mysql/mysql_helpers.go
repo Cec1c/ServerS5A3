@@ -16,6 +16,7 @@ import (
 )
 
 type mysqlRouter struct {
+	levelUpChanges         *repository.LevelUpChangeFeed
 	guildSnapshotNamespace *repository.GuildSnapshotNamespace
 	battlePassChanges      *repository.BattlePassChangeFeed
 	db                     SQLDB
@@ -24,6 +25,7 @@ type mysqlRouter struct {
 	tablePrefix            string
 	now                    func() time.Time
 	lockReads              bool
+	consistentRead         bool // physical repeatable-read transaction without write locks
 }
 
 type mysqlStoreBase struct {
@@ -57,6 +59,7 @@ func newMySQLRouter(db SQLDB, options MySQLGroupOptions) (mysqlRouter, error) {
 		now = time.Now
 	}
 	return mysqlRouter{
+		levelUpChanges:    &repository.LevelUpChangeFeed{},
 		battlePassChanges: repository.NewBattlePassChangeFeed(),
 		db:                db,
 		readDBs:           append([]string(nil), readDBs...),

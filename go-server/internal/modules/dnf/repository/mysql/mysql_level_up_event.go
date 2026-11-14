@@ -2,9 +2,11 @@ package mysql
 
 import (
 	"context"
-	"longheng.io/server/internal/modules/dnf/repository"
 	"sort"
 )
+
+// SQL '_' is a wildcard. Escape every literal underscore in the durable key.
+const levelUpEventLikePrefix = "level=_up=_event=_%"
 
 func (s *mysqlCharStore) ListPendingLevelUpCharacters(ctx context.Context, after string, limit int) ([]string, error) {
 	if ctx == nil {
@@ -21,7 +23,7 @@ func (s *mysqlCharStore) ListPendingLevelUpCharacters(ctx context.Context, after
 	for _, database := range s.router.writeDBs {
 		stats := mysqlTable(database, s.router.tablePrefix, mysqlCharacterStatsTable)
 		characters := mysqlTable(database, s.router.tablePrefix, mysqlCharTable)
-		rows, err := s.router.db.QueryContext(ctx, "SELECT DISTINCT s.character_id FROM "+stats+" s INNER JOIN "+characters+" c ON c.character_id = s.character_id WHERE LEFT(s.stat_key, ?) = ? AND s.stat_value > 0 AND c.delete_flag = 0 AND s.character_id > ? ORDER BY s.character_id LIMIT ?", len(repository.LevelUpEventStatPrefix), repository.LevelUpEventStatPrefix, after, limit)
+		rows, err := s.router.db.QueryContext(ctx, "SELECT DISTINCT s.character_id FROM "+stats+" s INNER JOIN "+characters+" c ON c.character_id = s.character_id WHERE s.stat_key LIKE ? ESCAPE '=' AND s.stat_value > 0 AND c.delete_flag = 0 AND s.character_id > ? ORDER BY s.character_id LIMIT ?", levelUpEventLikePrefix, after, limit)
 		if err != nil {
 			return nil, err
 		}

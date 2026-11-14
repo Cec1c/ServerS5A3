@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"time"
 
@@ -143,6 +144,7 @@ type Service struct {
 	antonRewardWorkRunning    bool
 	nextRaidSeq               uint32
 	packetLog                 *packetLogger
+	packetLogDisabled         atomic.Bool
 	partyUDPRelay             *currentPartyUDPRelay
 	// partyUDPRelayRemote 是 remote 档（厂商架构）的控制通道客户端：
 	// 注册到独立进程 a21-relay 换取端口矩阵，本进程不 bind 任何中继 UDP 端口。
@@ -417,6 +419,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.channelScript = append([]byte(nil), channelScript...)
 	s.cancel = cancel
 	s.packetLog = packetLog
+	s.packetLogDisabled.Store(packetLog == nil)
 	if s.initialTownEntryWait == nil {
 		// Initial-town visual delay is disabled. Production never blocks the
 		// server packet stream at the retained test boundary.
@@ -462,6 +465,7 @@ func (s *Service) Start(ctx context.Context) error {
 			s.catalog = nil
 			s.cancel = nil
 			s.packetLog = nil
+			s.packetLogDisabled.Store(true)
 			s.mu.Unlock()
 			return errors.Join(err, closeErr)
 		}
@@ -476,6 +480,7 @@ func (s *Service) Start(ctx context.Context) error {
 		s.catalog = nil
 		s.cancel = nil
 		s.packetLog = nil
+		s.packetLogDisabled.Store(true)
 		s.mu.Unlock()
 		return errors.Join(fmt.Errorf("dnfbridge has no game listen ports"), closeErr)
 	}
@@ -487,6 +492,7 @@ func (s *Service) Start(ctx context.Context) error {
 		s.catalog = nil
 		s.cancel = nil
 		s.packetLog = nil
+		s.packetLogDisabled.Store(true)
 		s.mu.Unlock()
 		return errors.Join(err, closeErr)
 	}
@@ -504,6 +510,7 @@ func (s *Service) Start(ctx context.Context) error {
 		s.catalog = nil
 		s.cancel = nil
 		s.packetLog = nil
+		s.packetLogDisabled.Store(true)
 		s.partyUDPRelay = nil
 		s.partyUDPRelayRemote = nil
 		s.mu.Unlock()
@@ -883,6 +890,7 @@ func (s *Service) Stop(ctx context.Context) error {
 	s.listeners = nil
 	s.cancel = nil
 	s.packetLog = nil
+	s.packetLogDisabled.Store(true)
 	s.partyUDPRelay = nil
 	s.partyUDPRelayRemote = nil
 	s.channelScript = nil
@@ -1042,6 +1050,9 @@ func (s *Service) openPacketLog() (*packetLogger, error) {
 }
 
 func (s *Service) logPacket(direction string, kind string, data []byte, fields ...any) {
+	if s.packetLogDisabled.Load() {
+		return
+	}
 	if suppressPacketLogLine(direction, kind, fields...) {
 		return
 	}
@@ -1052,6 +1063,9 @@ func (s *Service) logPacket(direction string, kind string, data []byte, fields .
 }
 
 func (s *Service) logPacketEvent(kind string, args ...any) {
+	if s.packetLogDisabled.Load() && !packetEventHasDiagnostic(kind) {
+		return
+	}
 	if suppressPacketLogEvent(kind, args...) {
 		return
 	}
@@ -1122,7 +1136,7 @@ func suppressPacketLogEvent(kind string, fields ...any) bool {
 
 func packetLogUintField(fields []any, name string) (uint64, bool) {
 	for i := 0; i+1 < len(fields); i += 2 {
-		if fmt.Sprint(fields[i]) != name {
+		if key, ok := fields[i].(string); !ok || key != name {
 			continue
 		}
 		switch v := fields[i+1].(type) {

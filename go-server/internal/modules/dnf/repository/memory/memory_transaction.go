@@ -363,13 +363,14 @@ type memoryCharacterTradeUnitOfWork struct {
 }
 
 type memoryCharacterAssetUnitOfWork struct {
-	activity  *memoryActivityStore
-	mu        sync.Mutex
-	sharedMu  *sync.Mutex
-	character repository.CharacterRepository
-	inventory repository.InventoryRepository
-	equipment repository.EquipmentRepository
-	quests    repository.QuestReader
+	levelUpChanges *repository.LevelUpChangeFeed
+	activity       *memoryActivityStore
+	mu             sync.Mutex
+	sharedMu       *sync.Mutex
+	character      repository.CharacterRepository
+	inventory      repository.InventoryRepository
+	equipment      repository.EquipmentRepository
+	quests         repository.QuestReader
 }
 
 func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssetsAndQuest(ctx context.Context, characterID string, apply func(repository.CharacterRepository, repository.QuestReader) error) error {
@@ -416,10 +417,11 @@ type memoryCharacterSkillUnitOfWork struct {
 }
 
 type memoryCharacterProgressionUnitOfWork struct {
-	mu        sync.Mutex
-	sharedMu  *sync.Mutex
-	character repository.CharacterRepository
-	skills    repository.SkillRepository
+	levelUpChanges *repository.LevelUpChangeFeed
+	mu             sync.Mutex
+	sharedMu       *sync.Mutex
+	character      repository.CharacterRepository
+	skills         repository.SkillRepository
 }
 
 func (u *memoryCharacterSkillUnitOfWork) WithinCharacterSkill(ctx context.Context, characterID string, apply func(repository.SkillRepository) error) error {
@@ -520,6 +522,9 @@ func (u *memoryCharacterProgressionUnitOfWork) WithinCharacterProgression(
 				restoreCharacterRecord(u.character, characterID, character, characterExists, characterTx.dirty),
 			)
 		}
+	}
+	if characterTx.dirty {
+		publishMemoryLevelUpChange(u.levelUpChanges, character, characterTx.record)
 	}
 	return nil
 }
@@ -957,6 +962,9 @@ func (u *memoryCharacterAssetUnitOfWork) WithinCharacterAssets(ctx context.Conte
 	}
 	if activityTx != nil {
 		activityTx.commit()
+	}
+	if characterTx.dirty {
+		publishMemoryLevelUpChange(u.levelUpChanges, character, characterTx.record)
 	}
 	return nil
 }
@@ -1473,4 +1481,20 @@ func (tx *memoryCharacterTradeCharacterTransaction) RecordActivity(ctx context.C
 		return false, repository.ErrActivityTransaction
 	}
 	return repository.ScopeCharacterActivity(tx.activity, ch).Record(ctx, event)
+}
+
+func publishMemoryLevelUpChange(feed *repository.LevelUpChangeFeed, before, after repository.CharacterRecord) {
+	if feed == nil {
+		return
+	}
+	if before.Level != after.Level {
+		feed.Publish(after.CharacterID)
+		return
+	}
+	for key, value := range after.Stats {
+		if _, ok := repository.LevelUpEventLevel(key); ok && value > 0 && before.Stats[key] != value {
+			feed.Publish(after.CharacterID)
+			return
+		}
+	}
 }

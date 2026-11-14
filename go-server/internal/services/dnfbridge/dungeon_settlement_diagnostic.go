@@ -4,27 +4,7 @@ package dnfbridge
 // packet logging. No packet body, account credential, or arbitrary error value
 // is forwarded to the application logger.
 func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
-	switch kind {
-	case "game-dungeon-death-preparation-deferred",
-		"game-dungeon-death-preparation-recovered",
-		"game-dungeon-settlement-entry-blocked",
-		"game-dungeon-settlement-entry-op31-send",
-		"game-dungeon-settlement-plan-blocked",
-		"game-dungeon-settlement-results-blocked",
-		"game-dungeon-settlement-historical-pickup-verified",
-		"game-dungeon-card-reward-plan-frozen",
-		"game-dungeon-party-instance-peer-final-room-deferred",
-		"game-dungeon-giveup-game-blocked",
-		"game-dungeon-card-exit-blocked",
-		"game-dungeon-card-exit-return-blocked",
-		"game-dungeon-back-to-village-request-received",
-		"game-dungeon-back-to-village-blocked",
-		"game-dungeon-completed-town-route-committed",
-		"game-dungeon-select-back-to-village-committed",
-		"game-luke-coin-validation",
-		"game-dungeon-use-coin-blocked",
-		"game-dungeon-use-coin-success":
-	default:
+	if !isDungeonSettlementDiagnostic(kind) {
 		return
 	}
 	args := []any{"kind", kind}
@@ -54,4 +34,31 @@ func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
 		}
 	}
 	s.logInfo("dnfbridge dungeon settlement diagnostic", args...)
+}
+
+func isDungeonSettlementDiagnostic(kind string) bool {
+	switch kind {
+	case "game-dungeon-death-preparation-deferred",
+		"game-dungeon-death-preparation-recovered",
+		"game-dungeon-settlement-entry-blocked",
+		"game-dungeon-settlement-entry-op31-send",
+		"game-dungeon-settlement-plan-blocked",
+		"game-dungeon-settlement-results-blocked",
+		"game-dungeon-settlement-historical-pickup-verified",
+		"game-dungeon-card-reward-plan-frozen",
+		"game-dungeon-party-instance-peer-final-room-deferred",
+		"game-dungeon-giveup-game-blocked",
+		"game-dungeon-card-exit-blocked",
+		"game-dungeon-card-exit-return-blocked",
+		"game-dungeon-back-to-village-request-received",
+		"game-dungeon-back-to-village-blocked",
+		"game-dungeon-completed-town-route-committed",
+		"game-dungeon-select-back-to-village-committed",
+		"game-luke-coin-validation",
+		"game-dungeon-use-coin-blocked",
+		"game-dungeon-use-coin-success":
+		return true
+	default:
+		return false
+	}
 }

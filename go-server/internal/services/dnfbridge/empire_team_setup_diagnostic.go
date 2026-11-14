@@ -24,12 +24,7 @@ func currentEmpireRosterRejection(err error) string {
 // Keep the team-window handshake observable without enabling raw packet logs.
 // Only bounded routing/count metadata is retained, never account or error text.
 func (s *Service) logEmpireTeamSetupDiagnostic(kind string, fields ...any) {
-	switch kind {
-	case "帝国竞技场队伍框资料请求已收到", "帝国竞技场队伍框资料请求已忽略",
-		"帝国竞技场应组队设置请求打开队伍框", "帝国竞技场休息室角色表尚未就绪",
-		"帝国竞技场选择框角色明细未就绪", "帝国竞技场已恢复保存队伍",
-		"帝国竞技场队员设置已拒绝，未扣费", "帝国竞技场队员设置已保存":
-	default:
+	if !isEmpireTeamSetupDiagnostic(kind) {
 		return
 	}
 	args := []any{"kind", kind}
@@ -68,4 +63,16 @@ func (s *Service) logEmpireTeamSetupDiagnostic(kind string, fields ...any) {
 		}
 	}
 	s.logInfo("dnfbridge empire team setup diagnostic", args...)
+}
+
+func isEmpireTeamSetupDiagnostic(kind string) bool {
+	switch kind {
+	case "帝国竞技场队伍框资料请求已收到", "帝国竞技场队伍框资料请求已忽略",
+		"帝国竞技场应组队设置请求打开队伍框", "帝国竞技场休息室角色表尚未就绪",
+		"帝国竞技场选择框角色明细未就绪", "帝国竞技场已恢复保存队伍",
+		"帝国竞技场队员设置已拒绝，未扣费", "帝国竞技场队员设置已保存":
+		return true
+	default:
+		return false
+	}
 }
