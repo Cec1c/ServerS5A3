@@ -85,13 +85,14 @@ def execute(root, output, checks, image, cache_prefix):
     output.mkdir(parents=True, exist_ok=False)
     receipt = dict(schema=1, sourceCommit=before["head"], sourceTree=before["tree"],
                    mode="docker-linux-local", image=image, startedAt=datetime.now(timezone.utc).isoformat(),
-                   passed=False, testsExecuted=any(n in ("full", "targeted") for n, _ in checks),
+                   passed=False, testsExecuted=False, testCommandsExecuted=False,
                    commands=[], artifactsRebuilt=False)
     try:
         for name, command in checks:
             started = time.monotonic()
             argv = docker_command(root, output, image, cache_prefix, command)
             observed = 0
+            cached, fresh = set(), set()
             with (output / (name + ".log")).open("w", encoding="utf-8") as log:
                 process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                            text=True, encoding="utf-8", errors="replace")
@@ -101,9 +102,18 @@ def execute(root, output, checks, image, cache_prefix):
                         try: event = json.loads(line)
                         except json.JSONDecodeError: continue
                         if event.get("Action") == "pass" and event.get("Test"): observed += 1
+                        if event.get("Action") == "output" and event.get("Output", "").startswith("ok"):
+                            (cached if "(cached)" in event["Output"] else fresh).add(event["Package"])
+                    elif name == "full" and line.startswith("ok"):
+                        fields = line.split()
+                        if len(fields) > 1: (cached if "(cached)" in line else fresh).add(fields[1])
                 code = process.wait()
+            if name in ("targeted", "full"):
+                receipt["testCommandsExecuted"] = True
+                receipt["testsExecuted"] |= bool(fresh)
             receipt["commands"].append(dict(stage=name, command=command, exitCode=code,
-                seconds=round(time.monotonic()-started, 3), testsPassed=observed if name == "targeted" else None))
+                seconds=round(time.monotonic()-started, 3), testsPassed=observed if name == "targeted" else None,
+                cachedPackages=sorted(cached), freshPackages=sorted(fresh)))
             if code: raise RuntimeError(name + " failed; see " + str(output / (name + ".log")))
             if name == "targeted" and not observed:
                 raise ValueError("no tests matched; correct --package/--run before attesting success")

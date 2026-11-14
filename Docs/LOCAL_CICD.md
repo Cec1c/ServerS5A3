@@ -17,7 +17,7 @@ LOCAL_VERIFY.bat --build-only --output runtime/verify/release-01
 
 入口只读 bind 源码与 Git 元数据，共享 `dnf-local-gomod` / `dnf-local-gocache` 命名卷，输出目录可写。不克隆/复制全仓，不调用 WSL/Kali。缓存前缀可 `--cache-prefix` 指定；不执行全局 prune。Docker 不可用时修复 Docker。
 
-所选测试后执行相关 vet、`go mod verify` 与 Linux/amd64 CGO0、timetzdata 的新 server build。输出日志、`DNF90Server` 和 `validation.json`，含精确提交/tree、命令、退出码、耗时及程序摘要。`--build-only` 明确记录 testsExecuted=false，不把构建说成测试。失败也保留回执，不能用于打包。
+所选测试后执行相关 vet、`go mod verify` 与 Linux/amd64 CGO0、timetzdata 的新 server build。输出日志、`DNF90Server` 和 `validation.json`，含精确提交/tree、命令、退出码、耗时及程序摘要。回执分开记录测试命令执行、实际新执行包和缓存命中包；全部命中缓存或 `--build-only` 时 testsExecuted=false，不把缓存结果/构建说成新测试。失败也保留回执，不能用于打包。
 
 Go 缓存按输入决定复用。外部数据库内容、网络、未建模的时间因素不由普通缓存证明，相关调查用 `--uncached` 或原集成命令 `-count=1`。`-run` 只减少执行用例，仍编译整个包。纯工具改动运行工具专项，不需要先执行本入口的游戏构建。
 
