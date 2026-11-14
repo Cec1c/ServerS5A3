@@ -102,7 +102,7 @@ func TestLuckyAllUnder90StateAndCommittedCapImmediate(t *testing.T) {
 	}
 	list, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 	state, rest := splitGameServerUpperPacket(t, rest)
-	if list.Header.MsgID != 1054 || len(list.Body) <= 4 || !bytes.Equal(state.Body, []byte{100, 0, 0}) || len(rest) != 0 || !q.luckyPreparedActive || s.currentLuckyCharacterEffect(q, ch) == nil {
+	if list.Header.MsgID != 1054 || len(list.Body) <= 4 || !bytes.Equal(state.Body, []byte{100, 0, 0}) || len(rest) != 0 || !q.luckyPreparedActive.Load() || s.currentLuckyCharacterEffect(q, ch) == nil {
 		t.Fatal("existing Lv89 role did not receive its lucky projection")
 	}
 	persisted, _, _ := r.Character.Load(ctx, "99")
@@ -119,7 +119,7 @@ func TestLuckyAllUnder90StateAndCommittedCapImmediate(t *testing.T) {
 	s.afterCurrentLevelUpRewardCommand(q)
 	list, rest = splitGameServerUpperPacket(t, conn.write.Bytes())
 	state, rest = splitGameServerUpperPacket(t, rest)
-	if list.Header.MsgID != 1054 || !bytes.Equal(list.Body, make([]byte, 4)) || state.Header.MsgID != 490 || !bytes.Equal(state.Body, []byte{0, 0, 3}) || len(rest) != 0 || q.luckyPreparedActive {
+	if list.Header.MsgID != 1054 || !bytes.Equal(list.Body, make([]byte, 4)) || state.Header.MsgID != 490 || !bytes.Equal(state.Body, []byte{0, 0, 3}) || len(rest) != 0 || q.luckyPreparedActive.Load() {
 		t.Fatal("Lv90 not revoked in command tail")
 	}
 	if s.currentLuckyCharacterEffect(q, ch) != nil || s.currentLuckyUniqueDropPercent(q, ch) != 0 {

@@ -7,8 +7,8 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-// The existing command-tail owner reads committed levels for the actor and all
-// party members. Revoke the projection there even when no reward mail is due.
+// A committed progression notification revokes the projection at the level cap,
+// independently of whether reward mail is due.
 // A transport failure never rolls back the already committed level or EXP.
 func (s *Service) refreshCurrentLuckyCharacterAfterProgression(ctx context.Context, ch repo.CharacterRecord) {
 	s.returneeLuckyMu.Lock()
@@ -22,7 +22,7 @@ func (s *Service) refreshCurrentLuckyCharacterAfterProgression(ctx context.Conte
 		return
 	}
 	identity, found := s.onlineGameSessionCharacterSnapshot(uint16(id))
-	if !found {
+	if !found || !identity.session.luckyPreparedActive.Load() {
 		return
 	}
 	reservation, err := s.reserveCurrentCharacterAssets(ctx, identity, ch.AccountID)
@@ -30,7 +30,7 @@ func (s *Service) refreshCurrentLuckyCharacterAfterProgression(ctx context.Conte
 		return
 	}
 	defer s.releaseCurrentCharacterAssets(reservation)
-	if !identity.session.luckyPreparedActive {
+	if !identity.session.luckyPreparedActive.Load() {
 		return
 	}
 	if err := s.sendCurrentLuckyCharacterState(identity.session); err != nil {

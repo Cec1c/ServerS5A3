@@ -450,7 +450,7 @@ type gameSession struct {
 	luckyPreparedCharacter         uint16
 	luckyPreparedGeneration        uint64
 	luckyPreparedActorGeneration   uint64
-	luckyPreparedActive            bool
+	luckyPreparedActive            atomic.Bool
 	luckyFatigueProjection         currentLuckyFatigueProjection
 	portedActivityNextRefresh      time.Time
 	laborDayAnchor                 time.Time
@@ -712,7 +712,6 @@ func (s *Service) gameListenPorts(catalog *channelcatalog.Catalog) []int {
 }
 
 func (s *Service) handleGameStreamPacket(session *gameSession, packet dnfproto.LatestGameStreamPacket) error {
-	defer s.afterCurrentLevelUpRewardCommand(session)
 	// 登录路径的 actor 世代重建钩子：布防发生在 type1345 那一包的**派发过程中**，
 	// 所以"派发前已经布防"恰好等价于"这是场景就绪 ack 之后的第一条客户端报文"。
 	// 见 login_actor_generation_rebuild.go。
