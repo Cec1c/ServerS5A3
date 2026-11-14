@@ -285,11 +285,17 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 	if err != nil {
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
-	if full {
+	return s.sendCurrentGuildRosterDisplay(ctx, bound, g, opcode, full, cursor, source, false, &buildTime, &writeTime)
+}
+
+// g is an immutable display snapshot. Only recipient session state is updated.
+func (s *Service) sendCurrentGuildRosterDisplay(ctx context.Context, bound boundGameSessionCharacter, g *dnfguild.Guild, opcode uint16, full, cursor bool, source string, notifyMembership bool, buildTime, writeTime *time.Duration) error {
+	session := bound.session
+	if full || notifyMembership {
 		if primeErr := s.primeCurrentWeddingGuildRosterForBound(ctx, bound, g); primeErr != nil {
 			s.logGameEvent(session, "game-wedding-guild-roster-prime-deferred", "error", primeErr)
 		}
-		if err = s.sendCurrentGuildManagementProjection(session, g, false); err != nil {
+		if err := s.sendCurrentGuildManagementProjection(session, g, notifyMembership); err != nil {
 			return err
 		}
 	}
@@ -305,7 +311,7 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 	body := buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID()))
 	s.performanceEnd(perfGuildProjectionBuild, buildStart, nil)
 	if !buildStart.IsZero() {
-		buildTime = time.Since(buildStart)
+		*buildTime = time.Since(buildStart)
 	}
 	// EXIT and this final roster frame share the scene fence, just like NOTI127.
 	if source == "client" {
@@ -318,10 +324,10 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 		return nil
 	}
 	writeStart := s.performanceStart()
-	err = s.sendGameUpperSuccess(session, opcode, body)
+	err := s.sendGameUpperSuccess(session, opcode, body)
 	s.performanceEnd(perfGuildRosterWrite, writeStart, err)
 	if !writeStart.IsZero() {
-		writeTime = time.Since(writeStart)
+		*writeTime = time.Since(writeStart)
 	}
 	return err
 }

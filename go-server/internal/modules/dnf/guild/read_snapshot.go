@@ -261,3 +261,14 @@ func (snapshot *guildReadSnapshot) entitlement(owner r.GuildOwner) (GuildEntitle
 	}
 	return result, true
 }
+
+// GuildReadVersion identifies immutable registry contents in this process.
+// It has no mutable fields and is meaningful only within a bounded read fanout.
+type GuildReadVersion struct{ snapshot *guildReadSnapshot }
+
+func (m *GuildReadMembership) Version() GuildReadVersion {
+	if m == nil {
+		return GuildReadVersion{}
+	}
+	return GuildReadVersion{snapshot: m.snapshot}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	guild "longheng.io/server/internal/modules/dnf/guild"
@@ -30,7 +31,19 @@ func (s *Service) initializeGuildContributionProjection(ctx context.Context) err
 
 // Membership, current identities and contribution counters share one read
 // view. No registry/character writer lock or complete asset record is needed.
+// Shared only by one presence broadcast. Consumers treat g as immutable;
+// each recipient still validates current membership and owner in its own RR view.
+type guildPresenceReadCache struct {
+	mu      sync.Mutex
+	version guild.GuildReadVersion
+	g       *guild.Guild
+}
+
 func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameSessionCharacter, contribution, hydrateMembers bool) (*guild.Guild, error) {
+	return s.readCurrentGuildDisplayShared(ctx, source, contribution, hydrateMembers, nil)
+}
+
+func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boundGameSessionCharacter, contribution, hydrateMembers bool, shared *guildPresenceReadCache) (*guild.Guild, error) {
 	repos, ok := s.repositoryGroup()
 	if !ok {
 		return nil, guild.ErrRepositoryUnavailable
@@ -46,7 +59,30 @@ func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameS
 			return guild.ErrCharacterNotFound
 		}
 		registryStart := s.performanceStart()
-		g, err := guild.ReadGuildDisplay(ctx, view.Settings, owner)
+		membership, _, err := guild.ReadGuildMembership(ctx, view.Settings, owner.CharacterID)
+		if err != nil {
+			return err
+		}
+		if shared != nil && !contribution && hydrateMembers && membership != nil {
+			shared.mu.Lock()
+			defer shared.mu.Unlock()
+			if shared.g != nil && shared.version == membership.Version() {
+				m, member := shared.g.Members[owner.CharacterID]
+				if member && m.AccountID == owner.AccountID {
+					current, err := view.Characters.LoadGuildCharacters(ctx, []string{owner.CharacterID})
+					if err != nil {
+						return err
+					}
+					c, found := current[owner.CharacterID]
+					if !found || c.CharacterID != owner.CharacterID || c.AccountID != owner.AccountID || c.DeleteFlag != 0 {
+						return guild.ErrCharacterNotFound
+					}
+					result = shared.g
+					return nil
+				}
+			}
+		}
+		g, err := membership.Display(owner)
 		s.performanceEnd(perfGuildRegistryRead, registryStart, err)
 		if err != nil {
 			return err
@@ -99,6 +135,9 @@ func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameS
 			g.Members[m.CharacterID] = m
 		}
 		result = g
+		if shared != nil && !contribution && hydrateMembers && membership != nil {
+			shared.g, shared.version = g, membership.Version()
+		}
 		return nil
 	})
 	return result, err

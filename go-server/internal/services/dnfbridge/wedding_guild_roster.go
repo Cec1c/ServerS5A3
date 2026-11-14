@@ -23,7 +23,8 @@ func (s *Service) primeCurrentWeddingGuildRosterForBound(ctx context.Context, bo
 	if !ok || repos.Character == nil {
 		return wedding.ErrUnavailable
 	}
-	viewer, found, err := repos.Character.Load(ctx, strconv.Itoa(int(bound.character)))
+	snapshot, found, err := r.LoadCharacterWedding(ctx, repos.Character, strconv.Itoa(int(bound.character)))
+	viewer := r.CharacterRecord{CharacterID: snapshot.CharacterID, AccountID: snapshot.AccountID, Stats: snapshot.Stats}
 	if err != nil {
 		return err
 	}

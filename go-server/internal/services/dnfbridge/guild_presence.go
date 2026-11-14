@@ -85,6 +85,7 @@ func (s *Service) queueCurrentGuildPresenceRefresh(ctx context.Context, guildID 
 	if !found {
 		return
 	}
+	shared := &guildPresenceReadCache{}
 	for _, member := range dnfguild.SortedMembers(guild) {
 		id, err := strconv.ParseUint(member.CharacterID, 10, 16)
 		if err != nil || id == 0 {
@@ -94,6 +95,6 @@ func (s *Service) queueCurrentGuildPresenceRefresh(ctx context.Context, guildID 
 		if !online {
 			continue
 		}
-		s.requestCurrentGuildPresenceRefresh(peer, guildID)
+		s.requestCurrentGuildPresenceRefresh(peer, guildID, shared)
 	}
 }
