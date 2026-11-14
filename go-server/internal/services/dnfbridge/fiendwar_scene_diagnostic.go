@@ -27,6 +27,18 @@ func currentFiendWarSceneDiagnosticRun(p *gameSession, r *runtimeDungeonState) b
 		entry.RunID != ""
 }
 
+// Diagnostics need only scalar identity. Never materialize the map token tree
+// on movement or finish-loading, including after the sample budget is spent.
+func (s *Service) logFiendWarSceneLocationDiagnostic(p *gameSession, r *runtimeDungeonState, stage string, x, y uint16) {
+	if !currentFiendWarSceneDiagnosticRun(p, r) || r.Session == nil {
+		return
+	}
+	coordinate, mapID := r.Session.Location()
+	scene := worldmap.DungeonRoomScene{Coordinate: coordinate}
+	scene.Map.Map.ID = mapID
+	s.logFiendWarSceneDiagnostic(p, r, scene, stage, x, y)
+}
+
 // Call with the same session/runtime ownership as the surrounding scene code.
 // Do not take dungeon.mu here: op35 already holds it.
 func (s *Service) logFiendWarSceneDiagnostic(p *gameSession, r *runtimeDungeonState, scene worldmap.DungeonRoomScene, stage string, x, y uint16) {
@@ -97,7 +109,5 @@ func (s *Service) logCurrentFiendWarFinishLoadingStage(p *gameSession, stage str
 	if r == nil || r.Session == nil {
 		return
 	}
-	if scene, ok := r.Session.Scene(); ok {
-		s.logFiendWarSceneDiagnostic(p, r, scene, stage, 0, 0)
-	}
+	s.logFiendWarSceneLocationDiagnostic(p, r, stage, 0, 0)
 }

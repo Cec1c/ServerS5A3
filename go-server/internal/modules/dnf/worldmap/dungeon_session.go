@@ -110,6 +110,23 @@ func (s *DungeonSession) Scene() (DungeonRoomScene, bool) {
 	return cloneDungeonRoomScene(s.scene), true
 }
 
+// RuntimeScene returns detached gameplay fields and dynamic actor state.
+// SourceSections is an archival parser token tree, not combat state; readers
+// which inspect raw PVF syntax must explicitly use Scene instead. Neither API
+// exposes writable aliases to the session's static map or dynamic state.
+func (s *DungeonSession) RuntimeScene() (DungeonRoomScene, bool) {
+	if s == nil || s.run == nil {
+		return DungeonRoomScene{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	scene := s.scene
+	scene.Map.Map.SourceSections = nil
+	scene.Map.Map.compactSourceTokens = nil
+	scene.Map.Map.compactSourceTexts = nil
+	return cloneDungeonRoomScene(scene), true
+}
+
 // Rooms exposes the run's frozen map choices without exposing its mutable
 // visit/clear state. Party orchestration uses this to give every member the
 // leader's exact PVF map selection.

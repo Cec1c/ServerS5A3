@@ -79,8 +79,8 @@ func currentDungeonRoomOwnsScene(runtime *runtimeDungeonState, scene worldmap.Du
 	if runtime == nil || runtime.Room == nil || runtime.Session == nil {
 		return false
 	}
-	current, ok := runtime.Session.Scene()
-	if !ok || current.Coordinate != scene.Coordinate || current.Map.Map.ID != scene.Map.Map.ID {
+	coordinate, mapID := runtime.Session.Location()
+	if coordinate != scene.Coordinate || mapID != scene.Map.Map.ID {
 		return false
 	}
 	room := runtime.Room.Snapshot()

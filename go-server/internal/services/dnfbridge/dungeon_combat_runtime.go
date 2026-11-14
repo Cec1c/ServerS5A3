@@ -117,7 +117,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			}
 		}
 	}
-	scene, hasScene := runtime.Session.Scene()
+	scene, hasScene := runtime.Session.RuntimeScene()
 	if s.isCurrentTagTournamentChannel(session) && session.tagTournamentBattle != nil {
 		return s.handleCurrentTagTournamentMonsterDeathLocked(session, runtime, request)
 	}
@@ -397,7 +397,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			responseBody,
 			"op39_authoritative_non_hostile_ai_retirement",
 		)
-		scene, _ = runtime.Session.Scene()
+		scene, _ = runtime.Session.RuntimeScene()
 		s.logGameEvent(session, "game-dungeon-non-hostile-ai-retired",
 			"dungeon_id", runtime.Dungeon.ID,
 			"maze_index", runtime.MazeIndex,
@@ -681,7 +681,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			s.performanceEnd(perfMonsterClear, clearStarted, err)
 			return err
 		}
-		scene, _ = runtime.Session.Scene()
+		scene, _ = runtime.Session.RuntimeScene()
 		s.awardCurrentPetRoomClearLocked(session, runtime, scene, "authoritative_special_monster_retirement")
 		s.performanceEnd(perfMonsterClear, clearStarted, nil)
 		s.logGameEvent(session, "game-dungeon-special-monster-retired",
@@ -815,7 +815,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 		}
 		runtime.storyProcDeaths[request.RuntimeObjectKey] = dungeonStoryProcDeathReceipt{Evidence: storyProcEvidence, MapID: scene.Map.Map.ID, Coordinate: scene.Coordinate, Reference: target.Reference}
 	}
-	scene, _ = runtime.Session.Scene()
+	scene, _ = runtime.Session.RuntimeScene()
 	storyAIBossGate, storyAIBossGateActive := currentDungeonStoryAIBossDeathGate(runtime, scene)
 	if err := s.settleCurrentDungeonRewardEnemyQuestDropLocked(
 		session,
@@ -1170,7 +1170,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 			forcedBossClearCount = forcedDefeated
 			forcedBossVisualDeathCount = forcedVisual
 			cleared = cleared || forcedCleared
-			scene, _ = runtime.Session.Scene()
+			scene, _ = runtime.Session.RuntimeScene()
 			s.logGameEvent(session, "game-dungeon-boss-forced-room-clear",
 				"dungeon_id", runtime.Dungeon.ID,
 				"maze_index", runtime.MazeIndex,
@@ -1202,7 +1202,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}
 	detailStarted = timing.detail(5, detailStarted)
 	if cleared || (storyAIBossGateActive && storyAIBossGate.Ready && scene.Cleared) {
-		if clearedScene, ok := runtime.Session.Scene(); ok {
+		if clearedScene, ok := runtime.Session.RuntimeScene(); ok {
 			s.awardCurrentPetRoomClearLocked(session, runtime, clearedScene, "authoritative_monster_room_clear")
 		}
 	}
@@ -1341,7 +1341,7 @@ func (s *Service) replayCurrentDungeonMonsterDeathLocked(
 	objectKey uint32,
 ) error {
 	if runtime.Session != nil {
-		if scene, ok := runtime.Session.Scene(); ok {
+		if scene, ok := runtime.Session.RuntimeScene(); ok {
 			if err := s.offerCurrentEpicShopLocked(session, runtime, scene); err != nil {
 				return err
 			}
@@ -1418,7 +1418,7 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 			if target, found := runtime.Room.DefeatedDeathTarget(objectKey); found &&
 				(target.Reference.Kind == worldmap.HostileAICharacter ||
 					runtime.partyInstance != nil && runtime.bossDieCheckAccepted && !runtime.settlementEntrySent) {
-				if scene, ok := runtime.Session.Scene(); ok {
+				if scene, ok := runtime.Session.RuntimeScene(); ok {
 					sessionRoomCleared = scene.Cleared
 				}
 			}
@@ -1452,7 +1452,7 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 	}
 	if sessionRoomCleared && runtime.Session != nil {
 		// 队友自己的房间清空了：在他自己的会话里跑最终房间完成（与"被接受的 op39"同一条链）。
-		if scene, ok := runtime.Session.Scene(); ok {
+		if scene, ok := runtime.Session.RuntimeScene(); ok {
 			if err := s.recordCurrentActivityAbyss(session, runtime, scene, false); err != nil {
 				return err
 			}

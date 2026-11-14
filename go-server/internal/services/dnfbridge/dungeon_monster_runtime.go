@@ -286,7 +286,7 @@ func (r *runtimeDungeonRoom) AnnounceAllActors(session *worldmap.DungeonSession)
 		}
 	}
 
-	scene, ok := session.Scene()
+	scene, ok := session.RuntimeScene()
 	if !ok {
 		return 0, worldmap.ErrDungeonRunRequired
 	}
@@ -596,7 +596,7 @@ func (r *runtimeDungeonRoom) commitActorDeathReportPrepared(objectKey uint32, se
 	if session == nil {
 		return runtimeDungeonDeathTarget{}, false, worldmap.ErrDungeonRunRequired
 	}
-	scene, ok := session.Scene()
+	scene, ok := session.RuntimeScene()
 	if !ok {
 		return runtimeDungeonDeathTarget{}, false, worldmap.ErrDungeonRunRequired
 	}

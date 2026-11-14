@@ -25,7 +25,7 @@ type questMaterialRecipient struct {
 // The scene registration and actor binding exclude remote rooms and late joins.
 func (s *Service) questMaterialRecipients(p *gameSession, rt *runtimeDungeonState, key uint32) []questMaterialRecipient {
 	out := []questMaterialRecipient{{p.selectedCharacterID, s.accountIDForSession(p), p}}
-	scene, ok := rt.Session.Scene()
+	scene, ok := rt.Session.RuntimeScene()
 	if !ok {
 		return nil
 	}
@@ -34,7 +34,7 @@ func (s *Service) questMaterialRecipients(p *gameSession, rt *runtimeDungeonStat
 		if !bound || identity.character != peer.CharacterID || peer.Scene == nil {
 			continue
 		}
-		other, ok := peer.Scene.Scene()
+		other, ok := peer.Scene.RuntimeScene()
 		if !ok || other.Coordinate != scene.Coordinate || other.Map.Map.ID != scene.Map.Map.ID {
 			continue
 		}
