@@ -577,6 +577,9 @@ func upperSuccessBody(body []byte) []byte {
 }
 
 func (s *Service) logGamePacket(session *gameSession, direction string, kind string, data []byte, fields ...any) {
+	if s.packetLogDisabled.Load() || suppressPacketLogLine(direction, kind, fields...) {
+		return
+	}
 	if session == nil {
 		s.logPacket(direction, kind, data, fields...)
 		return
@@ -590,6 +593,12 @@ func (s *Service) logGamePacket(session *gameSession, direction string, kind str
 
 func (s *Service) logGameEvent(session *gameSession, kind string, fields ...any) {
 	s.logGoldDiagnosticPickup(session, kind, fields...)
+	if s.packetLogDisabled.Load() && !packetEventHasDiagnostic(kind) {
+		return
+	}
+	if suppressPacketLogEvent(kind, fields...) {
+		return
+	}
 	if session == nil {
 		s.logPacketEvent(kind, fields...)
 		return

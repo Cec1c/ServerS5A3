@@ -4,44 +4,8 @@ package dnfbridge
 // describe the existing call sites: a pre-write event is not a successful send,
 // and a returned socket write does not prove that the client displayed its UI.
 func (s *Service) logTownSelectorDiagnostic(kind string, fields ...any) {
-	var phase string
-	switch kind {
-	case "game-dungeon-select-party-context":
-		phase = "entry_request"
-	case "game-party-dungeon-entry-blocked":
-		phase = "party_preflight_rejected"
-	case "game-dungeon-select-blocked":
-		phase = "entry_validation_rejected"
-	case "game-raid-dungeon-selection-rejected":
-		phase = "raid_map_rejected"
-	case "game-enter-select-dungeon-state-send":
-		phase = "before_selector_ack"
-	case "game-upper-town-enter-select-origin-bound":
-		phase = "context_write_returned"
-	case "game-upper-town-enter-select-context-deferred":
-		phase = "context_not_ready"
-	case "game-upper-enter-select-dungeon-after-back-to-village-suppressed":
-		phase = "request_suppressed"
-	case "game-upper-enter-select-dungeon-after-town-transport-window-expired",
-		"game-upper-enter-select-dungeon-after-back-to-village-window-expired":
-		phase = "suppression_expired"
-	case "game-raid-selector-open-rejected", "game-raid-selector-follower-rejected":
-		phase = "admission_rejected"
-	case "game-upper-enter-select-dungeon-completed-runtime-retire-blocked":
-		phase = "completed_runtime_retire_failed"
-	case "game-raid-selector-self-projection-restore-failed":
-		phase = "selector_projection_failed"
-	case "game-party-enter-select-member-skipped":
-		phase = "follower_area_mismatch"
-	case "game-party-enter-select-non-leader-initiated":
-		phase = "member_initiated"
-	case "game-party-enter-select-member-self-prepared":
-		phase = "member_prepare_returned"
-	case "game-party-enter-select-follower-deferred":
-		phase = "follower_not_ready"
-	case "game-party-enter-select-follower-synchronized":
-		phase = "follower_sequence_returned"
-	default:
+	phase := townSelectorDiagnosticPhase(kind)
+	if phase == "" {
 		return
 	}
 	args := []any{"kind", kind, "phase", phase}
@@ -88,4 +52,46 @@ func townSelectorDiagnosticFieldAllowed(key string, value any) bool {
 		return ok
 	}
 	return false
+}
+
+func townSelectorDiagnosticPhase(kind string) string {
+	switch kind {
+	case "game-dungeon-select-party-context":
+		return "entry_request"
+	case "game-party-dungeon-entry-blocked":
+		return "party_preflight_rejected"
+	case "game-dungeon-select-blocked":
+		return "entry_validation_rejected"
+	case "game-raid-dungeon-selection-rejected":
+		return "raid_map_rejected"
+	case "game-enter-select-dungeon-state-send":
+		return "before_selector_ack"
+	case "game-upper-town-enter-select-origin-bound":
+		return "context_write_returned"
+	case "game-upper-town-enter-select-context-deferred":
+		return "context_not_ready"
+	case "game-upper-enter-select-dungeon-after-back-to-village-suppressed":
+		return "request_suppressed"
+	case "game-upper-enter-select-dungeon-after-town-transport-window-expired",
+		"game-upper-enter-select-dungeon-after-back-to-village-window-expired":
+		return "suppression_expired"
+	case "game-raid-selector-open-rejected", "game-raid-selector-follower-rejected":
+		return "admission_rejected"
+	case "game-upper-enter-select-dungeon-completed-runtime-retire-blocked":
+		return "completed_runtime_retire_failed"
+	case "game-raid-selector-self-projection-restore-failed":
+		return "selector_projection_failed"
+	case "game-party-enter-select-member-skipped":
+		return "follower_area_mismatch"
+	case "game-party-enter-select-non-leader-initiated":
+		return "member_initiated"
+	case "game-party-enter-select-member-self-prepared":
+		return "member_prepare_returned"
+	case "game-party-enter-select-follower-deferred":
+		return "follower_not_ready"
+	case "game-party-enter-select-follower-synchronized":
+		return "follower_sequence_returned"
+	default:
+		return ""
+	}
 }

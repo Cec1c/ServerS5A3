@@ -21,11 +21,13 @@ import (
 )
 
 type gameSession struct {
-	accountFriendPresence accountFriendPresenceKey // guarded by Service.mu
-	accountFriendPresenceReady bool // guarded by Service.mu
-	accountFriendRefreshAt time.Time // selected-character event owner
-	accountFriendPendingBody []byte // immutable last successfully sent projection
-	growthTicketPending *privateGrowthPending // selected-character event owner only
+	accountFriendPresence      accountFriendPresenceKey // guarded by Service.mu
+	accountFriendPresenceReady bool                     // guarded by Service.mu
+	accountFriendRefreshAt     time.Time                // selected-character event owner
+	accountFriendPendingBody   []byte                   // immutable last successfully sent projection
+	townMoveMu                 sync.Mutex
+	townMoves                  map[townMoveKey]*townMovePending
+	growthTicketPending        *privateGrowthPending // selected-character event owner only
 	// Invalidates initial peer placement without taking another session dungeon lock under the wire lock.
 	dungeonPlacementEpoch     atomic.Uint64
 	peerResultDiagnosticCount uint8                             // serial event owner; bounded observations per connection
