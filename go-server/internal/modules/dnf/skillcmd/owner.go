@@ -1077,6 +1077,18 @@ func ensureSkillLayout(catalog *dnfskill.Table, job byte, tree int, states map[i
 		layout[slot] = skillID
 		assigned[skillID] = struct{}{}
 	}
+	if job == darkcombo.Job {
+		// Claim the fixed roots before allocating missing skills, so a full
+		// skill-tree page never needs temporary slots for the six roots.
+		normalized, _, err := darkcombo.NormalizeFixedComboRootSlots(catalog, states, layout)
+		if err != nil {
+			return nil, err
+		}
+		layout = normalized
+		for _, skillID := range layout {
+			assigned[skillID] = struct{}{}
+		}
+	}
 	ids := make([]int, 0, len(states))
 	for rawID, state := range states {
 		if state.Level > 0 && rawID >= 0 && rawID <= 0xffff {
@@ -1115,18 +1127,23 @@ func ensureSkillLayout(catalog *dnfskill.Table, job byte, tree int, states map[i
 
 // BuildCurrentSkillLayout reconstructs the current EXE's skill-tree slots from
 // persisted learned skills and any existing assignments. Active tree-zero
-// skills occupy the primary/extension quick slots; passive skills stay in the
-// grouped skill-tree ranges.
+// skills normally occupy the primary/extension quick slots. Dark Knight
+// ordinary active skills use tree slots; existing extension bindings survive.
+// Passive skills stay in the grouped skill-tree ranges.
 func BuildCurrentSkillLayout(catalog *dnfskill.Table, job byte, tree int, states map[int64]dnfrepo.SkillState, existing dnfrepo.SkillLayout) (dnfrepo.SkillLayout, error) {
 	return ensureSkillLayout(catalog, job, tree, states, existing)
 }
 
 // BuildInitialSkillLayout builds the first persisted layout for PVF starter
-// skills. Only the first three active skills are placed on the primary
-// quickbar; every other learned skill remains available in its tree group.
+// skills. Dark Knight reserves its fixed roots and keeps ordinary active
+// skills in tree slots. Other jobs place only the first three active skills
+// on the primary quickbar; other learned skills stay in their tree groups.
 func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states map[int64]dnfrepo.SkillState) (dnfrepo.SkillLayout, error) {
 	if catalog == nil {
 		return nil, fmt.Errorf("%w: initial layout job=%d", ErrSkillNotFound, job)
+	}
+	if job == darkcombo.Job {
+		return ensureSkillLayout(catalog, job, tree, states, nil)
 	}
 	layout := make(dnfrepo.SkillLayout)
 	ids := make([]int, 0, len(states))
@@ -1166,14 +1183,19 @@ func BuildInitialSkillLayout(catalog *dnfskill.Table, job byte, tree int, states
 		}
 		layout[slot] = skillID
 	}
-	if job == darkcombo.Job {
-		normalized, _, err := darkcombo.NormalizeFixedComboRootSlots(catalog, states, layout)
-		return normalized, err
-	}
 	return layout, nil
 }
 
 func allocateSkillSlot(definition dnfskill.Skill, tree int, occupied dnfrepo.SkillLayout) int {
+	// Automatic Dark Knight learning must not fill the player's extension
+	// shortcuts. Prefer the active tree group, then the remaining tree slots.
+	// Fixed combo roots are installed separately by ensureSkillLayout.
+	if definition.Job == darkcombo.Job && definition.Active && !definition.IsTPSkill() {
+		if slot := firstFreeSkillSlot(occupied, 150, 198); slot >= 0 {
+			return slot
+		}
+		return firstFreeSkillSlot(occupied, 6, 150)
+	}
 	// 保留既有领域/数据库的两段快捷栏编号。90客户端线上编号由dnfbridge
 	// 在op19/op29/op28边界统一转换，不能把这里的198直接解释成当前线上快捷栏。
 	//

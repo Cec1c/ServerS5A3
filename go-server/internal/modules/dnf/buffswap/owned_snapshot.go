@@ -240,75 +240,98 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 		}
 	}
 	var result OwnedProjection
-	err := repo.WithinBuffOwnedSnapshot(ctx, base, characterID, accountID, func(tx repo.Group) error {
-		owner, ownerFound, err := tx.Character.Load(ctx, characterID)
-		if err != nil {
-			return err
+	migrationRequired := false
+	load := func(writable bool) error {
+		within := repo.WithinBuffOwnedReadSnapshot
+		if writable {
+			within = repo.WithinBuffOwnedSnapshot
 		}
-		if !ownerFound || owner.CharacterID != characterID || owner.AccountID != accountID {
-			return repo.ErrBuffLegacyOwnerMismatch
-		}
-		result.Owner = repo.CloneCharacter(owner)
-		state, found, err := Load(ctx, tx, characterID, accountID)
-		if err != nil {
-			return err
-		}
-		result.Found = found
-		if !found {
-			result.State = State{WireProfile: CurrentWireProfile}
-			return nil
-		}
-		if groupView {
-			ensureSkillSlots(&state)
-			ensureSelectedSkills(&state)
-			selectedSkill, selected := state.SelectedSkills[selectedGroup]
-			if !selected {
-				result.State = State{WireProfile: state.WireProfile, Slots: map[byte]Binding{}}
-				return nil
-			}
-			state = State{
-				WireProfile: state.WireProfile,
-				Skill:       selectedSkill,
-				Slots:       cloneBindingMap(state.SkillSlots[selectedSkill]),
-			}
-			if state.Slots == nil {
-				state.Slots = make(map[byte]Binding)
-			}
-			// A group projection is read-only for instance identity. In
-			// particular it must not persist the selected group through the
-			// legacy active Skill/Slots view.
-			options.MigrateCurrentInstances = false
-		}
-		// Skill-only/cleared states need no item container/Legacy/Pet dependency.
-		if len(state.Slots) == 0 {
-			result.State = state
-			return nil
-		}
-		// Only an explicit Legacy binding needs the optional old mirror. Current
-		// bindings never start unrelated Legacy reads during cold recovery.
-		options.legacyLists = nil
-		for _, binding := range state.Slots {
-			if binding.SourceKind == SourceLegacyUID {
-				options.legacyLists = []byte{0, 1, 7}
-				break
-			}
-		}
-		view, err := readOwnedSources(ctx, tx, characterID, options)
-		if err != nil {
-			return err
-		}
-		if options.MigrateCurrentInstances {
-			if _, err := migrateCurrentInstanceBindings(ctx, tx, characterID, &state, &view); err != nil {
+		return within(ctx, base, characterID, accountID, func(tx repo.Group) error {
+			owner, ownerFound, err := tx.Character.Load(ctx, characterID)
+			if err != nil {
 				return err
 			}
-		}
-		projection, err := resolveOwnedProjection(ctx, tx, characterID, state, view)
-		projection.Owner = result.Owner
-		result = projection
-		return err
-	})
-	if err != nil {
+			if !ownerFound || owner.CharacterID != characterID || owner.AccountID != accountID {
+				return repo.ErrBuffLegacyOwnerMismatch
+			}
+			result.Owner = repo.CloneCharacter(owner)
+			state, found, err := Load(ctx, tx, characterID, accountID)
+			if err != nil {
+				return err
+			}
+			result.Found = found
+			if !found {
+				result.State = State{WireProfile: CurrentWireProfile}
+				return nil
+			}
+			if groupView {
+				ensureSkillSlots(&state)
+				ensureSelectedSkills(&state)
+				selectedSkill, selected := state.SelectedSkills[selectedGroup]
+				if !selected {
+					result.State = State{WireProfile: state.WireProfile, Slots: map[byte]Binding{}}
+					return nil
+				}
+				state = State{
+					WireProfile: state.WireProfile,
+					Skill:       selectedSkill,
+					Slots:       cloneBindingMap(state.SkillSlots[selectedSkill]),
+				}
+				if state.Slots == nil {
+					state.Slots = make(map[byte]Binding)
+				}
+				// A group projection is read-only for instance identity. In
+				// particular it must not persist the selected group through the
+				// legacy active Skill/Slots view.
+				options.MigrateCurrentInstances = false
+			}
+			// Skill-only/cleared states need no item container/Legacy/Pet dependency.
+			if len(state.Slots) == 0 {
+				result.State = state
+				return nil
+			}
+			if !writable && options.MigrateCurrentInstances && state.WireProfile == CurrentWireProfile {
+				for _, binding := range state.Slots {
+					if binding.Instance == "" && binding.SourceKind != SourceLegacyUID {
+						// Close the read transaction before retrying. The writer must
+						// reload both owner and state under locks, never save this view.
+						migrationRequired = true
+						return nil
+					}
+				}
+			}
+			// Only an explicit Legacy binding needs the optional old mirror. Current
+			// bindings never start unrelated Legacy reads during cold recovery.
+			options.legacyLists = nil
+			for _, binding := range state.Slots {
+				if binding.SourceKind == SourceLegacyUID {
+					options.legacyLists = []byte{0, 1, 7}
+					break
+				}
+			}
+			view, err := readOwnedSources(ctx, tx, characterID, options)
+			if err != nil {
+				return err
+			}
+			if writable && options.MigrateCurrentInstances {
+				if _, err := migrateCurrentInstanceBindings(ctx, tx, characterID, &state, &view); err != nil {
+					return err
+				}
+			}
+			projection, err := resolveOwnedProjection(ctx, tx, characterID, state, view)
+			projection.Owner = result.Owner
+			result = projection
+			return err
+		})
+	}
+	if err := load(false); err != nil {
 		return OwnedProjection{}, err
+	}
+	if migrationRequired {
+		result = OwnedProjection{}
+		if err := load(true); err != nil {
+			return OwnedProjection{}, err
+		}
 	}
 	return result, nil
 }
