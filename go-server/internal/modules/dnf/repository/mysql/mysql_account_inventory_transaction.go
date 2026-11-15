@@ -140,6 +140,11 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterAssets(
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
 	enableInventoryDeltaTracking(txGroup)
+	// These stores are confined to this locked account/character transaction.
+	// Only their own complete loads authorize metadata/stat deltas; a missing
+	// or consumed before-image retains the stores' full-save fallback.
+	txGroup.Account.(*mysqlAccountStore).trackMetadataChanges = true
+	txGroup.Character.(*mysqlCharStore).trackStatChanges = true
 	var ledger repository.AccountRepository
 	if includeLedger {
 		ledger = &rentalScopedAccountRepository{accountID: accountID, base: txGroup.Account}
