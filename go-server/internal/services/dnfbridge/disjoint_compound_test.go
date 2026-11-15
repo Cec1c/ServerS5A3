@@ -318,7 +318,7 @@ func TestRealPVFDisjointAndEmblemMappings(t *testing.T) {
 	if totalCount < uint32(totalPicks) {
 		t.Fatalf("runtime avatar rewards=%+v grade=%d want at least %d picks", rewards, avatarGrade, totalPicks)
 	}
-	reward, err := currentRollEmblemBoosterReward(catalog, 10095581)
+	reward, err := currentRollEmblemBoosterReward(catalog, 10095581, 0, true)
 	if err != nil || reward.ItemID == 0 || reward.Count == 0 {
 		t.Fatalf("runtime booster result=%+v err=%v", reward, err)
 	}

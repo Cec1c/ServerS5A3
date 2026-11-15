@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/jobmap"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 )
 
@@ -602,14 +603,75 @@ func currentDisjointDocumentIsAvatar(document *dnfpvf.Document) bool {
 	return supported && rule.class == currentEquipmentPlacementClassAvatar
 }
 
-func currentRollEmblemBoosterReward(catalog *pvfDungeonDropCatalog, boosterID uint32) (currentDisjointReward, error) {
+const currentEmblemAllBaseJobs uint16 = 1<<16 - 1
+
+type currentEmblemBoosterCandidate struct {
+	ItemID uint32
+	Weight uint32
+	Count  uint32
+	Skill  bool
+	Jobs   uint16
+}
+
+type currentEmblemBoosterAnalysis struct {
+	Candidates []currentEmblemBoosterCandidate
+	HasSkill   bool
+}
+
+// currentEmblemBoosterAnalysis is immutable after it is cached. Callers must
+// not modify the returned rows or their backing slice.
+func (c *pvfDungeonDropCatalog) currentEmblemBoosterAnalysis(boosterID uint32) (currentEmblemBoosterAnalysis, error) {
+	if c == nil || c.source == nil || boosterID == 0 {
+		return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
+	}
+	c.mu.Lock()
+	if cached, ok := c.emblemBoosterCache[boosterID]; ok {
+		c.mu.Unlock()
+		return cached, nil
+	}
+	c.mu.Unlock()
+
+	analysis, err := currentLoadEmblemBoosterAnalysis(c, boosterID)
+	if err != nil {
+		return currentEmblemBoosterAnalysis{}, err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.emblemBoosterCache == nil {
+		c.emblemBoosterCache = make(map[uint32]currentEmblemBoosterAnalysis)
+	}
+	if cached, ok := c.emblemBoosterCache[boosterID]; ok {
+		return cached, nil
+	}
+	c.emblemBoosterCache[boosterID] = analysis
+	return analysis, nil
+}
+
+// Warm the configured grade-4 platinum booster outside the asset transaction.
+// Lower-grade boosters contain tiny colored-emblem pools; only the platinum
+// table requires reading roughly a thousand item documents.
+func (c *pvfDungeonDropCatalog) currentWarmEmblemPlatinumBooster(inputCount int) error {
+	config, err := c.currentDisjointPVFConfig()
+	if err != nil {
+		return err
+	}
+	boosterID, found := config.EmblemBoosters[[2]int{4, inputCount}]
+	if !found || boosterID == 0 {
+		return nil
+	}
+	_, err = c.currentEmblemBoosterAnalysis(boosterID)
+	return err
+}
+
+func currentLoadEmblemBoosterAnalysis(catalog *pvfDungeonDropCatalog, boosterID uint32) (currentEmblemBoosterAnalysis, error) {
 	definition, err := catalog.ResolveItem(boosterID)
 	if err != nil || definition.Kind != dungeonDropItemStackable {
-		return currentDisjointReward{}, errCurrentDisjointRewardInvalid
+		return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
 	}
 	document, err := parseDungeonCardPVFDocument(catalog.source, definition.PVFPath)
 	if err != nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(documentText(document, "stackable type"))), "[booster]") {
-		return currentDisjointReward{}, errCurrentDisjointRewardInvalid
+		return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
 	}
 	active := false
 	for _, section := range document.Sections {
@@ -619,36 +681,161 @@ func currentRollEmblemBoosterReward(catalog *pvfDungeonDropCatalog, boosterID ui
 			active = true
 			continue
 		case "/booster info":
-			return currentDisjointReward{}, errCurrentDisjointRewardInvalid
+			return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
 		}
 		if !active || name != "stackable" {
 			continue
 		}
-		return currentRollEmblemBoosterPool(currentDisjointTokensInts(currentDisjointSectionTokens(document, section)))
+		return currentAnalyzeEmblemBoosterRows(catalog, currentDisjointTokensInts(currentDisjointSectionTokens(document, section)))
 	}
-	return currentDisjointReward{}, errCurrentDisjointRewardInvalid
+	return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
 }
 
-func currentRollEmblemBoosterPool(values []int64) (currentDisjointReward, error) {
+func currentAnalyzeEmblemBoosterRows(catalog *pvfDungeonDropCatalog, values []int64) (currentEmblemBoosterAnalysis, error) {
 	start := 0
 	if len(values) >= 4 && (len(values)-1)%3 == 0 {
 		start = 1 // draw-count; op256 supports one popup result only.
 	}
 	if (len(values)-start)%3 != 0 || len(values) == start {
-		return currentDisjointReward{}, errCurrentDisjointRewardInvalid
+		return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
 	}
-	type candidate struct{ itemID, weight, count uint32 }
-	candidates := make([]candidate, 0, (len(values)-start)/3)
-	var total uint64
+	analysis := currentEmblemBoosterAnalysis{
+		Candidates: make([]currentEmblemBoosterCandidate, 0, (len(values)-start)/3),
+	}
 	for offset := start; offset+2 < len(values); offset += 3 {
 		if values[offset] <= 0 || values[offset] > math.MaxUint32 || values[offset+1] <= 0 || values[offset+1] > math.MaxUint32 || values[offset+2] <= 0 || values[offset+2] > math.MaxUint32 {
 			continue
 		}
-		entry := candidate{uint32(values[offset]), uint32(values[offset+1]), uint32(values[offset+2])}
-		total += uint64(entry.weight)
-		candidates = append(candidates, entry)
+		itemID := uint32(values[offset])
+		definition, resolveErr := catalog.ResolveItem(itemID)
+		if resolveErr != nil || definition.Kind != dungeonDropItemStackable {
+			continue
+		}
+		itemDocument, documentErr := parseDungeonCardPVFDocument(catalog.source, definition.PVFPath)
+		if documentErr != nil {
+			continue
+		}
+		skill, jobs, valid := currentEmblemRewardSkillJobs(itemDocument)
+		if skill {
+			analysis.HasSkill = true
+		}
+		if skill && (!valid || jobs == 0) {
+			// A malformed or unknown job tag must not re-enter an unrestricted
+			// pool. Exclude that row while retaining other valid candidates.
+			continue
+		}
+		analysis.Candidates = append(analysis.Candidates, currentEmblemBoosterCandidate{
+			ItemID: itemID,
+			Weight: uint32(values[offset+1]),
+			Count:  uint32(values[offset+2]),
+			Skill:  skill,
+			Jobs:   jobs,
+		})
 	}
-	if total == 0 || len(candidates) == 0 {
+	if len(analysis.Candidates) == 0 {
+		return currentEmblemBoosterAnalysis{}, errCurrentDisjointRewardInvalid
+	}
+	return analysis, nil
+}
+
+// currentEmblemRewardSkillJobs reads only the numeric-gender-safe PVF job tags
+// inside [enchant] / [skill levelup]. It never infers a family from an item or
+// skill name.
+func currentEmblemRewardSkillJobs(document *dnfpvf.Document) (skill bool, jobs uint16, valid bool) {
+	if document == nil {
+		return false, 0, false
+	}
+	tagJobs := make(map[string]uint16, jobmap.MaxID+1)
+	for job := 0; job <= jobmap.MaxID; job++ {
+		for _, tag := range jobmap.QuestTags(job) {
+			tagJobs[strings.ToLower(strings.TrimSpace(tag))] |= uint16(1) << uint(job)
+		}
+	}
+	active := false
+	for _, section := range document.Sections {
+		name := strings.ToLower(strings.TrimSpace(section.Name))
+		switch name {
+		case "enchant":
+			active = true
+			continue
+		case "/enchant":
+			active = false
+			continue
+		}
+		if !active || name != "skill levelup" {
+			continue
+		}
+		skill = true
+		start, end := section.Start, section.End
+		if start < 0 || end > len(document.Tokens) || start > end || end-start == 0 || (end-start)%3 != 0 {
+			return true, 0, false
+		}
+		for offset := start; offset < end; offset += 3 {
+			tagToken, skillToken, levelToken := document.Tokens[offset], document.Tokens[offset+1], document.Tokens[offset+2]
+			if (tagToken.Kind != dnfpvf.TokenString && tagToken.Kind != dnfpvf.TokenIdent) ||
+				skillToken.Kind != dnfpvf.TokenInt || skillToken.Int <= 0 ||
+				levelToken.Kind != dnfpvf.TokenInt || levelToken.Int <= 0 {
+				return true, 0, false
+			}
+			tag := strings.ToLower(strings.TrimSpace(tagToken.Value))
+			if tag == "[all]" {
+				jobs |= currentEmblemAllBaseJobs
+				continue
+			}
+			mask, known := tagJobs[tag]
+			if !known {
+				return true, 0, false
+			}
+			jobs |= mask
+		}
+	}
+	return skill, jobs, true
+}
+
+func currentEmblemBoosterCandidatesForJob(analysis currentEmblemBoosterAnalysis, job byte, jobValid bool) ([]currentEmblemBoosterCandidate, error) {
+	if !analysis.HasSkill {
+		if len(analysis.Candidates) == 0 {
+			return nil, errCurrentDisjointRewardInvalid
+		}
+		return analysis.Candidates, nil
+	}
+	if !jobValid || !jobmap.Valid(int(job)) {
+		return nil, fmt.Errorf("%w: emblem platinum job is invalid", errCurrentDisjointRewardInvalid)
+	}
+	mask := uint16(1) << uint(job)
+	out := make([]currentEmblemBoosterCandidate, 0, len(analysis.Candidates))
+	for _, candidate := range analysis.Candidates {
+		if !candidate.Skill || candidate.Jobs&mask != 0 {
+			out = append(out, candidate)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: emblem platinum job=%d has no candidate", errCurrentDisjointRewardInvalid, job)
+	}
+	return out, nil
+}
+
+func currentRollEmblemBoosterReward(catalog *pvfDungeonDropCatalog, boosterID uint32, job byte, jobValid bool) (currentDisjointReward, error) {
+	analysis, err := catalog.currentEmblemBoosterAnalysis(boosterID)
+	if err != nil {
+		return currentDisjointReward{}, err
+	}
+	candidates, err := currentEmblemBoosterCandidatesForJob(analysis, job, jobValid)
+	if err != nil {
+		return currentDisjointReward{}, err
+	}
+	return currentRollEmblemBoosterCandidates(candidates)
+}
+
+func currentRollEmblemBoosterCandidates(candidates []currentEmblemBoosterCandidate) (currentDisjointReward, error) {
+	var total uint64
+	for _, candidate := range candidates {
+		if candidate.ItemID == 0 || candidate.Weight == 0 || candidate.Count == 0 {
+			continue
+		}
+		total += uint64(candidate.Weight)
+	}
+	if total == 0 {
 		return currentDisjointReward{}, errCurrentDisjointRewardInvalid
 	}
 	roll, err := currentDisjointRandomUint64(total)
@@ -656,10 +843,13 @@ func currentRollEmblemBoosterPool(values []int64) (currentDisjointReward, error)
 		return currentDisjointReward{}, err
 	}
 	for _, candidate := range candidates {
-		if roll < uint64(candidate.weight) {
-			return currentDisjointReward{ItemID: candidate.itemID, Count: candidate.count}, nil
+		if candidate.ItemID == 0 || candidate.Weight == 0 || candidate.Count == 0 {
+			continue
 		}
-		roll -= uint64(candidate.weight)
+		if roll < uint64(candidate.Weight) {
+			return currentDisjointReward{ItemID: candidate.ItemID, Count: candidate.Count}, nil
+		}
+		roll -= uint64(candidate.Weight)
 	}
 	return currentDisjointReward{}, errCurrentDisjointRewardInvalid
 }
