@@ -1,3 +1,7 @@
+## 2026-11-15 日常 CI 精简为持续工作约定
+
+日常修复选择相关包，bridge指定明确 `--run`，默认Go缓存；数据库/PVF、外部状态、时间或并发复现需新执行时才fresh。保留受影响调用方、list/test/vet、边界、依赖及完整Linux正式构建；纯文档/工具按自身范围检查。主干累计后审查新增diff，只补受影响验证；新quick声明绑定当前精确SHA并引用未变证据。必要检查通过且无新变更/失败/未决疑点时，不继续无理由重复或扩大。full/race按影响使用；prepare不重复贡献测试。入口、参数与证据规则见 [本地验证与精简发布载荷](Docs/LOCAL_CICD.md)。本条替代更早日常强制无缓存全量、主干任意前进就全量重测的做法。
+
 ## 2026-11-05 可信开发者 quick
 
 仓库负责人已批准Cec1c、16www两位写权限开发者使用 `SOURCE_MERGE.bat --quick`，以绑定精确SHA的本地通过文字声明取得 `merge-ready` 合入资格，跳过远端CI等待。普通外部PR继续走CI；声明记为local-attested，不伪称cloud CI已通过。多个小修复合批验证，源码累计后直接prepare。详见 `Docs/TRUSTED_QUICK_MERGE.md`；私有入口支持 `GAME_UPDATE_REMOTE.bat prepare --quick` 串接公开合入/私有累计。备份完成后才交扳机，触发后不再准备；从决定部署到结果告知记录整轮时间。
