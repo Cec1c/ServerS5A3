@@ -31,7 +31,7 @@ func (s *Service) currentGuildForSelectedCharacter(session *gameSession) (*dnfgu
 		s.performanceEnd(perfGuildRegistryRead, started, err)
 		return nil, err
 	}
-	g, err := membership.Display(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
+	g, err := membership.RosterProjection(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	s.performanceEnd(perfGuildRegistryRead, started, err)
 	return g, err
 }

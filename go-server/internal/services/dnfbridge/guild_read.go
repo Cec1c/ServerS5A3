@@ -89,7 +89,7 @@ func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boun
 				}
 			}
 		}
-		g, err := membership.Display(owner)
+		g, err := membership.RosterProjection(owner)
 		s.performanceEnd(perfGuildRegistryRead, registryStart, err)
 		if err != nil {
 			return err

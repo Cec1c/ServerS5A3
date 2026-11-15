@@ -79,6 +79,9 @@ func NewSQLObservation(registry *metrics.Registry, pool *sql.DB) *SQLObservation
 			r.SetGauge("dnf_mysql_pool_idle", nil, int64(stats.Idle))
 			r.SetCounter("dnf_mysql_pool_wait_total", nil, stats.WaitCount)
 			r.SetCounter("dnf_mysql_pool_wait_nanoseconds_total", nil, int64(stats.WaitDuration))
+			r.SetCounter("dnf_mysql_pool_max_idle_closed_total", nil, stats.MaxIdleClosed)
+			r.SetCounter("dnf_mysql_pool_max_idle_time_closed_total", nil, stats.MaxIdleTimeClosed)
+			r.SetCounter("dnf_mysql_pool_max_lifetime_closed_total", nil, stats.MaxLifetimeClosed)
 		}
 	})
 	return o
