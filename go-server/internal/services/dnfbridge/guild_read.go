@@ -53,6 +53,15 @@ func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boun
 		return nil, guild.ErrRepositoryUnavailable
 	}
 	owner := r.GuildOwner{CharacterID: strconv.Itoa(int(source.character)), AccountID: s.accountIDForSession(source.session)}
+	serializeShared := shared != nil && !contribution && hydrateMembers
+	if serializeShared {
+		shared.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			shared.mu.Unlock()
+			return nil, err
+		}
+		defer shared.mu.Unlock()
+	}
 	var result *guild.Guild
 	err := reader.WithinGuildRead(ctx, func(view r.GuildReadView) error {
 		if !s.boundGameSessionCharacterCurrent(source) {
@@ -63,9 +72,7 @@ func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boun
 		if err != nil {
 			return err
 		}
-		if shared != nil && !contribution && hydrateMembers && membership != nil {
-			shared.mu.Lock()
-			defer shared.mu.Unlock()
+		if serializeShared && membership != nil {
 			if shared.g != nil && shared.version == membership.Version() {
 				m, member := shared.g.Members[owner.CharacterID]
 				if member && m.AccountID == owner.AccountID {
@@ -135,7 +142,7 @@ func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boun
 			g.Members[m.CharacterID] = m
 		}
 		result = g
-		if shared != nil && !contribution && hydrateMembers && membership != nil {
+		if serializeShared && membership != nil {
 			shared.g, shared.version = g, membership.Version()
 		}
 		return nil
