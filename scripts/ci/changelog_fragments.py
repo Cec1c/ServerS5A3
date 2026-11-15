@@ -77,6 +77,11 @@ def parse_note(path, raw, *, legacy_sections=False):
     require(not MARKERS.search(text), 'conflict marker in ' + path)
     category = '功能修复' if parent == PUBLIC else '群服内容'
     prefix = '---\ncategory: ' + category + '\n---\n\n# '
+    legacy_prefix = '---\ncategory: ' + category + '\n---\n\n## '
+    if legacy_sections and text.startswith(legacy_prefix):
+        # Already merged fragments used a level-two title. Select that parser
+        # prefix only in inherited mode; keep the original blob/hash intact.
+        prefix = legacy_prefix
     if legacy_sections and not text.startswith('---\n'):
         # Some already merged notes are plain prose. Preserve them verbatim;
         # category and identity still come from the public/private path.

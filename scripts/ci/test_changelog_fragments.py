@@ -35,6 +35,21 @@ class FormatTests(unittest.TestCase):
             with self.subTest(raw=raw[:30]), self.assertRaises(c.NoteError):
                 c.parse_note(self.path, raw)
 
+    def test_inherited_level_two_title_keeps_original_hash(self):
+        import hashlib
+        raw=note().replace(b'\n# ',b'\n## ',1)
+        parsed=c.parse_note(self.path,raw,legacy_sections=True)
+        self.assertEqual(parsed.title,'示例')
+        self.assertEqual(parsed.sha256,hashlib.sha256(raw).hexdigest())
+
+    def test_new_level_two_title_stays_invalid(self):
+        raw=note().replace(b'\n# ',b'\n## ',1)
+        with self.assertRaises(c.NoteError):c.parse_note(self.path,raw)
+
+    def test_legacy_title_does_not_hide_wrong_category(self):
+        raw=note(category='群服内容').replace(b'\n# ',b'\n## ',1)
+        with self.assertRaises(c.NoteError):c.parse_note(self.path,raw,legacy_sections=True)
+
     def test_reject_invalid_path_date_and_duplicate_id(self):
         for path in ['changelog.d/20260230-example.fix.md', 'changelog.d/a.fix.md',
                      'changelog.d/sub/20261031-example.fix.md']:
