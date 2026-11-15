@@ -42,13 +42,14 @@ func (s *Service) currentWeddingPeerInfo(ctx context.Context, c r.CharacterRecor
 		// Actor appearance may have been captured before a concurrent wedding
 		// commit. Resolve both sides again instead of pairing old ring/room
 		// values with a freshly loaded spouse.
-		fresh, found, loadErr := repos.Character.Load(ctx, c.CharacterID)
+		freshSnapshot, found, loadErr := r.LoadCharacterWedding(ctx, repos.Character, c.CharacterID)
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		if !found || fresh.AccountID != c.AccountID || fresh.CharacterID != c.CharacterID {
+		if !found || freshSnapshot.AccountID != c.AccountID || freshSnapshot.CharacterID != c.CharacterID {
 			return nil, wedding.ErrOwnership
 		}
+		fresh := r.CharacterRecord{CharacterID: freshSnapshot.CharacterID, AccountID: freshSnapshot.AccountID, Stats: freshSnapshot.Stats}
 		state, err = wedding.Read(fresh)
 		if err != nil {
 			return nil, err
@@ -56,13 +57,14 @@ func (s *Service) currentWeddingPeerInfo(ctx context.Context, c r.CharacterRecor
 		if state.Phase == wedding.Single {
 			return nil, nil
 		}
-		partner, found, loadErr := repos.Character.Load(ctx, strconv.FormatInt(state.PartnerID, 10))
+		partnerSnapshot, found, loadErr := r.LoadCharacterWedding(ctx, repos.Character, strconv.FormatInt(state.PartnerID, 10))
 		if loadErr != nil {
 			return nil, loadErr
 		}
 		if !found {
 			return nil, wedding.ErrState
 		}
+		partner := r.CharacterRecord{CharacterID: partnerSnapshot.CharacterID, AccountID: partnerSnapshot.AccountID, Stats: partnerSnapshot.Stats}
 		if _, _, err = wedding.ValidatePair(fresh, partner); err == nil {
 			break
 		}
