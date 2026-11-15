@@ -358,11 +358,9 @@ func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ u
 	// 奖励就记一次目标容器。默认 current 档不装记录、不写任何会话字段。
 	// 证据与残余不确定见 box_open_container_refresh.go。
 	magicBoxRewardResolver = s.armBoxOpenContainerRecord(session, magicBoxRewardResolver)
-	// 形状开关 delta 档（默认）下还要装一次"发放前槽位快照"：packageitem 的写入发生在它
-	// 自己的事务里（`internal/modules/dnf/**` 不属于本次改动范围），bridge 只能靠提交前后的
-	// 仓储差分拿到**精确的** (list, slot) 集合，用它替代"回包后 5 个整容器"。
-	// containers 档下一次仓储都不多读。见 item_grant_notice.go。
-	itemGrantSnapshot := s.armItemGrantSnapshot(session, repos, dnfenum.CmdPacket(typ))
+	// Current grant owners report committed slot changes. Older handlers keep
+	// the before/after repository snapshot fallback and the same wire shape.
+	itemGrantSnapshot := s.armItemGrantSnapshotForRegistry(session, repos, dnfenum.CmdPacket(typ), gameAlignedRegistry)
 	premiumContractResolver, premiumCatalogErr := s.alignedPremiumContractResolverForCommand(dnfenum.CmdPacket(typ))
 	if premiumCatalogErr != nil {
 		s.logPacketEvent("game-aligned-premium-resolver-unavailable",
