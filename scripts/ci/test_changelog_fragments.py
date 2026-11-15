@@ -128,6 +128,45 @@ class GitTests(unittest.TestCase):
             with self.assertRaises(c.NoteError):
                 c.check(self.root, 'public', base)
 
+    def test_inherited_git_text_checkout_crlf_is_not_a_history_edit(self):
+        self.write('.gitattributes', b'/changelog.d/*.md text eol=lf\n')
+        path = self.add_note('checkout-eol')
+        original = (self.root / path).read_bytes()
+        base = self.commit()
+        checkout = original.replace(b'\n', b'\r\n')
+        self.write(path, checkout)
+        self.assertEqual(self.git('diff', '--name-only', base, '--', path), '')
+        self.add_note('checkout-new')
+        self.assertEqual(c.check(self.root, 'public', base)['fragments'], 2)
+        self.assertEqual((self.root / path).read_bytes(), checkout)
+        self.write(path, checkout.replace(b'checkout-eol', b'edited-history'))
+        with self.assertRaisesRegex(c.NoteError, 'immutable'):
+            c.check(self.root, 'public', base)
+
+    def test_inherited_crlf_blob_keeps_raw_hash_and_new_crlf_is_rejected(self):
+        self.write('.gitattributes', b'* -text\n')
+        path = self.add_note('stored-crlf')
+        raw = (self.root / path).read_bytes().replace(b'\n', b'\r\n')
+        self.write(path, raw); base = self.commit()
+        fresh = self.add_note('fresh-lf'); self.commit()
+        self.assertEqual(c.check(self.root, 'public', base)['fragments'], 2)
+        text, manifest = c.render(self.root, 'public')
+        self.assertIn('stored-crlf', text)
+        row = next(x for x in manifest['fragments'] if x['path'] == path)
+        self.assertEqual(row['sha256'], c.hashlib.sha256(raw).hexdigest())
+        self.assertTrue(row['legacyFormat'])
+        self.assertEqual((self.root / path).read_bytes(), raw)
+        self.write(fresh, (self.root / fresh).read_bytes().replace(b'\n', b'\r\n'))
+        with self.assertRaisesRegex(c.NoteError, 'LF'):
+            c.check(self.root, 'public', base)
+
+    def test_inherited_crlf_does_not_hide_wrong_category_or_lone_cr(self):
+        for raw in (note(category='群服内容').replace(b'\n', b'\r\n'), note().replace(b'## ', b'##\r ', 1)):
+            path = self.add_note('bad-eol-category')
+            self.write(path, raw); base = self.commit(); self.add_note('valid-eol-next')
+            with self.assertRaises(c.NoteError):
+                c.check(self.root, 'public', base)
+
     def test_inherited_malformed_fragment_does_not_block_new_work(self):
         broken = self.add_note('legacy-broken')
         self.write(broken, note('历史不合规').replace('## 验证'.encode(), b'## Check'))

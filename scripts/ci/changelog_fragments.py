@@ -69,6 +69,10 @@ def parse_note(path, raw, *, legacy_sections=False):
     except (ValueError, UnicodeError):
         raise NoteError('invalid date or UTF-8: ' + path) from None
     require(0 < len(raw) <= MAX_NOTE, 'fragment exceeds size limit: ' + path)
+    if legacy_sections:
+        # Render an inherited CRLF note without rewriting its immutable blob.
+        # New notes still require LF, and lone CR bytes remain invalid.
+        text = text.replace('\r\n', '\n')
     require('\r' not in text and '\x00' not in text and text.endswith('\n'), 'use UTF-8/LF with final newline: ' + path)
     require(not MARKERS.search(text), 'conflict marker in ' + path)
     category = '功能修复' if parent == PUBLIC else '群服内容'
@@ -175,6 +179,14 @@ def check(root, scope, base=None):
         base = commit(root, base)
         previous = note_blobs(root, scope, base)
         for path, raw in previous.items():
+            current_raw = current.get(path)
+            if (current_raw != raw and current_raw is not None and
+                    current_raw.replace(b'\r\n', b'\n') == raw and
+                    git(root, 'diff', '--quiet', '--no-ext-diff', base, '--', path, check=False).returncode == 0):
+                # Git's text checkout may materialize CRLF while the exact
+                # committed note remains LF. Accept only that byte transform
+                # plus Git's own unchanged-path proof; validate the base blob.
+                current[path] = raw
             require(current.get(path) == raw, 'merged fragments are immutable; add a correction: ' + path)
         paths = changed_paths(root, base)
         if scope == 'public':
