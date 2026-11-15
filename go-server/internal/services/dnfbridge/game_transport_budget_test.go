@@ -60,7 +60,7 @@ func TestGameTransportUnreadPeerExpiresAndReleasesRetirement(t *testing.T) {
 		if err == nil {
 			t.Fatal("unread peer succeeded")
 		}
-	case <-time.After(2 * createWriteTimeout):
+	case <-time.After(2 * gameTransportWriteTimeout):
 		t.Fatal("ordinary write remained unbounded")
 	}
 	select {
