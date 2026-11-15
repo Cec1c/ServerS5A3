@@ -121,7 +121,7 @@ func TestRaidProfileWriteStillHonorsCancelAndOwnDeadline(t *testing.T) {
 				if !errors.Is(err, want) {
 					t.Fatalf("error=%v want=%v", err, want)
 				}
-			case <-time.After(createWriteTimeout + time.Second):
+			case <-time.After(gameTransportWriteTimeout + time.Second):
 				t.Fatal("unbounded raid profile write")
 			}
 			_ = right.SetReadDeadline(time.Now().Add(time.Second))

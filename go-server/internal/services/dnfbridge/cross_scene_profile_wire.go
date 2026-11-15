@@ -143,7 +143,7 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithPolicy(ctx context.Conte
 		// the protected wire must complete within its own bounded window; a
 		// shared raid preparation deadline is not evidence of a slow socket.
 		var cancelWrite context.CancelFunc
-		writeCtx, cancelWrite = context.WithTimeout(context.WithoutCancel(ctx), createWriteTimeout)
+		writeCtx, cancelWrite = context.WithTimeout(context.WithoutCancel(ctx), gameTransportWriteTimeout)
 		stopCancel := context.AfterFunc(ctx, func() {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				cancelWrite()

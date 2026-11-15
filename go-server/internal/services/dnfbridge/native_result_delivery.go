@@ -158,7 +158,7 @@ func (s *Service) prepareNativeResultDelivery(p *gameSession, packet dnfproto.La
 func (s *Service) finishNativeResultDelivery(p *gameSession, reason string) error {
 	// Cleanup must still detach an empty/completed batch after transport
 	// cancellation. Actual writes below remain transport-cancellable.
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), gameTransportWriteTimeout)
 	defer cancel()
 	if err := lockCurrentCrossSceneProfile(ctx, &p.wireMu); err != nil {
 		return err

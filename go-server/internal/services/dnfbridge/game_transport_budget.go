@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// A congested game stream needs more recovery time than a storage operation.
+// Keep this independent of createWriteTimeout: increasing database lock and
+// transaction deadlines would amplify peak-load pressure. The bound still
+// releases a peer that has stopped consuming data entirely.
+const gameTransportWriteTimeout = 30 * time.Second
+
 // Fixed metadata only. Buffered batches and provider controls deliberately
 // have no attributed inner opcode; never guess from encrypted wire bytes.
 type gameWritePacketDiagnostic struct {
@@ -54,12 +60,12 @@ func (p *gameSession) closeGameTransport() {
 func gameTransportBudget(p *gameSession, parent context.Context) (context.Context, context.CancelFunc) {
 	lifetime := p.gameTransportContext()
 	if parent == nil || parent == context.Background() || parent == lifetime {
-		return context.WithTimeout(lifetime, createWriteTimeout)
+		return context.WithTimeout(lifetime, gameTransportWriteTimeout)
 	}
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
+	ctx, cancel := context.WithTimeout(parent, gameTransportWriteTimeout)
 	stop := context.AfterFunc(lifetime, cancel)
 	if lifetime.Err() != nil {
 		cancel()

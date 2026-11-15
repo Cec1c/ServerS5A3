@@ -107,7 +107,7 @@ func TestRealPVFRaidRewardBlockedPeerDoesNotHoldHealthyOwner(t *testing.T) {
 						if err == nil || !slow.raidProjection.failed {
 							t.Fatal("faulted transport was accepted as a successful projection", err)
 						}
-					case <-time.After(createWriteTimeout + time.Second):
+					case <-time.After(gameTransportWriteTimeout + time.Second):
 						t.Fatal("blocked write did not finish within its own deadline")
 					}
 					dispatchAntonCardRequest(t, f, fast, 660, []byte{1, 3})
