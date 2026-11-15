@@ -42,22 +42,18 @@ func (s *Service) writeCurrentGuildDungeonSnapshot(session *gameSession) error {
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	reg, err := guild.Load(ctx, repos.Settings)
+	view, err := guild.ReadDungeonView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
-	cycle, err := reg.DungeonPolicy.Cycle(s.gameplayNow())
+	cycle, counts, member, err := view.Counts(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))}, s.gameplayNow())
 	if err != nil {
 		return err
 	}
 	snapshot := currentGuildDungeonWireSnapshot{}
-	g, _, member := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
 	if member {
 		snapshot.EndUnix = cycle.EndUnix
-		snapshot.ClearCounts, err = guild.DungeonCounts(g, cycle)
-		if err != nil {
-			return err
-		}
+		snapshot.ClearCounts = counts
 	}
 	body, err := buildCurrentGuildDungeonSnapshotBody(snapshot)
 	if err != nil {
@@ -107,7 +103,7 @@ func (s *Service) freezeCurrentGuildDungeonGroup(ctx context.Context, session *g
 	if !ok || repos.Settings == nil {
 		return guild.ErrRepositoryUnavailable
 	}
-	reg, err := guild.Load(ctx, repos.Settings)
+	view, err := guild.ReadDungeonView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
@@ -131,7 +127,7 @@ func (s *Service) freezeCurrentGuildDungeonGroup(ctx context.Context, session *g
 	if _, err = rand.Read(random[:]); err != nil {
 		return err
 	}
-	entries, err := guild.PrepareDungeonEntries(reg, catalog, uint32(runtime.Dungeon.ID), owners, hex.EncodeToString(random[:]), s.gameplayNow())
+	entries, err := view.PrepareEntries(catalog, uint32(runtime.Dungeon.ID), owners, hex.EncodeToString(random[:]), s.gameplayNow())
 	if err != nil {
 		return err
 	}
