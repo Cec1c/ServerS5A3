@@ -33,18 +33,18 @@ func (s *Service) currentTownAreaInstance(ctx context.Context, session *gameSess
 	if !bound || character.CharacterID != strconv.Itoa(int(identity.character)) || character.AccountID != s.accountIDForSession(session) {
 		return 0, dnfguild.ErrCharacterNotFound
 	}
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return 0, err
 	}
-	guild, member, found := registry.GuildForCharacter(character.CharacterID)
-	if !found || guild.ID == 0 || member.AccountID != character.AccountID {
+	member, found := registry.Member(character.CharacterID)
+	if !found || member.GuildID == 0 || member.AccountID != character.AccountID {
 		return 0, dnfguild.ErrNotMember
 	}
 	if !s.boundGameSessionCharacterCurrent(identity) {
 		return 0, dnfguild.ErrCharacterNotFound
 	}
-	return guild.ID, nil
+	return member.GuildID, nil
 }
 
 // Matched EXE callback RVA 0x01bd08d0 reads town and area after every failed

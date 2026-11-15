@@ -47,7 +47,7 @@ func (s *Service) freezeCurrentGuildContributionRun(session *gameSession, runtim
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
@@ -65,8 +65,8 @@ func (s *Service) freezeCurrentGuildContributionRun(session *gameSession, runtim
 			identities[member.UserID] = identity
 			owners = append(owners, owner)
 			guilds[owner.CharacterID] = guild.ContributionMembership{}
-			if g, m, found := registry.GuildForOwner(owner); found {
-				guilds[owner.CharacterID] = guild.ContributionMembership{GuildID: g.ID, JoinedAt: m.JoinedAt}
+			if m, found := registry.OwnedMember(owner); found {
+				guilds[owner.CharacterID] = guild.ContributionMembership{GuildID: m.GuildID, JoinedAt: m.JoinedAt}
 			}
 		}
 		instance.mu.Lock()

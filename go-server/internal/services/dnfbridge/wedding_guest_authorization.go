@@ -22,13 +22,13 @@ func (s *Service) currentWeddingNamedGuestAllowed(ctx context.Context, source r.
 			}
 		}
 	}
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return false
 	}
-	a, am, foundA := registry.GuildForCharacter(source.CharacterID)
-	b, bm, foundB := registry.GuildForCharacter(targetID)
-	if !foundA || !foundB || a.ID == 0 || a.ID != b.ID || am.AccountID != source.AccountID {
+	am, foundA := registry.Member(source.CharacterID)
+	bm, foundB := registry.Member(targetID)
+	if !foundA || !foundB || am.GuildID == 0 || am.GuildID != bm.GuildID || am.AccountID != source.AccountID {
 		return false
 	}
 	target, found, err := repos.Character.Load(ctx, targetID)

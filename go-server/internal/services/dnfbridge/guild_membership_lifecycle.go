@@ -161,11 +161,11 @@ func (s *Service) clearDepartedGuildSession(ctx context.Context, removed dnfguil
 		return nil
 	}
 	defer release()
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	if _, _, joined := registry.GuildForCharacter(removed.Member.CharacterID); joined {
+	if _, joined := registry.Member(removed.Member.CharacterID); joined {
 		return nil
 	}
 	session := peer.session

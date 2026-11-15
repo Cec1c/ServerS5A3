@@ -129,16 +129,16 @@ func (s *Service) handleCurrentGuildTeleport(session *gameSession, request gamep
 	sort.Slice(p.peers, func(i, j int) bool { return p.peers[i].identity.character < p.peers[j].identity.character })
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	_, reg, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return s.guildTeleportFailure(session, q.town, 7)
 	}
-	g, membership, member := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(source.character))})
-	if !member || !g.Benefits[7].Active(s.gameplayNow()) {
+	g, err := reg.OwnedRoster(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(source.character))})
+	if err != nil || g == nil || !g.Benefits[7].Active(s.gameplayNow()) {
 		return s.guildTeleportFailure(session, q.town, 7)
 	}
 	p.guildID = g.ID
-	p.joinedAt = membership.JoinedAt
+	p.joinedAt = g.Members[strconv.Itoa(int(source.character))].JoinedAt
 	if _, err := s.prepareGuildTeleport(ctx, p); err != nil {
 		return s.guildTeleportFailure(session, q.town, 7)
 	}

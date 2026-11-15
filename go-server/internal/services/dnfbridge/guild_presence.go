@@ -76,17 +76,13 @@ func (s *Service) persistCurrentGuildPresence(observations ...currentGuildPresen
 // member's login/logout ACK. The callback reloads membership and rejects a
 // replaced character generation; no saved registry snapshot is replayed.
 func (s *Service) queueCurrentGuildPresenceRefresh(ctx context.Context, guildID uint32) {
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		s.logInfo("dnfbridge guild presence refresh unavailable", "error", err)
 		return
 	}
-	guild, found := registry.GuildByID(guildID)
-	if !found {
-		return
-	}
 	shared := &guildPresenceReadCache{}
-	for _, member := range dnfguild.SortedMembers(guild) {
+	for _, member := range registry.Members(guildID) {
 		id, err := strconv.ParseUint(member.CharacterID, 10, 16)
 		if err != nil || id == 0 {
 			continue

@@ -53,12 +53,12 @@ func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16,
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	repos, registry, err := s.loadCurrentGuildRegistry(ctx)
+	repos, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil || repos.Character == nil {
 		return reject("guild_snapshot", err)
 	}
 	sourceID := strconv.Itoa(int(source.character))
-	g, _, found := registry.GuildForCharacter(sourceID)
+	initialMember, found := registry.Member(sourceID)
 	if !found {
 		return reject("sender_not_member", nil)
 	}
@@ -73,12 +73,12 @@ func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16,
 	if err != nil {
 		return reject("sender_ownership", err)
 	}
-	_, registry, err = s.loadCurrentGuildRegistry(ctx)
+	_, registry, err = s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return reject("guild_revalidation", err)
 	}
-	current, member, found := registry.GuildForCharacter(sourceID)
-	if !found || current.ID != g.ID || member.AccountID != character.AccountID {
+	member, found := registry.Member(sourceID)
+	if !found || member.GuildID != initialMember.GuildID || member.AccountID != character.AccountID {
 		return reject("sender_membership_changed", nil)
 	}
 	name, encodeErr := simplifiedchinese.GB18030.NewEncoder().Bytes([]byte(character.Name))
@@ -89,7 +89,8 @@ func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16,
 	// The request's u16 comes from a client-side actor/target hint. It is not
 	// authority for sender identity or recipients; use the bound session only.
 	var recipients []currentGuildChatRecipient
-	for id, member := range current.Members {
+	for _, member := range registry.Members(initialMember.GuildID) {
+		id := member.CharacterID
 		value, parseErr := strconv.ParseUint(id, 10, 16)
 		if parseErr != nil || value == 0 || uint16(value) == source.character {
 			continue
@@ -118,12 +119,12 @@ func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16,
 	}
 	release()
 	for _, recipient := range recipients {
-		if err := s.queueCurrentGuildChatNotice(recipient, current.ID, noticeOpcode, notice); err != nil {
+		if err := s.queueCurrentGuildChatNotice(recipient, initialMember.GuildID, noticeOpcode, notice); err != nil {
 			s.logWarn("dnfbridge guild chat recipient unavailable", "source_char_id", source.character,
 				"target_char_id", recipient.identity.character, "stage", "enqueue", "error", err)
 		}
 	}
-	s.logGameEvent(session, "game-guild-chat-forwarded", "guild_id", current.ID,
+	s.logGameEvent(session, "game-guild-chat-forwarded", "guild_id", initialMember.GuildID,
 		"source_char_id", source.character, "message_len", len(request.Message), "recipient_candidates", len(recipients)+1)
 	if contributionErr == nil {
 		if err := s.projectCurrentGuildChatContribution(source, income); err != nil {
