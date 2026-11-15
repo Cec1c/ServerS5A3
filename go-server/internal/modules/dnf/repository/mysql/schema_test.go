@@ -268,8 +268,8 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() error = %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 	}
 	wantMigrations := []string{
 		"ALTER TABLE `dnf_s1_w1`.`dnf_accounts` ADD COLUMN `honor_exp` BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER `state`",
@@ -293,7 +293,7 @@ func TestEnsureMySQLSchemaExecutesWhenEnabled(t *testing.T) {
 	}
 	for index, table := range []string{"dnf_activity_events", "dnf_activity_counters"} {
 		want := "ALTER TABLE `dnf_s1_w1`.`" + table + "` MODIFY COLUMN metric VARCHAR(64) NOT NULL"
-		if got := exec.statements[len(exec.statements)-3+index]; got != want {
+		if got := exec.statements[len(exec.statements)-4+index]; got != want {
 			t.Fatalf("activity metric migration = %q, want %q", got, want)
 		}
 	}
@@ -312,8 +312,8 @@ func TestEnsureMySQLSchemaIgnoresExistingHonorExpColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate honor migration error = %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 	}
 }
 
@@ -330,8 +330,8 @@ func TestEnsureMySQLSchemaIgnoresExistingRepresentNameIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate represent-name index error = %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 	}
 }
 
@@ -348,8 +348,8 @@ func TestEnsureMySQLSchemaIgnoresExistingTutorialFlagColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate migration error = %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 	}
 }
 
@@ -366,8 +366,8 @@ func TestEnsureMySQLSchemaIgnoresExistingTutorialRewardFlagColumn(t *testing.T) 
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate reward migration error = %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 	}
 }
 
@@ -393,8 +393,8 @@ func TestEnsureMySQLSchemaIgnoresExistingStoryDigestColumns(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EnsureMySQLSchema() duplicate %s error = %v", test.column, err)
 			}
-			if len(exec.statements) != 67 {
-				t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+			if len(exec.statements) != 68 {
+				t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 			}
 		})
 	}
@@ -413,8 +413,8 @@ func TestEnsureMySQLSchemaIgnoresExistingCeraColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMySQLSchema() duplicate cera migration error = %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
 	}
 }
 

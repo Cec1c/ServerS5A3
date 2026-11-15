@@ -355,7 +355,8 @@ CREATE TABLE IF NOT EXISTS `dnf_s9999_w01`.`dnf_character_stats` (
   character_id VARCHAR(128) NOT NULL,
   stat_key VARCHAR(128) NOT NULL,
   stat_value BIGINT NOT NULL DEFAULT 0,
-  PRIMARY KEY (character_id, stat_key)
+  PRIMARY KEY (character_id, stat_key),
+  KEY idx_stats_pending_level (stat_key, stat_value, character_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `dnf_s9999_w01`.`dnf_character_locations` (
