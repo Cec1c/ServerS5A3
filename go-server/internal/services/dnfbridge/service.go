@@ -325,6 +325,7 @@ type Service struct {
 	dungeonHellPartyTable *pvfDungeonHellPartyCatalog
 	dungeonChoice         func(int) (int, error)
 	dungeonSeed           func() (uint32, error)
+	gameplayTimersMu      sync.Mutex
 	gameplayTimers        gameplayTimeQueue
 	repositoryProvider    func() (dnfrepo.Group, bool)
 	initialTownEntryWait  func(time.Duration)

@@ -183,24 +183,24 @@ func (s *Service) forgetRuntimePartyRunKeysOnDisband(memberIDs []uint16, retired
 func (s *Service) forgetRetiredDungeonPartyRunKey(identity boundGameSessionCharacter, retiredPartyID uint16) (bool, dungeonPeerProjectionGenerationCounts) {
 	var counts dungeonPeerProjectionGenerationCounts
 	manager := s.runtimePartyManagerForService()
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	session := identity.session
-	if session == nil || s.gameSessions[identity.character] != session || session.characterGeneration != identity.generation || session.selectedCharacterID != identity.character {
+	if session == nil {
 		return false, counts
 	}
-	session.dungeonPartyRunMu.Lock()
-	defer session.dungeonPartyRunMu.Unlock()
-	if !session.dungeonPartyRunValid || session.dungeonPartyRun.PartyID != retiredPartyID {
-		return false, counts
-	}
-	err := manager.WithSoloMember(identity.character, func() error {
+	guard := func(apply func() error) error { return manager.WithSoloMember(identity.character, apply) }
+	cleared := false
+	err := s.withCurrentPartyProjectionCommit(guard, &session.dungeonPartyRunMu, func() error {
+		if s.gameSessions[identity.character] != session || session.characterGeneration != identity.generation || session.selectedCharacterID != identity.character ||
+			!session.dungeonPartyRunValid || session.dungeonPartyRun.PartyID != retiredPartyID {
+			return nil
+		}
 		session.dungeonPartyRun = dungeonPartyRunKey{}
 		session.dungeonPartyRunValid = false
+		cleared = true
 		if dungeonPartyPeerProjectionGenerationEnabled() {
 			counts = dropDungeonPeerProjectionGenerationLocked(session)
 		}
 		return nil
 	})
-	return err == nil, counts
+	return err == nil && cleared, counts
 }

@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"longheng.io/server/internal/modules/dnf/alignedcmd"
 )
 
 type boundGameSessionCharacter struct {
@@ -49,38 +47,10 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		s.stopCurrentPetGrowthClock(session, "selected_character_changed")
 		s.stopCurrentDailyDeleteClock(session)
 	}
-	session.dungeon.mu.Lock()
-	defer session.dungeon.mu.Unlock()
-	if oldID := session.selectedCharacterID; oldID != 0 && oldID != charID {
-		s.cancelCurrentDungeonDeathReturnLocked(session, session.dungeon.runtime, "selected_character_changed")
-		s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "selected_character_changed")
-		s.cancelCurrentDungeonCardAutoFlipLocked(session, session.dungeon.runtime, "selected_character_changed")
-		s.cancelCurrentTournamentRewardAutoSelectTimerLocked(session, session.dungeon.runtime, "selected_character_changed")
+	resident, residentParty, unlock, current := s.lockCurrentPartyBinding(session, charID)
+	if !current {
+		return
 	}
-	resident := (*gameSession)(nil)
-	residentParty := alignedcmd.PartyState{}
-	if s.onlinePlayers != nil {
-		resident = s.onlinePlayers.SessionForCharacter(charID)
-		if resident != nil && resident != session && session.channelReconnect {
-			// A channel-reconnect session binds before its op13 inventory
-			// bootstrap. Settle and stop the resident clock synchronously here,
-			// so any threshold reward is already durable and therefore included
-			// in that new bootstrap. Waiting for the old socket's later unbind
-			// would allow the reward commit to race after op13 and remain visually
-			// absent until another login.
-			s.stopCurrentSpendTimeClock(resident, "replacement_game_session_bound_before_inventory_bootstrap")
-			s.stopCurrentDailyDeleteClock(resident)
-			residentParty = runtimePartyStateSnapshot(resident)
-		} else if resident != nil && resident != session {
-			residentParty = runtimePartyStateSnapshot(resident)
-		}
-	}
-	// Install the restore gate before exposing a replacement to raid clocks.
-	// Authentication of the projected object happens after binding, at send time.
-	if session.selectedCharacterID != charID || session.characterGeneration == 0 {
-		s.markCurrentRaidSessionRestore(session, charID)
-	}
-	s.lockCurrentCharacterBindingMutation(session, charID)
 	if s.gameSessions == nil {
 		s.gameSessions = make(map[uint16]*gameSession)
 	}
@@ -110,8 +80,8 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	s.installGoldDiagnosticSnapshot(session)
 	if resident != nil && resident != session {
 		if current := s.gameSessions[charID]; current == resident {
-			storeRuntimePartyState(session, residentParty)
-			s.mu.Unlock()
+			session.party.state = cloneRuntimePartyState(residentParty)
+			unlock()
 			return
 		}
 	}
@@ -122,7 +92,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 	if previous != session || characterChanged {
 		guildObservations = append(guildObservations, s.currentGuildPresenceObservationLocked(session, guildClock.Now()))
 	}
-	s.mu.Unlock()
+	unlock()
 	if previous != nil && previous != session {
 		s.closeCurrentGuildCreateSession(previous)
 		s.closeCurrentPVPSession(previous)
