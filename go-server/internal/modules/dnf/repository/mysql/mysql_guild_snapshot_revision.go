@@ -76,7 +76,23 @@ func (s *mysqlSettingsStore) LoadGuildSnapshotRevision(ctx context.Context) (str
 	// Fingerprinting the exact source also observes GM/legacy writers and
 	// equal timestamps. Only the fixed-size digest crosses the SQL connection.
 	query := "SELECT SHA2(v.entry_value, 256) FROM " + table + " s LEFT JOIN " + values + " v ON v.scope=s.scope AND v.entry_key='state' WHERE s.scope = ?"
+	if s.router.storedGuildFingerprint {
+		fingerprints, tableErr := s.router.readTable(guildFingerprintTable, r.GuildRegistryScope)
+		if tableErr != nil {
+			return "", false, tableErr
+		}
+		// Source deletion/TRUNCATE cannot expose an orphan sidecar. Missing
+		// sidecar facts use the exact source rather than an empty registry.
+		query = "SELECT COALESCE(f.fingerprint,CAST(SHA2(v.entry_value, 256) AS BINARY)) FROM " + table + " s LEFT JOIN " + values + " v ON v.scope=s.scope AND v.entry_key='state' LEFT JOIN " + fingerprints + " f ON f.scope=v.scope WHERE s.scope = ?"
+	}
 	err = s.router.db.QueryRowContext(ctx, query, r.GuildRegistryScope).Scan(&digest)
+	if err != nil && s.router.storedGuildFingerprint {
+		if guildFingerprintOptionalSchemaError(err) {
+			fallback := *s
+			fallback.router.storedGuildFingerprint = false
+			return fallback.LoadGuildSnapshotRevision(ctx)
+		}
+	}
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}

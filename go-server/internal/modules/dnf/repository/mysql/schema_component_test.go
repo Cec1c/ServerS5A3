@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"longheng.io/server/internal/modules/dnf/repository"
+	"strings"
 	"testing"
 )
 
@@ -27,8 +28,13 @@ func TestSchemaComponentStartCreatesSchemaWhenEnabled(t *testing.T) {
 	if err := component.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if len(exec.statements) != 67 {
-		t.Fatalf("executed statements = %d, want 67", len(exec.statements))
+	if len(exec.statements) != 68 {
+		t.Fatalf("executed statements = %d, want 68", len(exec.statements))
+	}
+	for _, statement := range exec.statements {
+		if strings.Contains(statement, guildFingerprintTable) || strings.Contains(statement, "CREATE TRIGGER") {
+			t.Fatal("ordinary schema component installed optional guild fingerprint")
+		}
 	}
 	snapshot := component.Snapshot()
 	if !snapshot.Started || !snapshot.AutoCreate || snapshot.ShardID != "9999" {

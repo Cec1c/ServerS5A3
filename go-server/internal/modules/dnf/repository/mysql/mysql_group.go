@@ -84,9 +84,10 @@ func (a SQLDBAdapter) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql
 
 // MySQLGroupOptions 描述 DNF MySQL 仓储的区服数据库计划和表名前缀。
 type MySQLGroupOptions struct {
-	DatabasePlan repository.DatabasePlan
-	TablePrefix  string
-	Now          func() time.Time
+	storedGuildFingerprint bool // enabled only after read-only schema verification
+	DatabasePlan           repository.DatabasePlan
+	TablePrefix            string
+	Now                    func() time.Time
 }
 
 // NewMySQLGroup 使用注入的 SQLDB 创建 DNF MySQL 仓储聚合。
