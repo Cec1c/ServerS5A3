@@ -57,11 +57,10 @@ func (s *Service) handleCurrentGuildPlacement(session *gameSession, request game
 		return fail(guild.ErrRepositoryUnavailable)
 	}
 	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, ok, err := guild.ReadGuildID(ctx, repos.Settings, owner)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, ok := reg.GuildForOwner(owner)
 	if !ok {
 		return fail(guild.ErrNotMember)
 	}
@@ -88,7 +87,7 @@ func (s *Service) handleCurrentGuildPlacement(session *gameSession, request game
 			return guild.PlacementReceipt{}, guild.ErrPlacementPosition
 		}
 		return guild.ApplyPlacement(ctx, repos.Guild, guild.PlacementRequest{
-			Owner: owner, GuildID: g.ID, RequestID: requestID, Slot: q.slot, X: int(q.x), Y: int(q.y), Book: book, Map: m, BuildSeconds: catalog.buildSeconds,
+			Owner: owner, GuildID: guildID, RequestID: requestID, Slot: q.slot, X: int(q.x), Y: int(q.y), Book: book, Map: m, BuildSeconds: catalog.buildSeconds,
 			Revalidate: func() bool {
 				if !s.boundGameSessionCharacterCurrent(identity) || session.townSceneReadyCharacterID != identity.character || session.townPositionSnapshot != p || p.CharacterID != identity.character || p.TownID != 8 || !p.PositionValid {
 					return false

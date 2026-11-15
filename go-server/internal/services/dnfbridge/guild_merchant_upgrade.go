@@ -58,11 +58,10 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 		return fail(guild.ErrRepositoryUnavailable)
 	}
 	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, found, err := guild.ReadGuildID(ctx, repos.Settings, owner)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, found := reg.GuildForOwner(owner)
 	if !found {
 		return fail(guild.ErrNotMember)
 	}
@@ -86,7 +85,7 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 			return guild.MerchantUpgradeReceipt{}, err
 		}
 		return guild.ApplyMerchantUpgrade(ctx, repos.Guild, guild.MerchantUpgradeRequest{
-			Owner: owner, GuildID: g.ID, RequestID: requestID, NPCID: npc,
+			Owner: owner, GuildID: guildID, RequestID: requestID, NPCID: npc,
 			CurrentLevel: binary.LittleEndian.Uint32(request.Body[17:]), TargetLevel: binary.LittleEndian.Uint32(request.Body[21:]),
 			Revalidate: func() bool {
 				current := session.townPositionSnapshot
