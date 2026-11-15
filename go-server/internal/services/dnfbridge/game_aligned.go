@@ -51,6 +51,12 @@ var gameAlignedRegistry = alignedcmd.NewRegistry(
 // handleAlignedGameCommand 把协议号已对齐、但尚未落业务实现的命令归入模块边界。
 // 当前只记录分流证据，不伪造成功 ACK；具体回包必须等对应模块按 EXE/日志补齐。
 func (s *Service) handleAlignedGameCommand(session *gameSession, cmd byte, typ uint16, body []byte) (bool, error) {
+	// The current client sends the returnee NPC gift as command=1/type=812.
+	// Keep this exact wire-command guard ahead of every generic asset path so
+	// type 812 remains inert for notice/other command classes.
+	if cmd == byte(dnfenum.GameCmdCommand) && typ == 812 {
+		return true, s.handleCurrentReturneeNPCGift(session, body)
+	}
 	if handled, err := s.handleGrowthTicketOpenMove(session, cmd, typ, body); handled || err != nil {
 		return handled, err
 	}

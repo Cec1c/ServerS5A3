@@ -7,7 +7,14 @@ func (s *Service) currentRaidPartyRewardDisplayMembers(session *gameSession, sta
 	if session == nil || state.Battle == nil {
 		return visible
 	}
-	owner := session.selectedCharacterID
+	return s.currentRaidPartyRewardDisplayMembersForOwner(session.selectedCharacterID, state)
+}
+
+func (s *Service) currentRaidPartyRewardDisplayMembersForOwner(owner uint16, state runtimeRaidState) map[uint16]bool {
+	visible := map[uint16]bool{}
+	if owner == 0 || state.Battle == nil {
+		return visible
+	}
 	index := runtimeRaidMemberIndex(state, owner)
 	if index < 0 {
 		return visible

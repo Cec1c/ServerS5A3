@@ -15,7 +15,7 @@ var ErrSystemMailInvalid = errors.New("system mailbox delivery is invalid")
 // envelopes without this evidence must not acquire a new item lifetime.
 const SystemMailCreationAnchor = "system_mail_created_at_v1"
 
-// SystemMailDelivery is a server-owned, non-expiring mail created by a
+// SystemMailDelivery is a server-owned mail created by a
 // committed gameplay transaction. It deliberately has no player sender or
 // postage; callers must supply transaction-scoped MailboxRepository instances
 // so reward consumption and the durable mail commit together.

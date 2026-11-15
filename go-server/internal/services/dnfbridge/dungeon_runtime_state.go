@@ -132,6 +132,8 @@ type runtimeDungeonState struct {
 	HellPartyDifficulty     byte
 	HellPartyStarted        bool
 	epicShop                *currentEpicShop
+	secretShop              *currentSecretShop
+	secretShopChecked       bool
 	epicShopChecked         bool
 	hellEntryItemsCommitted bool
 	// hellPillarPeerDestroyKey 记录"柱子破坏已经投影给队友"的那个房间

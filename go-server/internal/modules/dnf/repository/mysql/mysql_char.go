@@ -254,12 +254,15 @@ func mysqlTwoDigit(value int) string {
 
 type mysqlCharStore struct {
 	mysqlStoreBase
-	trackStatChanges bool
-	loadedSnapshot   *repository.CharacterRecord
-	activity         repository.ActivityRepository
+	trackStatChanges  bool
+	loadedSnapshot    *repository.CharacterRecord
+	lockedReadCache   map[string]repository.CharacterRecord
+	lockedReadVersion uint64
+	activity          repository.ActivityRepository
 }
 
 func (s *mysqlCharStore) AdvanceStoryDigest(ctx context.Context, characterID string, level, migrationVersion uint32) error {
+	s.lockedReadCache = nil
 	characterID = strings.TrimSpace(characterID)
 	if characterID == "" {
 		return repository.ErrCharacterStoryDigestCharacterMissing
@@ -278,6 +281,23 @@ func (s *mysqlCharStore) AdvanceStoryDigest(ctx context.Context, characterID str
 
 // Load 按角色 ID 从 MySQL 读取 DNF 角色记录。
 func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return repository.CharacterRecord{}, false, ctx.Err()
+	}
+	version, reusable := s.lockedCharacterReadVersion()
+	if reusable {
+		if version != s.lockedReadVersion {
+			s.lockedReadCache = nil
+			s.lockedReadVersion = version
+		}
+		if record, ok := s.lockedReadCache[characterID]; ok {
+			if s.trackStatChanges {
+				snapshot := repository.CloneCharacter(record)
+				s.loadedSnapshot = &snapshot
+			}
+			return repository.CloneCharacter(record), true, nil
+		}
+	}
 	if s.trackStatChanges {
 		s.loadedSnapshot = nil
 	}
@@ -316,6 +336,14 @@ func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (reposito
 	if s.trackStatChanges && !shadowStats && characterStatSnapshotEligible(record.Stats) {
 		snapshot := repository.CloneCharacter(record)
 		s.loadedSnapshot = &snapshot
+	}
+	// This store belongs to one SQL transaction. Only complete locked snapshots
+	// without shadow mirror rows are reusable; writes invalidate before SQL.
+	if reusable && !shadowStats && characterStatSnapshotEligible(record.Stats) && len(s.lockedReadCache) < 8 {
+		if s.lockedReadCache == nil {
+			s.lockedReadCache = make(map[string]repository.CharacterRecord)
+		}
+		s.lockedReadCache[characterID] = repository.CloneCharacter(record)
 	}
 	return repository.CloneCharacter(record), true, nil
 }
@@ -378,6 +406,7 @@ func (s *mysqlCharStore) CreateCharacter(ctx context.Context, record repository.
 // SaveFields 保存 DNF 角色指定字段到 MySQL。
 // 插入路径会补角色基础字段；更新路径只写 dirty 字段，避免整包覆盖。
 func (s *mysqlCharStore) SaveFields(ctx context.Context, record repository.CharacterRecord, fields ...repository.CharacterField) error {
+	s.lockedReadCache = nil
 	var previous *repository.CharacterRecord
 	if s.trackStatChanges {
 		previous = s.loadedSnapshot
@@ -719,4 +748,15 @@ func (s *mysqlCharStore) RecordActivity(ctx context.Context, event repository.Ac
 		return false, repository.ErrActivityTransaction
 	}
 	return s.activity.Record(ctx, event)
+}
+
+func (s *mysqlCharStore) lockedCharacterReadVersion() (uint64, bool) {
+	if !s.router.lockReads || os.Getenv("DNFBRIDGE_EXPERIMENTAL_PEAK") != "on" {
+		return 0, false
+	}
+	versioned, ok := s.router.db.(interface{ transactionWriteVersion() (uint64, bool) })
+	if !ok {
+		return 0, false
+	}
+	return versioned.transactionWriteVersion()
 }

@@ -297,7 +297,7 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 	}
 	expirationDate := definition.ExpirationDate
 	if instanceExpire := currentItemListStackExpire(stack); instanceExpire != 0 &&
-		!currentRenewedLutherDeadline(stack.ItemID, definition) &&
+		!currentRenewedForgeOrLutherDeadline(stack.ItemID, definition) &&
 		currentGiftBoxHistoryExpiration(definition, instanceExpire, currentGiftBoxInstanceHasIndependentExpiration(stack.Extra)).IsZero() &&
 		!currentJoustEventHasRetiredInstanceExpiration(
 			sceneInventoryUint32FromInt64(stack.ItemID), instanceExpire, definition.ExpirationDate) &&
@@ -349,7 +349,7 @@ func applyCurrentPVFItemExpirationAt(stack dnfrepo.ItemStack, definition dungeon
 			changed = true
 		}
 	}
-	if currentRenewedLutherDeadline(stack.ItemID, definition) {
+	if currentRenewedForgeOrLutherDeadline(stack.ItemID, definition) {
 		if _, ok := stack.Extra["usable_period_days"]; ok {
 			delete(stack.Extra, "usable_period_days")
 			changed = true
@@ -378,11 +378,11 @@ func applyCurrentPVFItemExpiration(stack dnfrepo.ItemStack, definition dungeonDr
 	return applyCurrentPVFItemExpirationAt(stack, definition, time.Now().UTC())
 }
 
-// This explicitly renewed Luther product no longer has a relative rental.
+// These two explicitly renewed products no longer have a relative rental.
 // Require the matching new PVF definition; an old or unrelated PVF cannot
 // silently renew items. Explicit GM deadlines are handled earlier.
-func currentRenewedLutherDeadline(id int64, d dungeonDropItemDefinition) bool {
-	if id != 490007117 {
+func currentRenewedForgeOrLutherDeadline(id int64, d dungeonDropItemDefinition) bool {
+	if id != 490008445 && id != 490007117 {
 		return false
 	}
 	deadline := time.Date(2028, time.December, 31, 23, 59, 59, 0, currentPVFExpirationDateLocation)

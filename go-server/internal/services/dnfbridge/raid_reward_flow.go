@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -20,6 +19,10 @@ type currentAntonRewardRecipient struct {
 // Pending grants survive lobby removal. They remain in-process intents; asset
 // receipts and completed weekly counts are persisted by their domain owners.
 type currentAntonRewardFlow struct {
+	// Native card slots belong to the actual ordinary party at settlement,
+	// independently of frozen admission groups and team reward ownership.
+	PartyCardPeers map[uint16][]uint16
+
 	EntryRefund        *raid.EntryDebit
 	FiendWarRetryCount uint32
 	InstanceID         string
@@ -64,6 +67,12 @@ func cloneCurrentAntonRewardFlow(f *currentAntonRewardFlow) *currentAntonRewardF
 		v.EntryRefund = &debit
 	}
 	v.Recipients = append([]currentAntonRewardRecipient(nil), f.Recipients...)
+	if f.PartyCardPeers != nil {
+		v.PartyCardPeers = make(map[uint16][]uint16, len(f.PartyCardPeers))
+		for id, peers := range f.PartyCardPeers {
+			v.PartyCardPeers[id] = append([]uint16(nil), peers...)
+		}
+	}
 	v.Rewards.Ranks = append([]raid.AntonRankRange(nil), f.Rewards.Ranks...)
 	v.Rewards.Choices = append([]raid.AntonRewardChoice(nil), f.Rewards.Choices...)
 	v.Weekly.Members = append([]raid.ClearMember(nil), f.Weekly.Members...)
@@ -194,8 +203,13 @@ func (s *Service) markCurrentAntonPartyShownLocked(instance string, phase byte, 
 
 // Called under raidMu exclusively at a genuine completed-run boundary (or an
 // idempotent clock retry). A client movie/card request never creates eligibility.
-func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) error {
+func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) (err error) {
 	b := state.Battle
+	defer func() {
+		if err != nil {
+			s.logCurrentAntonRewardFreezeFailureLocked(state, err, time.Now())
+		}
+	}()
 	if b != nil && b.FiendWar != nil {
 		return s.freezeCurrentFiendWarRewardFlowLocked(state)
 	}
@@ -214,9 +228,13 @@ func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) err
 	}
 	f := &currentAntonRewardFlow{InstanceID: b.InstanceID, RaidKey: state.RaidKey, Phase: b.Phase, Mode: b.Mode, Single: b.Single, CompletedAt: b.PhaseCompletedAt,
 		Configuration: b.AntonFlowConfig, Rewards: b.AntonRewards.Clone().Phases[b.Phase], Rank: result.DomainRank,
-		Party: b.RewardCards[b.Phase], Squad: map[uint16]*currentAntonRewardCard{}}
-	if f.Party == nil {
-		f.Party = map[uint16]*currentAntonRewardCard{}
+		Party: map[uint16]*currentAntonRewardCard{}, Squad: map[uint16]*currentAntonRewardCard{}}
+	for id, card := range b.RewardCards[b.Phase] {
+		if card != nil {
+			copy := *card
+			copy.Plan = cloneCurrentAntonRewardPlan(card.Plan)
+			f.Party[id] = &copy
+		}
 	}
 	groups := map[byte]int{}
 	for id, account := range b.MemberAccounts {
@@ -225,15 +243,22 @@ func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) err
 			continue
 		}
 		group := b.MemberGroups[id]
-		if index := runtimeRaidMemberIndex(state, id); index >= 0 {
-			group = state.Members[index].GroupIndex
-		}
+		// Reward ownership uses one phase-admission snapshot, including an
+		// earned owner who has since left. Mixing current live seats with
+		// departed owners' old seats can count five in a legal four-seat
+		// party. Visibility still follows the actual current party below.
 		if account == "" || group < 1 || group > runtimeRaidMaxGroups {
 			return raid.ErrRewardOwnership
 		}
 		groups[group]++
 		if groups[group] > 4 {
-			return fmt.Errorf("Anton qualified reward group exceeds four native cards")
+			return errCurrentAntonRewardFrozenGroupCapacity
+		}
+		// A manual card may have committed while an earlier flow freeze was
+		// failing. Keep its exact choice, plan and receipt, but reserve its
+		// slot in the same frozen group as every remaining automatic card.
+		if card := f.Party[id]; card != nil {
+			card.Group = group
 		}
 		f.Recipients = append(f.Recipients, currentAntonRewardRecipient{id, account, group, clears})
 	}
@@ -241,6 +266,20 @@ func (s *Service) freezeCurrentAntonRewardFlowLocked(state runtimeRaidState) err
 		return raid.ErrRewardIneligible
 	}
 	sort.Slice(f.Recipients, func(i, j int) bool { return f.Recipients[i].CharacterID < f.Recipients[j].CharacterID })
+	f.PartyCardPeers = make(map[uint16][]uint16, len(f.Recipients))
+	for _, owner := range f.Recipients {
+		visible := s.currentRaidPartyRewardDisplayMembersForOwner(owner.CharacterID, state)
+		// A departed qualified owner keeps an independent offline card.
+		visible[owner.CharacterID] = true
+		for _, peer := range f.Recipients {
+			if visible[peer.CharacterID] {
+				f.PartyCardPeers[owner.CharacterID] = append(f.PartyCardPeers[owner.CharacterID], peer.CharacterID)
+			}
+		}
+		if len(f.PartyCardPeers[owner.CharacterID]) > runtimeRaidGroupSize {
+			return errCurrentAntonRewardFrozenGroupCapacity
+		}
+	}
 	if f.Single || f.Phase == 1 {
 		f.Weekly, err = prepareCurrentRaidFinalWeeklyCommand(state)
 		if err != nil {
@@ -300,8 +339,8 @@ func freezeCurrentAntonAutomaticCard(f *currentAntonRewardFlow, recipient curren
 		position := byte(0)
 		if kind == 1 {
 			used := [4]bool{}
-			for _, old := range cards {
-				if old != nil && old.Group == recipient.Group && old.Card < 4 {
+			for id, old := range cards {
+				if old != nil && currentAntonRewardCardPeer(f, recipient.CharacterID, id, old.Group, recipient.Group) && old.Card < 4 {
 					used[old.Card] = true
 				}
 			}
@@ -341,6 +380,10 @@ func freezeCurrentAntonAutomaticCard(f *currentAntonRewardFlow, recipient curren
 			return nil, raid.RewardCommand{}, err
 		}
 		plan, err = addCurrentAntonTeamTokenBonus(f, kind, catalog, plan, roll)
+		if err != nil {
+			return nil, raid.RewardCommand{}, err
+		}
+		plan, err = addCurrentPrivateLukeFiendwarNativeReward(f, kind, catalog, plan, roll)
 		if err != nil {
 			return nil, raid.RewardCommand{}, err
 		}

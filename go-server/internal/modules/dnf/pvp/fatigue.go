@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/fatigue"
+	"longheng.io/server/internal/modules/dnf/premium"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"time"
 )
@@ -72,6 +73,11 @@ func ConsumeArcadeFatigue(ctx context.Context, repos repo.Group, q ConsumeArcade
 		character.Stats["fatigue_display_update"] = character.Stats["fatigue_used"]
 		if consumed := out.Before - out.After; consumed > 0 && q.OnFatigueDebit != nil {
 			if err := q.OnFatigueDebit(&character, consumed, q.UpdatedAt); err != nil {
+				return err
+			}
+		}
+		if out.Consumed > 0 {
+			if err := premium.AccumulateBlackDiamondFatigue(&character, account, out.Consumed, q.UpdatedAt); err != nil {
 				return err
 			}
 		}

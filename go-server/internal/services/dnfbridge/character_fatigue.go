@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	dnffatigue "longheng.io/server/internal/modules/dnf/fatigue"
+	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"strconv"
@@ -106,6 +107,11 @@ func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, ses
 				if _, err := s.applyPrivateActivity(&character, 6, uint32(consumed), now, now); err != nil {
 					return err
 				}
+				if premium.Active(account, premium.TypeBlackDiamond, now) {
+					if err := premium.AccumulateBlackDiamondFatigue(&character, account, consumed, now); err != nil {
+						return err
+					}
+				}
 			}
 			changed = true
 		}
@@ -133,6 +139,7 @@ func (s *Service) updateCurrentCharacterFatigueMeasured(ctx context.Context, ses
 	if err != nil {
 		return dnfrepo.CharacterRecord{}, 0, err
 	}
+	s.queueCurrentBlackDiamondCoins(session, result)
 	return result, spent, nil
 }
 

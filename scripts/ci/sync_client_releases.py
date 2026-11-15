@@ -26,6 +26,7 @@ TAG = re.compile(r"client-[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
 VERSION_TAG = re.compile(r"client-v([1-9][0-9]*)(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?\Z")
 MIN_CLIENT_VERSION = 180
 NATIVE_CLIENT_EXE = {"sha256": "6402835223a23f9e4300c57c175d1b990b78ab0eecc46bd03fd373d0893e73f4", "length": 112812032}
+FORMAL_BLACKDIAMOND_EXE = {"sha256": "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84", "length": 112816128}
 NATIVE_CLIENT_SIDECARS = {
     "CombatPower.dll": {"sha256": "140ff544f282e401801a5d46d067a74867b43a2ecce7d89b5abe065a00a59f77", "length": 706048},
     "DpsMeter.dll": {"sha256": "6e907abd58551c06e58242d31e4a8a62c57d7d2440d88b7184f9844c34be5a17", "length": 493056},
@@ -263,7 +264,9 @@ def inspect_zip(path, *, with_pvf=False):
                             pass
             if exe is None:
                 raise SyncError("Client ZIP has no DNF.exe")
-            if native_sidecars and (native_sidecars != set(NATIVE_CLIENT_SIDECARS) or exe != NATIVE_CLIENT_EXE):
+            if ((native_sidecars or exe in (NATIVE_CLIENT_EXE, FORMAL_BLACKDIAMOND_EXE)) and
+                    (native_sidecars != set(NATIVE_CLIENT_SIDECARS) or
+                     exe not in (NATIVE_CLIENT_EXE, FORMAL_BLACKDIAMOND_EXE))):
                 raise SyncError("Native client bundle must match the complete exact EXE/plugin/skin set")
             if with_pvf:
                 if pvf is None:

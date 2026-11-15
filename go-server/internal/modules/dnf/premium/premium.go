@@ -29,10 +29,24 @@ const (
 	TypeCrystal                 int64 = 97
 	TypeLethe                   int64 = 33
 
+	// The private PVF/account contract uses type 17, but the paired native
+	// client names type 56 "黑钻会员" and gives it the existing Black Diamond
+	// banner (premiumservice.img frames 20/19). Native type 17 is a legacy
+	// over-equip variant and shares the 霸王之契约 banner with type 22.
+	// Keep persisted entitlements at 17; translate only outbound wire types.
+	WireTypeBlackDiamond int64 = 56
+
 	DevilTypeBase  int64 = 580
 	DevilFolded    int64 = 58
 	DevilSlotCount int64 = 8
 )
+
+func wireType(premiumType int64) int64 {
+	if premiumType == TypeBlackDiamond {
+		return WireTypeBlackDiamond
+	}
+	return premiumType
+}
 
 // Devil slot indexes from cerashop.etc [selectable character premium].
 const (
@@ -194,15 +208,21 @@ func TryConsumeDaily(character *dnfrepo.CharacterRecord, slot int64, now time.Ti
 // (86JP SelectCharacterAckBodyBuilder order).
 func SelectAckEntries(account dnfrepo.AccountRecord, now time.Time) []byte {
 	entries := make([]byte, 0, 54)
-	emittedTypes := make(map[int64]struct{}, 8)
+	emittedTypes := make(map[int64]int, 8)
 	appendEntry := func(premiumType int64, remaining int64) {
+		premiumType = wireType(premiumType)
 		if remaining <= 0 || premiumType <= 0 || premiumType > 0xff {
 			return
 		}
-		if _, exists := emittedTypes[premiumType]; exists {
+		if offset, exists := emittedTypes[premiumType]; exists {
+			// A legacy native-56 entry and the persisted private-17 contract
+			// share one display row. Preserve the longest active duration.
+			if remaining > int64(binary.LittleEndian.Uint64(entries[offset+1:offset+9])) {
+				binary.LittleEndian.PutUint64(entries[offset+1:offset+9], uint64(remaining))
+			}
 			return
 		}
-		emittedTypes[premiumType] = struct{}{}
+		emittedTypes[premiumType] = len(entries)
 		entries = append(entries, byte(premiumType))
 		for shift := uint(0); shift < 8; shift++ {
 			entries = append(entries, byte(remaining>>(8*shift)))
@@ -232,9 +252,6 @@ func SelectAckEntries(account dnfrepo.AccountRecord, now time.Time) []byte {
 		if err != nil || premiumType <= 0 || premiumType > 0xff || premiumType == DevilFolded {
 			continue
 		}
-		if _, exists := emittedTypes[premiumType]; exists {
-			continue
-		}
 		extraTypes = append(extraTypes, premiumType)
 	}
 	sort.Slice(extraTypes, func(i, j int) bool {
@@ -259,7 +276,7 @@ func SelectAckEntries(account dnfrepo.AccountRecord, now time.Time) []byte {
 // require CanNotifyActivation; this function remains allocation-only so it can
 // be used by the aligned response builders.
 func BuildActivatedBody(premiumType int64, remainingSeconds int64) []byte {
-	body := []byte{2, 0, byte(premiumType)}
+	body := []byte{2, 0, byte(wireType(premiumType))}
 	for shift := uint(0); shift < 8; shift++ {
 		body = append(body, byte(remainingSeconds>>(8*shift)))
 	}

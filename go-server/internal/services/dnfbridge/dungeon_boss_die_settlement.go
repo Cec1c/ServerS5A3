@@ -200,6 +200,11 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 		runtime.bossDieCheckResponseSent = true
 	}
 
+	// Optional native shop: a catalog or socket failure does not own the
+	// already-authoritative clear/result lifecycle.
+	if err := s.offerCurrentSecretShopLocked(session, runtime, snapshot.Scene); err != nil {
+		s.logGameEvent(session, "secret-shop-offer-deferred", "error", err)
+	}
 	if err := s.sendCurrentDungeonSettlementEntryLocked(
 		session,
 		runtime,

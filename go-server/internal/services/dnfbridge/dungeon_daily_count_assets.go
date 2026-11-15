@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"longheng.io/server/internal/modules/dnf/premium"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
@@ -113,8 +114,13 @@ func (s *Service) currentDailyCountEntryAssets(session *gameSession, dungeon wor
 			assets.activity.Amount = spent
 		}
 		if spent > 0 {
-			_, err := s.applyPrivateActivity(character, 6, uint32(spent), now, now)
-			return err
+			if _, err := s.applyPrivateActivity(character, 6, uint32(spent), now, now); err != nil {
+				return err
+			}
+			if premium.Active(account, premium.TypeBlackDiamond, now) {
+				return premium.AccumulateBlackDiamondFatigue(character, account, spent, now)
+			}
+			return nil
 		}
 		return nil
 	}
@@ -170,6 +176,7 @@ func (s *Service) consumeCurrentDailyCountEntry(session *gameSession, runtime *r
 		return err
 	}
 	runtime.Character = character
+	s.queueCurrentBlackDiamondCoins(session, character)
 	if assets.luckyBurn != nil && assets.fatigueSpent != nil && assets.luckyBurn.Cost == *assets.fatigueSpent {
 		recordCurrentLuckyFatigueRoom(runtime, scene.Coordinate, assets.luckyBurn.BonusPercent)
 	}

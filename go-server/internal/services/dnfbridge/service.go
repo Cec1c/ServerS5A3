@@ -49,6 +49,7 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	secretShops           currentSecretShopCatalogState
 	battlePassCatalogMu   sync.Mutex
 	battlePassCatalog     *battlepass.Catalog
 	battlePassFingerprint string

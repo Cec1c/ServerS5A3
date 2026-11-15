@@ -71,6 +71,7 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if charID != characterID || !hasCharacter {
 		return fmt.Errorf("initial town player state character mismatch: selected=%d loaded=%d found=%t", characterID, charID, hasCharacter)
 	}
+	s.queueCurrentBlackDiamondCoins(session, character)
 	objectKey := currentSceneActorObjectKey(charID)
 	sequence := "actor_bound_then_op358_pages_op376_op391_cargo_reset_op13_containers_op251_item_lock_snapshot_op898_crystal_op108_spend_time_op1240_joust_opening_op1241_joust_roster_op1340_full_mode1_pet_only_op14_slot26_op105_op102_optional_op205_expert_job_op19_op21_acceptable_op574_active_op1346_op359_op356_op9_op120_then_typed_op24"
 	if policy.includeReportClientSpec {
@@ -119,6 +120,11 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	}
 	// 转职次数随当前角色恢复；重登或切换角色不能继承上个角色的免费次数。
 	if err := s.sendCurrentProfessionChangeInfo(session, character); err != nil {
+		return err
+	}
+	// Favor belongs to the selected character, independently of returnee event
+	// 1370. An empty snapshot also clears the previous actor's native manager.
+	if err := s.sendCurrentNPCFavorState(session, character); err != nil {
 		return err
 	}
 	// 选角ACK的type58只恢复总契约图标；黄金卡牌专属牌面读取903明细中的
