@@ -646,11 +646,14 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 		}
 		s.logGameEvent(receiver, "game-party-clone-appearance-after-equipment", "peer_char_id", charID, "source", source)
 	}
+	frameBatch := newPartyFrameCharacterBatch(s)
+	frameBatch.seedProjectionCharacter(actorIdentity, charName, character, hasCharacter)
 	frameSent, err := s.sendCurrentPartyActorFrameProjectionForDungeonPeer(
 		receiver,
 		actor,
 		runtimePartyStateSnapshot(actor),
 		source+"_op9",
+		frameBatch,
 	)
 	if err != nil {
 		return false, fmt.Errorf("send dungeon peer actor op9: %w", err)

@@ -37,6 +37,27 @@ func currentPartyFrameCharacterBatch(service *Service, batches []*partyFrameChar
 	return newPartyFrameCharacterBatch(service)
 }
 
+// Creation, binding and the adjacent op9 record describe the same actor. Reuse
+// that already loaded record only inside this synchronous construction. Later
+// retries create a new batch; replacement sessions and foreign owners cannot
+// seed it. Dynamic party/run/owner fences still execute before writing frames.
+func (batch *partyFrameCharacterBatch) seedProjectionCharacter(identity boundGameSessionCharacter, name string, character dnfrepo.CharacterRecord, found bool) bool {
+	if batch == nil || batch.service == nil || !found || identity.character == 0 || identity.session == nil ||
+		!batch.service.boundGameSessionCharacterCurrent(identity) ||
+		character.CharacterID != strconv.Itoa(int(identity.character)) || character.AccountID == "" ||
+		character.AccountID != batch.service.accountIDForSession(identity.session) {
+		return false
+	}
+	if batch.entries == nil {
+		batch.entries = make(map[uint16]partyFrameCharacterBatchEntry)
+	}
+	batch.entries[identity.character] = partyFrameCharacterBatchEntry{
+		identity: identity, characterID: identity.character, name: name,
+		character: dnfrepo.CloneCharacter(character), hasCharacter: true,
+	}
+	return true
+}
+
 // The op9 table serializes only character identity, name, job, level and grow
 // state. Loading an enter aggregate also reads equipment and probes/repairs
 // unrelated initialization for every member. Keep the authoritative full
