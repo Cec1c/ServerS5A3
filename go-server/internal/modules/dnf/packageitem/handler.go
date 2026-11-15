@@ -25,6 +25,11 @@ func (handler) Domain() dnfenum.AlignedDomain {
 	return dnfenum.AlignedDomainPackage
 }
 
+// ReportsCommittedItemGrants covers only the two inventory magic-box owners.
+func (handler) ReportsCommittedItemGrants(opcode uint16) bool {
+	return dnfenum.CmdPacket(opcode) == dnfenum.CmdPacketUseRandomboxItem || dnfenum.CmdPacket(opcode) == dnfenum.CmdPacketUseRandomboxItemExpand
+}
+
 // Handle 解析礼包请求，并在奖励和物品刷新链路闭合前禁止成功 ACK。
 func (handler) Handle(ctx context.Context, req alignedcmd.Request) (alignedcmd.Result, error) {
 	switch dnfenum.CmdPacket(req.Opcode) {
@@ -205,6 +210,9 @@ func ownerAppliedMagicBoxResult(opcode uint16, operation string, result MagicBox
 		PostActions: []alignedcmd.PostAction{
 			alignedcmd.PostActionRefreshSelectedItemContainers,
 		},
+	}
+	if result.CommittedItemSlots != nil {
+		out.ItemGrantProjection = &alignedcmd.ItemGrantProjection{ChangedSlots: append([]alignedcmd.ItemSlotRefresh(nil), result.CommittedItemSlots...)}
 	}
 	if result.BoxItemID == currentSeriaLuckItemID {
 		out.SeriaLuck = &alignedcmd.SeriaLuckProjection{

@@ -53,6 +53,9 @@ type MagicBoxResult struct {
 	// 让客户端把左栏合并清空（2026-07-26 实测）。
 	DisplayRewards []MagicBoxGrantedReward
 	MainRefresh    map[string]dnfrepo.ItemStack
+	// CommittedItemSlots records actual slot mutations in this transaction.
+	// Callers may use it only after ApplyMagicBox/Expand returns without error.
+	CommittedItemSlots []alignedcmd.ItemSlotRefresh
 	// OverflowMailID identifies the system mail created when a main-inventory
 	// reward cannot be placed. The packet result omits those rows because the
 	// current EXE requires a real slot for every magic-box result entry.
@@ -379,6 +382,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 		return MagicBoxResult{}, err
 	}
 	items := record.Slots
+	changes := make(magicBoxSlotChanges)
 	boxKey := slotKey(cmd.ListType, cmd.SlotIndex)
 	box, ok := items[boxKey]
 	if !ok || box.Count <= 0 {
@@ -549,7 +553,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 		if _, isContract := contractRewards[itemID]; isContract {
 			continue
 		}
-		remaining, stacks, grantErr := grantMagicBoxReward(items, rewardItems[itemID], granted[itemID], record.ContainerState)
+		remaining, stacks, grantErr := grantMagicBoxRewardWithChanges(items, rewardItems[itemID], granted[itemID], changes.record, record.ContainerState)
 		if grantErr != nil {
 			if errors.Is(grantErr, ErrRewardInventoryFull) {
 				result.Reason = grantErr.Error()
@@ -616,6 +620,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 		updateMagicBoxStackRawAmount(&box)
 		items[boxKey] = box
 	}
+	changes.record(boxKey)
 	if materialKey != "" {
 		material = cloneMagicBoxStack(material)
 		material.Count -= resolution.MaterialCountPerUse * opens
@@ -625,6 +630,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 			updateMagicBoxStackRawAmount(&material)
 			items[materialKey] = material
 		}
+		changes.record(materialKey)
 	}
 
 	record.UpdatedAt = time.Now()
@@ -731,6 +737,7 @@ func (o *Owner) applyMagicBoxInTransaction(
 	result.Success = true
 	result.OpenCount = opens
 	result.MainRefresh = cloneMagicBoxItemMap(record.Slots)
+	result.CommittedItemSlots = changes.slots()
 	result.Changed = true
 	return result, nil
 }
@@ -827,6 +834,10 @@ func drawMagicBoxRewardsWithRoll(
 // 再按 PVF 分类寻找空格；消耗品优先快捷栏，装备/材料页满回落快捷栏。
 // 堆叠上限、到期身份和溢出邮件保持，独立容器不占主包快捷格。
 func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64, states ...*dnfrepo.CharacterContainerState) (int64, []dnfrepo.ItemStack, error) {
+	return grantMagicBoxRewardWithChanges(items, reward, count, nil, states...)
+}
+
+func grantMagicBoxRewardWithChanges(items map[string]dnfrepo.ItemStack, reward alignedcmd.MagicBoxRewardItem, count int64, changed func(string), states ...*dnfrepo.CharacterContainerState) (int64, []dnfrepo.ItemStack, error) {
 	if count <= 0 {
 		return 0, nil, nil
 	}
@@ -867,6 +878,9 @@ func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.M
 		stack.Count += add
 		updateMagicBoxStackRawAmount(&stack)
 		items[key] = stack
+		if changed != nil {
+			changed(key)
+		}
 		remaining -= add
 	}
 	policy := dnfplacement.SlotPolicy{ListType: targetListType, Start: reward.SlotStart, End: reward.SlotEnd,
@@ -927,6 +941,9 @@ func grantMagicBoxReward(items map[string]dnfrepo.ItemStack, reward alignedcmd.M
 		}
 		updateMagicBoxStackRawAmount(&stack)
 		items[key] = stack
+		if changed != nil {
+			changed(key)
+		}
 		remaining -= insert
 	}
 	if remaining == 0 {

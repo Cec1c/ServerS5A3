@@ -159,10 +159,9 @@ type itemGrantSlotFingerprint struct {
 	extra    string
 }
 
-// itemGrantInventorySnapshot 是一次命令**之前**的槽位指纹快照。op208/op1128 的写入发生在
-// packageitem 的事务里（`internal/modules/dnf/**` 是本次改动的禁区），bridge 拿不到
-// "写了哪些键"的返回值，所以用"提交前后各读一次仓储做差分"来得到**精确的** (list, slot)
-// 集合 —— 差分只报告真的变了的行，不会猜到别的格。
+// itemGrantInventorySnapshot is the compatibility fallback for a handler that
+// cannot report committed slot changes. Current magic-box owners provide the
+// projection directly; older handlers retain the before/after fingerprint diff.
 type itemGrantInventorySnapshot struct {
 	characterID string
 	accountID   string
@@ -211,19 +210,42 @@ func (s *Service) armItemGrantSnapshot(
 	return snapshot
 }
 
-// applyItemGrantSnapshot 在模块提交之后算出差分，把逐槽增量填进
-// `result.ItemSlotRefreshes`（bridge 在 `sendAlignedUpperResponses` 里无条件发成
-// class0/msg14），并把仍需整容器的例外容器记到会话上，供后置动作读取。
-//
-// 快照/差分不可用时**什么都不做**：调用方随即回落到今天的整容器回放。少发一个容器的代价是
-// 客户端投影过期，所以这里只允许"精确"或"今天的全量"，绝不猜。
+func (s *Service) armItemGrantSnapshotForRegistry(session *gameSession, repos dnfrepo.Group, opcode dnfenum.CmdPacket, registry alignedcmd.Registry) *itemGrantInventorySnapshot {
+	if s != nil && session != nil && itemGrantNoticeUsesDelta() && isMagicBoxGrantOpcode(opcode) && registry.ReportsCommittedItemGrants(uint16(opcode)) {
+		session.beginItemGrantNotice()
+		return nil
+	}
+	return s.armItemGrantSnapshot(session, repos, opcode)
+}
+
+// applyItemGrantSnapshot uses a committed grant projection when available and
+// otherwise keeps the legacy snapshot diff. Both feed the same post-ACK slot
+// sender and container exceptions; unavailable evidence keeps the full replay.
 func (s *Service) applyItemGrantSnapshot(
 	session *gameSession,
 	repos dnfrepo.Group,
 	snapshot *itemGrantInventorySnapshot,
 	result *alignedcmd.Result,
 ) {
-	if s == nil || session == nil || snapshot == nil || result == nil || !result.Handled {
+	if s == nil || session == nil || result == nil || !result.Handled {
+		return
+	}
+	if result.ItemGrantProjection != nil && isBoxOpenOperation(result.Operation) {
+		if !itemGrantNoticeUsesDelta() {
+			return
+		}
+		writes := make([]alignedcmd.ItemSlotRefresh, 0, len(result.ItemGrantProjection.ChangedSlots))
+		for _, slot := range result.ItemGrantProjection.ChangedSlots {
+			if itemGrantNoticeListInSelectedSet(slot.ListType) {
+				writes = append(writes, slot)
+			}
+		}
+		plan := buildItemGrantNoticePlan(writes)
+		session.setItemGrantNoticePlan(plan.ContainerLists)
+		result.ItemSlotRefreshes = append(result.ItemSlotRefreshes, plan.Delta...)
+		return
+	}
+	if snapshot == nil {
 		return
 	}
 	after, err := s.loadItemGrantSnapshot(context.Background(), session, repos)

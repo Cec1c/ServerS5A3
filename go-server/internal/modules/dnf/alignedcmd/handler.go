@@ -937,7 +937,11 @@ type Result struct {
 	// move must therefore NOT use this field for its list-7 slot; it uses
 	// PetMoveSlotRefreshes instead.
 	ItemSlotRefreshes []ItemSlotRefresh
-	PostActions       []PostAction
+	// ItemGrantProjection is a complete set of inventory slots changed by a
+	// committed grant. A nil projection asks the bridge to use its legacy
+	// snapshot fallback; a non-nil empty projection means no slot changed.
+	ItemGrantProjection *ItemGrantProjection
+	PostActions         []PostAction
 	// PetMoveSlotRefreshes names the list-7 slots whose row this command
 	// changed, for pet/artifact equipment moves only (op19 with a list-3
 	// slot 26..29 endpoint). It is the exact analogue of the vendor's
@@ -1134,6 +1138,18 @@ type Handler interface {
 	Handle(context.Context, Request) (Result, error)
 }
 
+// CommittedItemGrantReporter identifies handlers that return complete grant
+// slot changes after commit, allowing callers to avoid pre-command SQL reads.
+type CommittedItemGrantReporter interface {
+	ReportsCommittedItemGrants(uint16) bool
+}
+
+// ItemGrantProjection contains inventory changes, not packet bodies. The
+// bridge retains its list-specific protocol and post-ACK refresh rules.
+type ItemGrantProjection struct {
+	ChangedSlots []ItemSlotRefresh
+}
+
 // Registry 按业务域保存 handler，避免 dnfbridge 直接堆积各玩法 switch。
 type Registry struct {
 	handlers map[dnfenum.AlignedDomain]Handler
@@ -1155,6 +1171,17 @@ func NewRegistry(handlers ...Handler) Registry {
 // 具体业务 handler 尚未补齐时保持空表，只做证据化 pending/blocked 分流。
 func DefaultRegistry() Registry {
 	return NewRegistry()
+}
+
+// ReportsCommittedItemGrants describes the handler selected for this opcode.
+// An older or replacement handler without the capability keeps the fallback.
+func (r Registry) ReportsCommittedItemGrants(opcode uint16) bool {
+	d, ok := Classify(opcode)
+	if !ok || d.Action == ActionBlocked {
+		return false
+	}
+	h, ok := r.handlers[d.Domain].(CommittedItemGrantReporter)
+	return ok && h.ReportsCommittedItemGrants(opcode)
 }
 
 // Route 根据 EXE 证据分类并交给对应业务域 handler。
@@ -1196,6 +1223,11 @@ func (r Registry) Route(ctx context.Context, req Request) (Result, bool, error) 
 		result.UpperResponses[i].Body = append([]byte(nil), result.UpperResponses[i].Body...)
 	}
 	result.PostActions = append([]PostAction(nil), result.PostActions...)
+	if result.ItemGrantProjection != nil {
+		projection := *result.ItemGrantProjection
+		projection.ChangedSlots = append([]ItemSlotRefresh(nil), projection.ChangedSlots...)
+		result.ItemGrantProjection = &projection
+	}
 	result.PostAckWornEquipmentSlotRefreshes = append([]int16(nil), result.PostAckWornEquipmentSlotRefreshes...)
 	result.AuthoritativeListRefreshes = append([]byte(nil), result.AuthoritativeListRefreshes...)
 	if result.StackableConsumption != nil {
