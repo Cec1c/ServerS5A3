@@ -73,8 +73,10 @@ func (s *Service) ensureGameplayTimeQueue() gameplayTimeQueue {
 	if s == nil {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// 玩法可在会话 party 锁内取时钟，不能再获取绑定/连接共用的 s.mu。
+	// New 在发布服务前初始化；独立锁也支持零值服务的并发惰性初始化。
+	s.gameplayTimersMu.Lock()
+	defer s.gameplayTimersMu.Unlock()
 	if s.gameplayTimers == nil {
 		s.gameplayTimers = newProcessGameplayTimeQueue(func(name string, recovered any) {
 			s.logWarn("dnfbridge gameplay timer callback panic", "timer_name", name, "recovered", recovered)

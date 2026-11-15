@@ -38,8 +38,8 @@ func (s *Service) currentPartyProjectionMembershipGuard(actor boundGameSessionCh
 	}
 }
 
-// Bind, projection and manager locks follow the cleanup order. The manager
-// callback only writes the cache; it never sends packets or calls the manager.
+// The manager guard and binding generation cover the final cache write together.
+// Contention releases the entire lock set before waiting and rechecking.
 func (s *Service) storeCurrentPartyProjection(identity boundGameSessionCharacter, state alignedcmd.PartyState) bool {
 	if s == nil || identity.session == nil || identity.character == 0 {
 		return false
@@ -52,24 +52,21 @@ func (s *Service) storeCurrentPartyProjection(identity boundGameSessionCharacter
 	if state.PartyID > 0 {
 		state = expected.StateFor(identity.character)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	primary := s.gameSessions[identity.character]
-	registeredAuxiliary := state.PartyID > 0 && primary != nil && primary.selectedCharacterID == identity.character &&
-		identity.session.connID != "" && s.liveGameSessions[identity.session.connID] == identity.session
-	if (primary != identity.session && !registeredAuxiliary) || identity.session.selectedCharacterID != identity.character || identity.session.characterGeneration != identity.generation {
-		return false
+	guard := func(apply func() error) error { return manager.WithSnapshot(expected, apply) }
+	if state.PartyID <= 0 {
+		guard = func(apply func() error) error { return manager.WithSoloMember(identity.character, apply) }
 	}
-	identity.session.party.mu.Lock()
-	defer identity.session.party.mu.Unlock()
 	apply := func() error {
+		primary := s.gameSessions[identity.character]
+		registeredAuxiliary := state.PartyID > 0 && primary != nil && primary.selectedCharacterID == identity.character &&
+			identity.session.connID != "" && s.liveGameSessions[identity.session.connID] == identity.session
+		if (primary != identity.session && !registeredAuxiliary) || identity.session.selectedCharacterID != identity.character || identity.session.characterGeneration != identity.generation {
+			return party.ErrRuntimePartyChanged
+		}
 		identity.session.party.state = cloneRuntimePartyState(state)
 		return nil
 	}
-	if state.PartyID <= 0 {
-		return manager.WithSoloMember(identity.character, apply) == nil
-	}
-	return manager.WithSnapshot(expected, apply) == nil
+	return s.withCurrentPartyProjectionCommit(guard, &identity.session.party.mu, apply) == nil
 }
 
 // Registered auxiliary transports share the character's manager membership,
