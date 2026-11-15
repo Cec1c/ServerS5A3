@@ -53,7 +53,7 @@ func guildSnapshotCacheFor(namespace *r.GuildSnapshotNamespace) *guildReadSnapsh
 }
 
 func newGuildReadSnapshot(reg Registry) (*guildReadSnapshot, error) {
-	snapshot := &guildReadSnapshot{registry: Registry{Guilds: reg.Guilds}, encoded: map[uint32][]byte{}, owners: map[string]uint32{}}
+	snapshot := &guildReadSnapshot{registry: Registry{Guilds: reg.Guilds, Ranking: reg.Ranking}, encoded: map[uint32][]byte{}, owners: map[string]uint32{}}
 	if reg.DungeonPolicy != nil {
 		policy := *reg.DungeonPolicy
 		snapshot.registry.DungeonPolicy = &policy

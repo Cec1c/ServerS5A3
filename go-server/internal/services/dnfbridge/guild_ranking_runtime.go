@@ -55,34 +55,39 @@ func (s *Service) handleCurrentGuildRanking(session *gameSession, request []byte
 	owner := r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID}
 	// Check membership before triggering the global sampler. Foreign or
 	// departed characters cannot use this query to mutate ranking snapshots.
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	view, err := s.readCurrentGuildRankingView(ctx)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, member := reg.GuildForOwner(owner)
-	if !member {
-		return fail(guild.ErrNotMember)
-	}
-	guildID := g.ID
 	// A query never samples all accounts on the player's event loop. The
 	// existing sampler owns refreshes; an unavailable/expired result retains
 	// the native failure response instead of presenting stale scores as fresh.
-	if !currentGuildRankingFresh(reg, s.gameplayNow()) {
+	rows, err := view.Rows(owner, s.gameplayNow(), currentGuildRankingInterval)
+	if errors.Is(err, guild.ErrRankingSnapshotChanged) {
 		s.requestCurrentGuildRankingRefresh()
-		return fail(guild.ErrRankingSnapshotChanged)
 	}
-	g, _, member = reg.GuildForOwner(owner)
-	if !member || g.ID != guildID || !s.boundGameSessionCharacterCurrent(peer) {
-		return fail(guild.ErrNotMember)
-	}
-	if err := reg.Ranking.Validate(); err != nil {
+	if err != nil {
 		return fail(err)
 	}
-	body, err := buildCurrentGuildRankingBody(reg.Ranking.View(guildID, s.gameplayNow()))
+	if !s.boundGameSessionCharacterCurrent(peer) {
+		return fail(guild.ErrNotMember)
+	}
+	body, err := buildCurrentGuildRankingBody(rows)
 	if err != nil {
 		return fail(err)
 	}
 	return s.sendGameUpperSuccess(session, currentGuildRankingOpcode, body)
+}
+
+func (s *Service) readCurrentGuildRankingView(ctx context.Context) (*guild.RankingReadView, error) {
+	repositories, ok := s.repositoryGroup()
+	if !ok || repositories.Settings == nil || repositories.Character == nil {
+		return nil, guild.ErrRepositoryUnavailable
+	}
+	started := s.performanceStart()
+	view, err := guild.ReadRankingView(ctx, repositories.Settings)
+	s.performanceEnd(perfGuildRegistryRead, started, err)
+	return view, err
 }
 
 // The registry and result are published as one epoch. Character repositories

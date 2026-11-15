@@ -34,11 +34,11 @@ func (s *Service) handleCurrentGuildRankingBoard(session *gameSession, request [
 	if _, err = s.currentGuildOwnedSelectedIdentity(session); err != nil {
 		return fail(err)
 	}
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	view, err := s.readCurrentGuildRankingView(ctx)
 	if err != nil {
 		return fail(err)
 	}
-	rows, err := reg.MonthlyRankingBoard(s.gameplayNow(), request[0] == 1, page)
+	rows, err := view.MonthlyBoard(s.gameplayNow(), request[0] == 1, page)
 	if err != nil {
 		return fail(err)
 	}
@@ -49,23 +49,22 @@ func (s *Service) handleCurrentGuildRankingBoard(session *gameSession, request [
 	return s.sendGameUpperSuccess(session, currentGuildRankingBoardOpcode, body)
 }
 
-func buildCurrentGuildRankingBoardBody(kind byte, rows []guild.RankingBoardEntry) []byte {
+func buildCurrentGuildRankingBoardBody(kind byte, rows []guild.RankingBoardProjection) []byte {
 	body := make([]byte, 5+72*len(rows))
 	body[0] = kind
 	// Native 01FB5A70 reads but never consumes the header WORD. Keep zero.
 	binary.LittleEndian.PutUint16(body[3:], uint16(len(rows)))
 	for i, entry := range rows {
 		row := body[5+72*i : 5+72*(i+1)]
-		g := entry.Guild
-		binary.LittleEndian.PutUint32(row, g.ID)
+		binary.LittleEndian.PutUint32(row, entry.ID)
 		binary.LittleEndian.PutUint32(row[4:], entry.Rank)
 		binary.LittleEndian.PutUint32(row[8:], math.Float32bits(entry.Score))
 		// Bytes 12/13 and trailing 70/71 retain the native zero initializer;
 		// no application/region policy is inferred from these opaque fields.
-		row[14] = g.Mark
-		writeGuildRankingBoardName(row[15:38], g.Name)
-		writeGuildRankingBoardName(row[38:68], g.MasterName)
-		binary.LittleEndian.PutUint16(row[68:], uint16(len(g.Members)))
+		row[14] = entry.Mark
+		writeGuildRankingBoardName(row[15:38], entry.Name)
+		writeGuildRankingBoardName(row[38:68], entry.MasterName)
+		binary.LittleEndian.PutUint16(row[68:], uint16(entry.MemberCount))
 	}
 	return body
 }
