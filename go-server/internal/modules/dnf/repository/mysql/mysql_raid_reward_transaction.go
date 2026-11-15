@@ -76,6 +76,12 @@ func (u *mysqlAccountCharacterAssetUnitOfWork) withinAccountCharacterMailboxAsse
 	txRouter.writeDBs = append([]string(nil), u.router.writeDBs...)
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	// These stores are scoped below to one account and one character. Keep
+	// their locked before-images so a box open or raid reward only rewrites
+	// changed slots, metadata and stats in this same atomic transaction.
+	enableInventoryDeltaTracking(txGroup)
+	txGroup.Account.(*mysqlAccountStore).trackMetadataChanges = true
+	txGroup.Character.(*mysqlCharStore).trackStatChanges = true
 	var ledger repository.AccountRepository
 	if includeLedger {
 		ledger = &rentalScopedAccountRepository{accountID: accountID, base: txGroup.Account}
