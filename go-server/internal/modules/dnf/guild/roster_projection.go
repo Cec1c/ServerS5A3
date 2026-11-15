@@ -14,6 +14,10 @@ func (membership *GuildReadMembership) RosterProjection(owner r.GuildOwner) (*Gu
 	if g == nil {
 		return nil, nil
 	}
+	return detachedRosterProjection(g), nil
+}
+
+func detachedRosterProjection(g *Guild) *Guild {
 	result := &Guild{
 		ID: g.ID, Name: g.Name, MasterCharacterID: g.MasterCharacterID, MasterName: g.MasterName,
 		Level: g.Level, Experience: g.Experience, Mileage: g.Mileage,
@@ -52,5 +56,5 @@ func (membership *GuildReadMembership) RosterProjection(owner r.GuildOwner) (*Gu
 		}
 		result.Members[key] = member
 	}
-	return result, nil
+	return result
 }

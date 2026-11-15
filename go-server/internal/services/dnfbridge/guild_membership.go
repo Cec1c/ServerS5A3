@@ -77,11 +77,11 @@ func (s *Service) handleCurrentGuildJoinCheck(session *gameSession, body []byte)
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	_, r, err := s.loadCurrentGuildRegistry(ctx)
+	_, r, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	g, found := r.GuildByName(name)
+	g, found := r.RosterByName(name)
 	if !found {
 		return s.sendGameUpperFailure(session, op, currentGuildGenericError)
 	}
@@ -176,7 +176,7 @@ func (s *Service) handleCurrentGuildApplicationList(session *gameSession, _ []by
 	op := uint16(dnfenum.CmdPacketGuildJoinList)
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	repos, r, err := s.loadCurrentGuildRegistry(ctx)
+	repos, r, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
@@ -184,15 +184,12 @@ func (s *Service) handleCurrentGuildApplicationList(session *gameSession, _ []by
 	if err != nil {
 		return s.rejectCurrentGuildRequest(session, op, nil)
 	}
-	g, member, found := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
-	if !found || member.Grade > 2 {
+	applications, err := r.Applications(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
+	if err != nil {
 		return s.rejectCurrentGuildRequest(session, op, nil)
 	}
 	var rows []dnfguild.Application
-	for _, a := range dnfguild.SortedApplications(g) {
-		if _, _, exists := r.GuildForCharacter(a.CharacterID); exists {
-			continue
-		}
+	for _, a := range applications {
 		c, found, err := repos.Character.Load(ctx, a.CharacterID)
 		if err != nil {
 			return err
@@ -224,7 +221,7 @@ func (s *Service) decideCurrentGuildApplication(session *gameSession, body []byt
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	repos, _, err := s.loadCurrentGuildRegistry(ctx)
+	repos, _, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
