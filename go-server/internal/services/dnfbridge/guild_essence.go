@@ -106,11 +106,15 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	reg, err := guild.Load(ctx, repos.Settings)
+	view, err := guild.ReadHallView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
-	g, _, _ := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
+	projection, found := view.Projection(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
+	var g *guild.Guild
+	if found {
+		g = currentGuildHallDisplay(projection)
+	}
 	body, err := buildCurrentGuildGuardianSnapshot(g)
 	if err != nil {
 		return err

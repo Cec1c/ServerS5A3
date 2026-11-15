@@ -112,15 +112,11 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 		return err
 	}
 	// Recover the latest committed level even when this is an older receipt.
-	current, err := guild.Load(ctx, repos.Settings)
+	current, err := guild.ReadHallView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
-	currentGuild, _, found := current.GuildForOwner(owner)
-	if !found || currentGuild.ID != result.GuildID {
-		return guild.ErrNotMember
-	}
-	level, err := guild.MerchantLevel(currentGuild, result.MerchantIndex)
+	level, err := current.MerchantLevel(owner, result.GuildID, result.MerchantIndex)
 	if err != nil {
 		return err
 	}

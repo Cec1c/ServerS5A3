@@ -93,7 +93,7 @@ func (s *Service) freezeCurrentGuildPracticeGroup(ctx context.Context, session *
 	if !ok || repos.Settings == nil {
 		return guild.ErrRepositoryUnavailable
 	}
-	reg, err := guild.Load(ctx, repos.Settings)
+	view, err := guild.ReadHallView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,8 @@ func (s *Service) freezeCurrentGuildPracticeGroup(ctx context.Context, session *
 			return guild.ErrPermissionDenied
 		}
 		seen[identity.character] = true
-		memberGuild, _, member := reg.GuildForOwner(r.GuildOwner{AccountID: runtimes[i].AccountID, CharacterID: runtimes[i].Character.CharacterID})
+		owner := r.GuildOwner{AccountID: runtimes[i].AccountID, CharacterID: runtimes[i].Character.CharacterID}
+		memberGuildID, member := view.GuildID(owner)
 		if !member {
 			return guild.ErrNotMember
 		}
@@ -126,8 +127,9 @@ func (s *Service) freezeCurrentGuildPracticeGroup(ctx context.Context, session *
 		}
 		p := runtimes[i].townReturnOrigin
 		if i == 0 {
-			g, origin = memberGuild, p
-		} else if memberGuild.ID != g.ID || peer.channel.ID != session.channel.ID || p.TownID != origin.TownID || p.AreaID != origin.AreaID {
+			projection, _ := view.Projection(owner)
+			g, origin = currentGuildHallDisplay(projection), p
+		} else if memberGuildID != g.ID || peer.channel.ID != session.channel.ID || p.TownID != origin.TownID || p.AreaID != origin.AreaID {
 			return guild.ErrPermissionDenied
 		}
 		owners[i] = &currentGuildPracticeRun{GuildID: g.ID, DungeonID: runtime.Request.DungeonID, Generation: identity.generation, identity: identity}
