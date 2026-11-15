@@ -29,6 +29,7 @@ func (s *Service) sendAlignedPremiumContractActivations(
 	}
 	nowUnix := s.gameplayNow().UTC().Unix()
 	refreshCrystal := false
+	refreshFatigue := false
 	for _, activation := range activations {
 		remaining := activation.ExpireAt - nowUnix
 		if remaining < 0 {
@@ -48,6 +49,9 @@ func (s *Service) sendAlignedPremiumContractActivations(
 		if activation.PremiumType == premium.TypeCrystal {
 			refreshCrystal = true
 		}
+		if activation.PremiumType == premium.TypeBlackDiamond {
+			refreshFatigue = true
+		}
 	}
 	s.logGameEvent(session, "game-aligned-premium-contract-activated",
 		"source", "grant_time_contract_item_before_slot_planning",
@@ -55,6 +59,11 @@ func (s *Service) sendAlignedPremiumContractActivations(
 		"char_id", session.selectedCharacterID,
 		"activation_count", len(activations),
 		"activations", fmt.Sprint(activations))
+	if refreshFatigue {
+		if err := s.sendAlignedPostAction(session, alignedcmd.Result{Operation: operation}, alignedcmd.PostActionRefreshFatigueState); err != nil {
+			return err
+		}
+	}
 	if refreshCrystal {
 		s.requestCurrentCrystalContractTimerRefresh(session)
 		return s.sendCurrentCrystalContractState(session, "aligned_"+operation+"_after_type97_grant_activation")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // PreparedSQLDB bounds retained query shapes. Once full, new shapes use the
@@ -142,7 +143,7 @@ func (a *PreparedSQLDB) Close() error {
 }
 
 func newSQLTransactionDB(tx sqlTransaction, parent SQLDB) sqlTransactionDB {
-	r := sqlTransactionDB{tx: tx}
+	r := sqlTransactionDB{tx: tx, writeVersion: &atomic.Uint64{}}
 	if observed, ok := parent.(*ObservedSQLDB); ok {
 		r.observation = observed.Observation
 		parent = observed.SQLDB

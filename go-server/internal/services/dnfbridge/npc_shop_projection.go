@@ -78,6 +78,9 @@ func (s *Service) commitCurrentNPCShopBuy(ctx context.Context, session *gameSess
 		UpdatedAt:     s.gameplayNow(),
 		PurchaseLimit: currentNPCShopPurchaseLimit(pricing, request.Count),
 		Project: func(assets *dnfnpcshop.Assets) (dnfnpcshop.Changes, error) {
+			if !s.currentNPCShopContextCurrent(request.contextProof) {
+				return dnfnpcshop.Changes{}, currentNPCShopContextError()
+			}
 			character := assets.Character
 			inventory := assets.Inventory
 			if character.Stats == nil {
@@ -207,6 +210,9 @@ func (s *Service) commitCurrentNPCShopMaterialExchange(ctx context.Context, sess
 		PurchaseLimit: currentNPCShopPurchaseLimit(pricing, request.Count),
 		AccountLedger: fateCost,
 		Project: func(assets *dnfnpcshop.Assets) (dnfnpcshop.Changes, error) {
+			if !s.currentNPCShopContextCurrent(request.contextProof) {
+				return dnfnpcshop.Changes{}, currentNPCShopContextError()
+			}
 			character := assets.Character
 			inventory := assets.Inventory
 			account := assets.AccountInventory
@@ -404,6 +410,9 @@ func (s *Service) commitCurrentNPCShopSell(ctx context.Context, session *gameSes
 			pricing, priceErr := resolveCurrentNPCShopActorPricing(shop, items, uint32(stack.ItemID), request.ActorContext)
 			if priceErr != nil {
 				return dnfnpcshop.Changes{}, priceErr
+			}
+			if err := validateCurrentNPCShopSaleContext(shop, pricing, request.ActorContext); err != nil {
+				return dnfnpcshop.Changes{}, err
 			}
 			applied := int64(request.Count)
 			if applied > stack.Count {

@@ -30,7 +30,7 @@ var (
 const (
 	// Type 29 / item 193 are auction-discount tickets, not Black Diamond.
 	currentDungeonBlackDiamondPremiumType int64 = premium.TypeBlackDiamond
-	currentDungeonBlackDiamondBonusRate         = 0.10
+	currentDungeonBlackDiamondBonusRate         = 0.05
 )
 
 type currentDungeonSettlementRewardResources struct {
@@ -550,7 +550,7 @@ func currentDungeonScoreBonusExp(base uint32, resources currentDungeonSettlement
 	return uint32(bonus)
 }
 
-// currentBlackDiamondBonusExp returns +10% clear experience when the account
+// currentBlackDiamondBonusExp returns +5% clear experience when the account
 // has an active Black Diamond entitlement. Auction coupons do not qualify.
 func (s *Service) currentBlackDiamondBonusExp(ctx context.Context, accountID string, base uint32) uint32 {
 	if s == nil || base == 0 || strings.TrimSpace(accountID) == "" {

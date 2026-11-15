@@ -344,6 +344,7 @@ func (s *Service) handleCurrentPVPFatigueUsage(session *gameSession, body []byte
 		if !found {
 			return fmt.Errorf("决斗角色不存在")
 		}
+		s.queueCurrentBlackDiamondCoins(session, character)
 		if err := s.sendGameUpperRawClass(session, currentFatigueMsgID, buildCurrentFatigueBody(character, true), 0); err != nil {
 			return err
 		}

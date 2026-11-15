@@ -21,10 +21,12 @@ import (
 )
 
 type gameSession struct {
-	accountFriendPresence      accountFriendPresenceKey // guarded by Service.mu
-	accountFriendPresenceReady bool                     // guarded by Service.mu
-	accountFriendRefreshAt     time.Time                // selected-character event owner
-	accountFriendPendingBody   []byte                   // immutable last successfully sent projection
+	blackDiamondCoinQueued     atomic.Bool                   // bounded selected-owner delivery event
+	npcShopDiagnostics         currentNPCShopDiagnosticState // separately locked, bounded per connection
+	accountFriendPresence      accountFriendPresenceKey      // guarded by Service.mu
+	accountFriendPresenceReady bool                          // guarded by Service.mu
+	accountFriendRefreshAt     time.Time                     // selected-character event owner
+	accountFriendPendingBody   []byte                        // immutable last successfully sent projection
 	townMoveMu                 sync.Mutex
 	townMoves                  map[townMoveKey]*townMovePending
 	growthTicketPending        *privateGrowthPending // selected-character event owner only

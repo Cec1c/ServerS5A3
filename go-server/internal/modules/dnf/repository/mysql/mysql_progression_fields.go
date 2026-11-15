@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/repository"
@@ -96,6 +97,7 @@ func (s *mysqlSkillStore) LoadProgressionSkill(ctx context.Context, id string) (
 }
 
 func (s *mysqlCharStore) SaveProgressionCharacter(ctx context.Context, before, after repository.CharacterRecord) error {
+	s.lockedReadCache = nil
 	// This optional capability is used only by the progression transaction.
 	if !s.router.lockReads || before.CharacterID == "" || before.CharacterID != after.CharacterID || before.AccountID != after.AccountID {
 		return errors.New("progression delta requires the same locked character")
@@ -128,22 +130,39 @@ func (s *mysqlCharStore) SaveProgressionCharacter(ctx context.Context, before, a
 	if _, err := s.router.db.ExecContext(ctx, "UPDATE "+table+" SET "+strings.Join(sets, ", ")+" WHERE character_id = ? AND account_id = ?", args...); err != nil {
 		return err
 	}
-	for _, key := range sortedStringKeys(after.Stats) {
-		value := after.Stats[key]
-		if isMySQLCharacterMirrorStatKey(key) {
-			continue
+	if os.Getenv("DNFBRIDGE_EXPERIMENTAL_PEAK") == "on" {
+		keys := make([]string, 0)
+		for _, key := range sortedStringKeys(after.Stats) {
+			if isMySQLCharacterMirrorStatKey(key) {
+				continue
+			}
+			if old, present := before.Stats[key]; present && old == after.Stats[key] {
+				continue
+			}
+			keys = append(keys, key)
 		}
-		if old, present := before.Stats[key]; present && old == value {
-			continue
-		}
-		query := "INSERT INTO " + stats + " (character_id, stat_key, stat_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE stat_value = VALUES(stat_value)"
-		if _, event := repository.LevelUpEventLevel(key); event {
-			query = "INSERT INTO " + stats + " (character_id, stat_key, stat_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), IF(stat_value < 0 OR VALUES(stat_value) >= 0, stat_value, VALUES(stat_value)))"
-		} else if strings.HasPrefix(key, repository.LevelUpRewardStatPrefix) {
-			query = "INSERT INTO " + stats + " (character_id, stat_key, stat_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), stat_value)"
-		}
-		if _, err := s.router.db.ExecContext(ctx, query, id, key, value); err != nil {
+		// Reuse the existing size-bounded batcher and its permanent audit rules.
+		if err := writeCharacterStatRows(ctx, s.router.db, stats, id, keys, after.Stats, true); err != nil {
 			return err
+		}
+	} else {
+		for _, key := range sortedStringKeys(after.Stats) {
+			value := after.Stats[key]
+			if isMySQLCharacterMirrorStatKey(key) {
+				continue
+			}
+			if old, present := before.Stats[key]; present && old == value {
+				continue
+			}
+			query := "INSERT INTO " + stats + " (character_id, stat_key, stat_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE stat_value = VALUES(stat_value)"
+			if _, event := repository.LevelUpEventLevel(key); event {
+				query = "INSERT INTO " + stats + " (character_id, stat_key, stat_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), IF(stat_value < 0 OR VALUES(stat_value) >= 0, stat_value, VALUES(stat_value)))"
+			} else if strings.HasPrefix(key, repository.LevelUpRewardStatPrefix) {
+				query = "INSERT INTO " + stats + " (character_id, stat_key, stat_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE stat_value = IF(stat_value = 0, VALUES(stat_value), stat_value)"
+			}
+			if _, err := s.router.db.ExecContext(ctx, query, id, key, value); err != nil {
+				return err
+			}
 		}
 	}
 	// Progression never deletes an audit fact. Non-audit removals are explicit.

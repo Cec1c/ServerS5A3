@@ -69,6 +69,9 @@ type runtimeRaidBattle struct {
 	RewardCards          [2]map[uint16]*currentAntonRewardCard
 	AntonFlowConfig      raid.AntonFlowConfiguration
 	RewardFlow           [2]*currentAntonRewardFlow
+
+	RewardFreezeDiagnosticAt         [2]time.Time
+	RewardFreezeDiagnosticSuppressed [2]uint32
 }
 
 func cloneRuntimeRaidBattle(b *runtimeRaidBattle) *runtimeRaidBattle {

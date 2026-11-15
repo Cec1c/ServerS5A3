@@ -102,10 +102,14 @@ func (c *Catalog) PlanDisjointer(experience int64, machineGrade int, equipment E
 		return DisjointerPlan{}, ErrExtractionInvalid
 	}
 	base := int64(baseQuantity)
+	base, criticalChance, err := groupDisjointerTierBonus(config, machineGrade, equipmentGrade, equipment.WarriorsDungeon, rule, base)
+	if err != nil {
+		return DisjointerPlan{}, err
+	}
 	plan := DisjointerPlan{Materials: []RecipeEntry{{rule.ItemID, base}}}
 	// Aiken equipment uses the normal additional-material table at every grade.
 	// Ordinary equipment retains the machine's configured critical probability.
-	bigWin := !equipment.WarriorsDungeon && random.Intn(10000) < max(0, min(100, rule.BigWinChancePercent))*100
+	bigWin := !equipment.WarriorsDungeon && random.Intn(10000) < criticalChance*100
 	table := rule.AdditionalTable
 	selections := config.AdditionalResults
 	if bigWin {

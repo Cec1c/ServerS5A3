@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "selections": [
+    "C18",
+    "F02",
+    "F03",
+    "F04",
+    "F10",
+    "G04",
+    "G05"
+  ],
+  "basePvfSHA256": "5d7eb550238e6b9a9fc18b4dde6fc510c2050a809aaa44b757a5beb79ece03ed",
+  "planSHA256": "0052449363dea710a10bda629ec33908e7e0e87c5f4b283c88af9d1a28021285",
+  "outputPvfSHA256": "2b5453f0ad56aad5a1768cb15881fdb746975a83fbc21d7fc987a5b19b226995",
+  "changedPaths": [
+    "etc/premiumlist_new.etc",
+    "stackable/490008001/chn_490008445.stk",
+    "stackable/stackable.lst"
+  ],
+  "addedPaths": [
+    "stackable/private_blackdiamond/490709930.stk",
+    "stackable/private_blackdiamond/490709931.stk",
+    "stackable/private_blackdiamond/490709932.stk"
+  ],
+  "alreadyPresentPaths": [
+    "etc/raid/luke/luke.etc",
+    "etc/raid/fiendwar/fiendwar.etc"
+  ],
+  "unchangedFilesPreserved": 1126598,
+  "newTokensVerified": true,
+  "rawPVFIncluded": false,
+  "merchantShelfUnchanged": true,
+  "lutherExpiryPreserved": true
+}

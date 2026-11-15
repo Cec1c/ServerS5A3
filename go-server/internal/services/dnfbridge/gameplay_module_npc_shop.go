@@ -82,29 +82,42 @@ func (s *Service) handleCurrentNPCShopBuy(session *gameSession, body []byte) err
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count, "reason", err)
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
-	if err := validateCurrentNPCShopBuyShelf(shop, request); err != nil {
+	rawRequest := request
+	request, err = s.resolveCurrentNPCShopBuyContext(session, shop, request)
+	if err != nil {
+		s.logAikenExchange(session, rawRequest, "aiken-exchange-rejected", "stage", "shop_context")
+		s.logCurrentNPCShopDiagnostic(session, uint16(dnfenum.CmdPacketBuyItem), "shop_context", rawRequest, 0, "context_or_shelf_unavailable")
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count,
 			"shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", err)
-		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
+		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopContextErrorCode)
+	}
+	if request.ActorContext != rawRequest.ActorContext {
+		s.logCurrentNPCShopDiagnostic(session, uint16(dnfenum.CmdPacketBuyItem), "context_resolved", rawRequest, request.ActorContext, "server_npc_context")
 	}
 	if request.ItemID == uint32(currentAikenSupportTitleOwnedID) {
-		identity, bound := s.boundGameSessionCharacterSnapshot(session)
 		// Native itemshop 247 sends actor=0. Bind the title to Shua's
 		// actual Aiken entrance scene (NPC 486) as well as its exact shelf.
-		if !bound || request.ShopContext != 247 || (request.ActorContext != 0 && request.ActorContext != 486) || s.validateUpgradeNPCScene(identity, 486) != nil {
+		proof, sceneErr := s.currentNPCShopSceneProof(session, shop, 486)
+		if sceneErr != nil || request.ShopContext != 247 || (request.ActorContext != 0 && request.ActorContext != 486) {
+			s.logCurrentNPCShopDiagnostic(session, uint16(dnfenum.CmdPacketBuyItem), "title_context", rawRequest, request.ActorContext, "title_npc_scene_unavailable")
 			s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID,
 				"shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", "Aiken title NPC scene unavailable")
-			return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
+			return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopContextErrorCode)
 		}
+		request.contextProof = proof
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	result, err := s.commitCurrentNPCShopBuy(ctx, session, shop, items, request)
 	if err != nil {
+		s.logCurrentNPCShopDiagnostic(session, uint16(dnfenum.CmdPacketBuyItem), "transaction", rawRequest, request.ActorContext, currentNPCShopRejectionReason(err))
 		s.logAikenExchange(session, request, "aiken-exchange-rejected", "stage", "transaction", "purchase_limit", errors.Is(err, dnfnpcshop.ErrPurchaseLimit))
 		s.logGameEvent(session, "game-npc-shop-buy-rejected", "item_id", request.ItemID, "count", request.Count, "shop_context", request.ShopContext, "actor_context", request.ActorContext, "reason", err)
 		if errors.Is(err, dnfnpcshop.ErrPurchaseLimit) {
 			return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopPurchaseLimitErrorCode)
+		}
+		if errors.Is(err, errCurrentNPCShopContextUnavailable) {
+			return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopContextErrorCode)
 		}
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketBuyItem), currentNPCShopBuyErrorCode)
 	}
@@ -227,6 +240,7 @@ func (s *Service) handleCurrentNPCShopSell(session *gameSession, body []byte) er
 	result, err := s.commitCurrentNPCShopSell(ctx, session, shop, items, request)
 	if err != nil {
 		s.logGameEvent(session, "game-npc-shop-sell-rejected", "list_type", request.ListType, "slot", request.Slot, "count", request.Count, "actor_context", request.ActorContext, "reason", err)
+		s.logCurrentNPCShopDiagnostic(session, uint16(dnfenum.CmdPacketSellItem), "transaction", currentNPCShopBuyRequest{Count: request.Count, ActorContext: request.ActorContext}, request.ActorContext, currentNPCShopRejectionReason(err))
 		return s.sendCurrentNPCShopFailure(session, uint16(dnfenum.CmdPacketSellItem), currentNPCShopSellErrorCode)
 	}
 	if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketSellItem), buildCurrentNPCShopSellSuccessBody(result), dnfproto.DefaultChannelClassification); err != nil {

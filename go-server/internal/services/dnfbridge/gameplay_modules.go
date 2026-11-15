@@ -11,6 +11,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	pvpGameplayModule(),
 	luckyFatigueGameplayModule(),
 	npcShopGameplayModule(),
+	secretShopGameplayModule(),
 	ceraShopGameplayModule(),
 	ceraPackageGameplayModule(),
 	premiumGameplayModule(),

@@ -39,7 +39,9 @@ func (s *Service) commitCurrentWeddingFurnitureBuy(ctx context.Context, session 
 		return currentNPCShopBuyResult{}, wedding.ErrState
 	}
 	current := req.Revalidate
-	req.Revalidate = func() bool { return current() && s.currentWeddingRoomScene(actor, req.Partner.CharacterID) }
+	req.Revalidate = func() bool {
+		return current() && s.currentWeddingRoomScene(actor, req.Partner.CharacterID) && s.currentNPCShopContextCurrent(q.contextProof)
+	}
 	release, err := s.reserveCurrentGuildParticipants(ctx, actors)
 	if err != nil {
 		return currentNPCShopBuyResult{}, err

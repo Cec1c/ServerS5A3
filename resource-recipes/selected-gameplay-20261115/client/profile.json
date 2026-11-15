@@ -1,0 +1,96 @@
+{
+  "schema": "dnf90-blackdiamond-secretshop-candidate-profile/v3",
+  "input": {
+    "sha256": "6402835223a23f9e4300c57c175d1b990b78ab0eecc46bd03fd373d0893e73f4",
+    "size": 112812032,
+    "image_base": "0x400000",
+    "machine": "0x14c",
+    "optional_magic": "0x10b"
+  },
+  "bitmap": {
+    "va": "0x6e92300",
+    "size": 8192,
+    "sha256": "52a4aa66738c7b65bff17cfea43e54912564889b12a53322f97e40e7b96d2ff0",
+    "set_bits": [
+      279,
+      280,
+      296
+    ]
+  },
+  "hook": {
+    "va": "0x1ff76a2",
+    "original_bytes": "3bf374166a01",
+    "resume_after_nop_va": "0x1ff76a8",
+    "branch_equal_va": "0x1ff76bc",
+    "patched_bytes": "e95949150590"
+  },
+  "vector_push_back": {
+    "va": "0x25fb4a0",
+    "prologue_bytes": "558bec6aff6882acf80364a10000000050515657a1dc3b5b0533c5508d45f464a3000000008bf98b",
+    "required_cleanup": 4
+  },
+  "preserved": [
+    {
+      "name": "gate-6e83610",
+      "va": "0x6e83610",
+      "fingerprint_bytes": "0fb74424043dc205000077100fa3050023e9060f92c00fb6c0c2040031c0c204"
+    },
+    {
+      "name": "helper-6ead80e",
+      "va": "0x6ead80e",
+      "fingerprint_bytes": "3d280100000f843a0000003d2c0300000f842f0000003db30400000f842400"
+    }
+  ],
+  "new_section": {
+    "name": ".npcsync",
+    "virtual_size": "0x1000",
+    "characteristics": "0x60000020",
+    "rva": "0x6d4c000",
+    "va": "0x714c000",
+    "raw_pointer": 112812032
+  },
+  "outputs": {
+    "candidate_name": "DNF.exe",
+    "receipt_name": "build-receipt.json",
+    "failure_receipt_name": "failure-receipt-v3.json",
+    "expected_output_sha256": "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84",
+    "expected_output_size": 112816128
+  },
+  "source_evidence": {
+    "native-secret-handler-01ff7440.asm": "5735bb2b937ced5d37d7d36bf5d8beef724f8df91cc401a01a167c66311c4c6d",
+    "native-029683e0.asm": "1ab22bc031c8a1efd337902f02c610204bfa1ebdc20dc970554152e0056c3f74",
+    "native-02921b10.asm": "0b444e4a1ac43200bc48d64aed36324077e3b60db4d6f26df5d167ecae4207d3",
+    "native-01c74710.asm": "1a84293744b37c4b23c68b4cf3b5fd6c968b8ee7399470a8761c70720f445cd2"
+  },
+  "stub": {
+    "size": 60,
+    "hex": "9c6085f60f84210000008b068bceff904403000085c00f840f0000008d88100400008d55c852e875f44afb619d3bf30f8487b6eafa6a01e96cb6eafa",
+    "sha256": "34bc13d64a7bec21b7a0d6974bec63eb248fa07b3b3c6658ac108b1b3b096371"
+  },
+  "header_layout": {
+    "original_e_lfanew": 128,
+    "e_lfanew": 88,
+    "original_sections": 93,
+    "sections": 94,
+    "old_nt_range": [
+      128,
+      4096
+    ],
+    "moved_nt_range": [
+      88,
+      4056
+    ],
+    "new_section_header_range": [
+      4056,
+      4096
+    ],
+    "SizeOfHeaders": 4096,
+    "dos_stub_hex": "b8014ccd2100000000000000000000000000000000000000"
+  },
+  "formalization": {
+    "base": "official 640 diagnostic-free formal variant",
+    "testOnlyDBC82Excluded": true,
+    "referenceBuilderSHA256": "9a7f298e23e4c6fef13db84c12a5a09642989de4bdcd6460f06fa45fce3c4e84",
+    "runtimePlugins": "Existing formal 140ff544 CombatPower / 6e907abd DpsMeter"
+  }
+}

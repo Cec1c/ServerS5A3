@@ -324,8 +324,8 @@ func (s *Service) freezeCurrentAntonPartyCard(session *gameSession, captured run
 	card := b.RewardCards[b.Phase][member.CharID]
 	if card == nil {
 		used := [4]bool{}
-		for _, old := range b.RewardCards[b.Phase] {
-			if old != nil && old.Group == member.GroupIndex && old.Card < 4 {
+		for id, old := range b.RewardCards[b.Phase] {
+			if old != nil && currentAntonRewardCardPeer(b.RewardFlow[b.Phase], member.CharID, id, old.Group, member.GroupIndex) && old.Card < 4 {
 				used[old.Card] = true
 			}
 		}

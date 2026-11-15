@@ -7,6 +7,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
 	onlineevent "longheng.io/server/internal/modules/dnf/onlineevent"
+	"longheng.io/server/internal/modules/dnf/premium"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"math"
@@ -180,9 +181,24 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 	cmd := entry.command
 
 	cmd.UpdatedAt = s.gameplayNow()
+	if repos.Account == nil {
+		return dnfdungeon.ErrEntryItemConsumeInvalid
+	}
+	coinAccount, coinAccountFound, coinAccountErr := repos.Account.Load(ctx, cmd.AccountID)
+	if coinAccountErr != nil {
+		return coinAccountErr
+	}
+	if !coinAccountFound || coinAccount.AccountID != cmd.AccountID {
+		return errDungeonAccountMismatch
+	}
 	cmd.OnFatigueDebit = func(character *dnfrepo.CharacterRecord, consumed int64, at time.Time) error {
-		_, err := s.applyPrivateActivity(character, 6, uint32(consumed), at, at)
-		return err
+		if _, err := s.applyPrivateActivity(character, 6, uint32(consumed), at, at); err != nil {
+			return err
+		}
+		if premium.Active(coinAccount, premium.TypeBlackDiamond, at) {
+			return premium.AccumulateBlackDiamondFatigue(character, coinAccount, consumed, at)
+		}
+		return nil
 	}
 	cmd.Activity, err = s.currentActivityEvent(session, runtime, dnfrepo.ActivityFatigue, "epic_entry", "admission")
 	if err != nil {
@@ -248,6 +264,7 @@ func (s *Service) commitCurrentEpicEntryLocked(session *gameSession, runtime *ru
 		runtime.ridableReportChannelID = session.channel.ID
 		runtime.ridableReportChannelType = session.channel.Type
 		runtime.Character = result.Character
+		s.queueCurrentBlackDiamondCoins(session, result.Character)
 		runtime.fatigueSpent += result.FatigueSpent
 		if runtime.fatigueRooms == nil {
 			runtime.fatigueRooms = make(map[worldmap.RoomCoordinate]bool)

@@ -37,6 +37,21 @@ class NativeClientBundleTests(unittest.TestCase):
         self.write(self.files())
         self.assertEqual(sync.inspect_zip(self.archive), self.exe_pin)
 
+    def test_recognized_exe_requires_all_dependencies_even_when_none_supplied(self):
+        self.write([('DNF.exe', self.exe)])
+        with self.assertRaisesRegex(sync.SyncError, 'complete exact'):
+            sync.inspect_zip(self.archive)
+
+    def test_formal_derivative_uses_the_same_exact_sidecars(self):
+        raw = b'MZformal-derivative-fixture'
+        pin = {'sha256': hashlib.sha256(raw).hexdigest(), 'length': len(raw)}
+        with patch.object(sync, 'FORMAL_BLACKDIAMOND_EXE', pin):
+            self.write([(n, raw if n == 'DNF.exe' else v) for n, v in self.files()])
+            self.assertEqual(sync.inspect_zip(self.archive), pin)
+            self.write([('DNF.exe', raw)])
+            with self.assertRaisesRegex(sync.SyncError, 'complete exact'):
+                sync.inspect_zip(self.archive)
+
     def test_legacy_exe_only_bundle_keeps_existing_behavior(self):
         self.write([('DNF.exe', b'MZlegacy'), ('README.txt', b'legacy')])
         self.assertEqual(sync.inspect_zip(self.archive)['length'], 8)

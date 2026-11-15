@@ -139,6 +139,11 @@ func (s *Service) commitCurrentGuildDungeonEntryFatigue(ctx context.Context, lea
 		return err
 	}
 	markGuildDungeonEntryFatigueCommitted(members, result.Characters, q.Cost)
+	for _, member := range members {
+		if character, ok := result.Characters[strconv.Itoa(int(member.session.selectedCharacterID))]; ok {
+			s.queueCurrentBlackDiamondCoins(member.session, character)
+		}
+	}
 	s.logGameEvent(leader, "game-guild-dungeon-entry-fatigue-committed", "guild_id", q.Entries[0].GuildID, "dungeon_id", runtime.Dungeon.ID, "run_id", q.Entries[0].RunID, "cost", q.Cost, "member_count", len(members), "replayed", result.Replayed)
 	return nil
 }

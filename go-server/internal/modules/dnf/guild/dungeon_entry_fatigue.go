@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"longheng.io/server/internal/modules/dnf/premium"
 	"math"
 	"sort"
 	"time"
@@ -113,8 +114,13 @@ func CommitDungeonEntryFatigue(ctx context.Context, unit r.GuildUnitOfWork, q Du
 				character.Stats["fatigue"] -= q.Cost
 				character.Stats["fatigue_used"] = character.Stats["fatigue_limit"] - character.Stats["fatigue"]
 				character.Stats["fatigue_display_update"] = character.Stats["fatigue_used"]
-				if consumed := before - character.Stats["fatigue"]; consumed > 0 && q.OnFatigueDebit != nil {
-					if err := q.OnFatigueDebit(&character, consumed, now); err != nil {
+				if consumed := before - character.Stats["fatigue"]; consumed > 0 {
+					if q.OnFatigueDebit != nil {
+						if err := q.OnFatigueDebit(&character, consumed, now); err != nil {
+							return err
+						}
+					}
+					if err := premium.AccumulateBlackDiamondFatigue(&character, q.Accounts[owner.AccountID], consumed, now); err != nil {
 						return err
 					}
 				}

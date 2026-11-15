@@ -17,7 +17,10 @@ const (
 	currentNPCShopPurchaseCountRequestWireSize = 4
 	currentNPCShopPurchaseCountListCount       = 4
 	currentNPCShopBuyErrorCode                 = byte(0x04)
-	// Current EXE RVA 1928428 maps 0x85 to string 0xADB1 (44465).
+	// Pinned current-client failure branch 01FD8F1A selects FILE/102 ID
+	// 0x8CA0 for 0x11, independently of the bag-full (0x04) branch.
+	currentNPCShopContextErrorCode = byte(0x11)
+	// Pinned current EXE VA 01FD9063 maps 0x85 to string 0xADB1 (44465).
 	// The installed dstr.dat FILE/102 resource resolves it to 超过购买限制.
 	// 0x04 resolves to 0x2EA (746), 物品栏空间不足, and is not a quota error.
 	currentNPCShopPurchaseLimitErrorCode = byte(0x85)
@@ -34,6 +37,7 @@ type currentNPCShopBuyRequest struct {
 	Count        uint32
 	ShopContext  uint32
 	ActorContext uint32
+	contextProof *currentNPCShopContextProof
 }
 
 type currentNPCShopSellRequest struct {

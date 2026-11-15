@@ -1,0 +1,180 @@
+{
+  "passed": true,
+  "actualLinux": true,
+  "disposableMariaDB": true,
+  "topLevel": 738,
+  "passNodes": 2756,
+  "unresolvedApplicableFailures": 0,
+  "skipped": [
+    {
+      "group": "GUILD",
+      "test": "TestGuildAppearanceMySQLAtomicSave"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildBenefitPurchaseMySQLAtomicSave"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildCargoMySQLInitializationAndRollback"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildCargoPurchaseMySQLAtomicSave"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildReadSnapshotAndContributionBackfill/mysql"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestHongbaoContributionProjectionMySQLWriterTransaction"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestDungeonEntryFatigueMySQLFourOwnersRollbackReplayAndReconnect"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestDungeonCatalogMatchedPVFRewards"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestDungeonUnlockRulesExtractedPVF"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuardianExistingStateMySQLIncomeRollbackAndReconnect"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuardianTransactionMySQLRollbackConcurrencyAndReconnect"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestHongbaoMySQLAtomicConcurrentAndRestart"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestHongbaoRealExtractedCatalog"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildMemberExpansionMySQLAtomicSave"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestMemberRankingMySQLRaidAtomicReplay"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestMerchantPurchaseMySQLAtomicRollbackConcurrencyAndReconnect"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestMerchantUpgradeMySQLAtomicRollbackConcurrencyAndReconnect"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestMerchantUpgradeCatalogRealExtractedPVF"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildMySQLAtomicCreationAndRegistryLock"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildPlacementMySQLRollbackConcurrencyAndReconnect"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestRankingRulesExtractedCatalog"
+    },
+    {
+      "group": "GUILD",
+      "test": "TestGuildTeleportMySQLFourOwnersRollbackReplayAndReconnect"
+    },
+    {
+      "group": "MYSQL",
+      "test": "TestMySQLActivityMetricWidthUpgrade"
+    },
+    {
+      "group": "MYSQL",
+      "test": "TestClearHistorySortingFatigueAndOldSchema"
+    },
+    {
+      "group": "MYSQL",
+      "test": "TestClearHistoryMySQLShardsRollbackAndFrequency"
+    }
+  ],
+  "publicBaselineComparisonPassed": [
+    "TestRealPVFAntonFinalLateGoldStillRejectsUnownedCardAndMasks",
+    "TestRealPVFAntonFinalManualCardsAdvanceThroughRaidClock",
+    "TestRealPVFTeamAntonFinishedCardsReturnBothMembersOnce"
+  ],
+  "correctedAdmissionFixture": true,
+  "baselineInputsVerified": 6131,
+  "splitMemoryMatrixSubcases": 4,
+  "hostQemuExit": 1,
+  "guestRequiredGroupsExitZero": true,
+  "modVerify": true,
+  "goList": true,
+  "applicableVet": true,
+  "ordinaryLinuxBuild": true,
+  "serverSHA256": "30215827a27f7054afd8faccd6d944ebca56ff8883832d50630646a357749873",
+  "pythonTests": 95,
+  "nativeGateExecutions": 131072,
+  "changedNativeAdmissions": [
+    279,
+    280,
+    296
+  ],
+  "nativeClientExecuted": false,
+  "visualAcceptance": false,
+  "cloudCI": false,
+  "wholeRepositoryTests": false,
+  "productionAccess": false,
+  "testOnlySupplementDelta": [
+    "go-server/internal/services/dnfbridge/auction_mutation_response_test.go",
+    "go-server/internal/services/dnfbridge/experimental_peak_load_test.go"
+  ],
+  "peakOrdinaryBuildTestsActuallyExecuted": 6,
+  "emptyMatchCountedAsPass": false,
+  "passNodeCounting": "complete identifiable PASS records, deduplicated across split invocations",
+  "validationMode": "local-attested",
+  "resource": {
+    "schema": 1,
+    "selections": [
+      "C18",
+      "F02",
+      "F03",
+      "F04",
+      "F10",
+      "G04",
+      "G05"
+    ],
+    "basePvfSHA256": "5d7eb550238e6b9a9fc18b4dde6fc510c2050a809aaa44b757a5beb79ece03ed",
+    "planSHA256": "0052449363dea710a10bda629ec33908e7e0e87c5f4b283c88af9d1a28021285",
+    "outputPvfSHA256": "2b5453f0ad56aad5a1768cb15881fdb746975a83fbc21d7fc987a5b19b226995",
+    "changedPaths": [
+      "etc/premiumlist_new.etc",
+      "stackable/490008001/chn_490008445.stk",
+      "stackable/stackable.lst"
+    ],
+    "addedPaths": [
+      "stackable/private_blackdiamond/490709930.stk",
+      "stackable/private_blackdiamond/490709931.stk",
+      "stackable/private_blackdiamond/490709932.stk"
+    ],
+    "alreadyPresentPaths": [
+      "etc/raid/luke/luke.etc",
+      "etc/raid/fiendwar/fiendwar.etc"
+    ],
+    "unchangedFilesPreserved": 1126598,
+    "newTokensVerified": true,
+    "rawPVFIncluded": false,
+    "merchantShelfUnchanged": true,
+    "lutherExpiryPreserved": true
+  },
+  "nativeEXE": "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84"
+}

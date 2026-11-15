@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/repository"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,13 +16,17 @@ type sqlTxBeginner interface {
 }
 
 type sqlTransactionDB struct {
-	observation *SQLObservation
-	tx          sqlTransaction
-	prepared    *PreparedSQLDB
-	local       *transactionStatements
+	writeVersion *atomic.Uint64
+	observation  *SQLObservation
+	tx           sqlTransaction
+	prepared     *PreparedSQLDB
+	local        *transactionStatements
 }
 
 func (db sqlTransactionDB) rawExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if db.writeVersion != nil {
+		db.writeVersion.Add(1)
+	}
 	s, err := db.preparedStatement(ctx, query)
 	if err != nil {
 		return nil, err
@@ -867,4 +872,14 @@ func (r *characterTradeScopedCharacterRepository) RecordActivity(ctx context.Con
 		return false, repository.ErrActivityTransaction
 	}
 	return repository.ScopeCharacterActivity(r.activity, ch).Record(ctx, event)
+}
+
+// A version is shared by all router copies inside one SQL transaction. Any
+// attempted SQL write, including a write through another repository, revokes
+// reusable character snapshots before that write can change the database.
+func (db sqlTransactionDB) transactionWriteVersion() (uint64, bool) {
+	if db.writeVersion == nil {
+		return 0, false
+	}
+	return db.writeVersion.Load(), true
 }

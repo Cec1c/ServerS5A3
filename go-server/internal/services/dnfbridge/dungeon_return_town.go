@@ -471,6 +471,9 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 		if err := s.clearCurrentEpicShopAppearanceLocked(session, runtime); err != nil {
 			return err
 		}
+		if err := s.clearCurrentSecretShopLocked(session, runtime); err != nil {
+			return err
+		}
 		s.logGameEvent(session, "game-dungeon-back-to-village-op24-send",
 			"char_id", session.selectedCharacterID,
 			"request_msg_id", requestMsgID,

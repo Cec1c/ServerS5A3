@@ -119,6 +119,7 @@ type dungeonPartyInstance struct {
 	activityAbyssAt           time.Time
 	activityAbyssRecipients   []dungeonDropRecipient
 	epicShopEncounter         *currentEpicShopEncounter
+	secretShopEncounter       *currentSecretShopEncounter
 	ridableTerminals          *currentDungeonRidableTerminalOwner
 	ridableSelectionSignature [32]byte
 
