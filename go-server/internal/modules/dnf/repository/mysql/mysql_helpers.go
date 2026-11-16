@@ -17,6 +17,7 @@ import (
 
 type mysqlRouter struct {
 	storedGuildFingerprint bool
+	activityArchive        bool
 	levelUpChanges         *repository.LevelUpChangeFeed
 	guildSnapshotNamespace *repository.GuildSnapshotNamespace
 	battlePassChanges      *repository.BattlePassChangeFeed
@@ -61,6 +62,7 @@ func newMySQLRouter(db SQLDB, options MySQLGroupOptions) (mysqlRouter, error) {
 	}
 	return mysqlRouter{
 		storedGuildFingerprint: options.storedGuildFingerprint,
+		activityArchive:        options.activityArchive,
 		levelUpChanges:         &repository.LevelUpChangeFeed{},
 		battlePassChanges:      repository.NewBattlePassChangeFeed(),
 		db:                     db,

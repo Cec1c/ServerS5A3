@@ -24,6 +24,7 @@ type Component struct {
 	startedAt              time.Time
 	lastError              string
 	storedGuildFingerprint bool
+	activityArchive        bool
 }
 
 type ComponentOptions struct {
@@ -38,6 +39,7 @@ type ComponentOptions struct {
 
 type ComponentSnapshot struct {
 	StoredGuildFingerprint    bool      `json:"stored_guild_fingerprint,omitempty"`
+	ActivityArchive           bool      `json:"activity_archive,omitempty"`
 	Started                   bool      `json:"started"`
 	StartedAt                 time.Time `json:"started_at,omitempty"`
 	ShardID                   string    `json:"shard_id,omitempty"`
@@ -109,6 +111,11 @@ func (c *Component) Start(ctx context.Context) error {
 		c.recordError(err)
 		return err
 	}
+	groupOptions, err := QualifyActivityArchive(ctx, c.db, c.groupOptions(plan))
+	if err != nil {
+		c.recordError(err)
+		return err
+	}
 	if err := EnsureMySQLSchema(ctx, c.db, c.schemaOptions(plan)); err != nil {
 		c.recordError(err)
 		return err
@@ -123,7 +130,11 @@ func (c *Component) Start(ctx context.Context) error {
 		c.recordError(err)
 		return err
 	}
-	groupOptions := c.groupOptions(plan)
+	groupOptions, err = QualifyActivityArchive(ctx, c.db, groupOptions)
+	if err != nil {
+		c.recordError(err)
+		return err
+	}
 	groupOptions.storedGuildFingerprint, err = GuildSnapshotFingerprintReady(ctx, c.db, groupOptions)
 	if err != nil {
 		c.recordError(err)
@@ -146,6 +157,7 @@ func (c *Component) Start(ctx context.Context) error {
 	c.startedAt = c.clock().UTC()
 	c.lastError = ""
 	c.storedGuildFingerprint = groupOptions.storedGuildFingerprint
+	c.activityArchive = groupOptions.activityArchive
 	c.mu.Unlock()
 	return nil
 }
@@ -162,6 +174,7 @@ func (c *Component) Stop(context.Context) error {
 	c.started = false
 	c.startedAt = time.Time{}
 	c.storedGuildFingerprint = false
+	c.activityArchive = false
 	c.mu.Unlock()
 	return nil
 }
@@ -190,6 +203,7 @@ func (c *Component) Snapshot() ComponentSnapshot {
 	defer c.mu.RUnlock()
 	return ComponentSnapshot{
 		StoredGuildFingerprint:    c.storedGuildFingerprint,
+		ActivityArchive:           c.activityArchive,
 		Started:                   c.started,
 		StartedAt:                 c.startedAt,
 		ShardID:                   c.plan.ShardID,
