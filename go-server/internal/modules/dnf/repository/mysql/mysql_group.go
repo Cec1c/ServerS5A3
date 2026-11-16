@@ -85,7 +85,6 @@ func (a SQLDBAdapter) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql
 // MySQLGroupOptions 描述 DNF MySQL 仓储的区服数据库计划和表名前缀。
 type MySQLGroupOptions struct {
 	storedGuildFingerprint bool // enabled only after read-only schema verification
-	activityArchive        bool // returned by QualifyActivityArchive; copied into each transaction
 	DatabasePlan           repository.DatabasePlan
 	TablePrefix            string
 	Now                    func() time.Time

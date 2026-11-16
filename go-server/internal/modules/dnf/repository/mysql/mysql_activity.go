@@ -31,24 +31,6 @@ func (s *mysqlActivityStore) Record(ctx context.Context, e repository.ActivityEv
 		if !errors.As(err, &duplicate) || duplicate.Number != 1062 {
 			return false, err
 		}
-		if s.router.activityArchive {
-			receipts, routeErr := s.router.writeTable(activityArchiveReceipts, e.AccountID)
-			if routeErr != nil {
-				return false, routeErr
-			}
-			var payload []byte
-			if err := s.router.db.QueryRowContext(ctx, "SELECT payload FROM "+receipts+" WHERE account_id = ? AND event_id = ? FOR UPDATE", e.AccountID, e.ID).Scan(&payload); err != nil {
-				return false, err
-			}
-			if len(payload) != 32 {
-				return false, ErrActivityArchiveSchema
-			}
-			wanted := repository.ActivityPayloadFingerprintV1(e)
-			if string(payload) != string(wanted[:]) {
-				return false, repository.ErrActivityConflict
-			}
-			return false, nil
-		}
 		var old repository.ActivityEvent
 		err = scanActivity(s.router.db.QueryRowContext(ctx, "SELECT "+activityColumns+" FROM "+table+" WHERE account_id = ? AND event_id = ? FOR UPDATE", e.AccountID, e.ID), &old)
 		if err != nil {
@@ -109,22 +91,10 @@ func (s *mysqlActivityStore) Summary(ctx context.Context, q repository.ActivityQ
 			sourceArgs = append(sourceArgs, q.FromDay, q.ThroughDay)
 		}
 		// 一个SELECT读视图同时取总量和分项，避免拾取恰好提交在两次查询之间。
-		if s.router.activityArchive {
-			cold, routeErr := s.router.readTable(activityArchiveCold, q.AccountID)
-			if routeErr != nil {
-				return out, routeErr
-			}
-			source := "SELECT character_id,metric,amount,dungeon_id FROM " + events + " h WHERE " + sourceWhere + activityArchiveExcludeCold(cold) +
-				" UNION ALL SELECT character_id,metric,amount,dungeon_id FROM " + cold + " WHERE " + sourceWhere
-			query = "SELECT character_id, metric, SUM(total) AS amount, 0 AS dungeon_id, 0 AS epic_source FROM " + table + " WHERE " + where + " GROUP BY character_id, metric" +
-				" UNION ALL SELECT character_id,metric,SUM(amount) AS amount,dungeon_id,1 AS epic_source FROM (" + source + ") activity_history GROUP BY character_id,metric,dungeon_id ORDER BY character_id,epic_source,dungeon_id,metric"
-			args = append(append(args, sourceArgs...), sourceArgs...)
-		} else {
-			query = "SELECT character_id, metric, SUM(total) AS amount, 0 AS dungeon_id, 0 AS epic_source FROM " + table + " WHERE " + where + " GROUP BY character_id, metric" +
-				" UNION ALL SELECT character_id, metric, SUM(amount) AS amount, dungeon_id, 1 AS epic_source FROM " + events + " WHERE " + sourceWhere + " GROUP BY character_id, metric, dungeon_id" +
-				" ORDER BY character_id, epic_source, dungeon_id, metric"
-			args = append(args, sourceArgs...)
-		}
+		query = "SELECT character_id, metric, SUM(total) AS amount, 0 AS dungeon_id, 0 AS epic_source FROM " + table + " WHERE " + where + " GROUP BY character_id, metric" +
+			" UNION ALL SELECT character_id, metric, SUM(amount) AS amount, dungeon_id, 1 AS epic_source FROM " + events + " WHERE " + sourceWhere + " GROUP BY character_id, metric, dungeon_id" +
+			" ORDER BY character_id, epic_source, dungeon_id, metric"
+		args = append(args, sourceArgs...)
 	}
 	rows, err := s.router.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -185,19 +155,8 @@ func (s *mysqlActivityStore) Events(ctx context.Context, q repository.ActivityQu
 	if limit == 0 {
 		limit = 100
 	}
-	query := "SELECT " + activityColumns + " FROM " + table + " WHERE " + where + " ORDER BY occurred_at DESC, event_id DESC LIMIT ?"
-	if s.router.activityArchive {
-		cold, routeErr := s.router.readTable(activityArchiveCold, q.AccountID)
-		if routeErr != nil {
-			return nil, routeErr
-		}
-		branchArgs := append(append([]any(nil), args...), limit)
-		args = append(append(branchArgs, branchArgs...), limit)
-		query = "SELECT " + activityColumns + " FROM ((SELECT " + activityColumns + " FROM " + table + " h WHERE " + where + activityArchiveExcludeCold(cold) + " ORDER BY occurred_at DESC,event_id DESC LIMIT ?) UNION ALL (SELECT " + activityColumns + " FROM " + cold + " WHERE " + where + " ORDER BY occurred_at DESC,event_id DESC LIMIT ?)) activity_history ORDER BY occurred_at DESC,event_id DESC LIMIT ?"
-	} else {
-		args = append(args, limit)
-	}
-	rows, err := s.router.db.QueryContext(ctx, query, args...)
+	args = append(args, limit)
+	rows, err := s.router.db.QueryContext(ctx, "SELECT "+activityColumns+" FROM "+table+" WHERE "+where+" ORDER BY occurred_at DESC, event_id DESC LIMIT ?", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,12 +170,6 @@ func (s *mysqlActivityStore) Events(ctx context.Context, q repository.ActivityQu
 		out = append(out, e)
 	}
 	return out, rows.Err()
-}
-
-func activityArchiveExcludeCold(cold string) string {
-	// A completed archive movement may retain an identical hot row until its
-	// delete is reconciled. Prefer the complete cold row without counting twice.
-	return " AND NOT EXISTS (SELECT 1 FROM " + cold + " c WHERE c.account_id=h.account_id AND c.event_id=h.event_id)"
 }
 
 func activitySchema(database, prefix string) []string {
