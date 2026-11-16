@@ -112,6 +112,21 @@ func (s *mysqlMailboxStore) SaveFields(ctx context.Context, record repository.Ma
 		if !saveMails {
 			return nil
 		}
+		// The parent upsert holds the same owner lock used by legacy writers.
+		// Compare inside that physical transaction, on its write shard, so this
+		// also works for Save without Load and for several saves in one callback.
+		if _, transactional := database.(sqlTransactionDB); transactional && len(record.Mails) != 0 {
+			router := s.router
+			router.db, router.lockReads = database, true
+			shape := &mailStorageShape{}
+			before, readErr := loadMailsWithShape(ctx, router, mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID, shape)
+			if readErr != nil {
+				return readErr
+			}
+			if !shape.nonCanonical {
+				return updateMailRows(ctx, database, mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID, before, record.Mails)
+			}
+		}
 		return replaceMails(
 			ctx,
 			database,
@@ -129,6 +144,19 @@ func loadMails(
 	ctx context.Context,
 	router mysqlRouter,
 	mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID string,
+) (map[string]repository.MailRecord, error) {
+	return loadMailsWithShape(ctx, router, mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID, nil)
+}
+
+// A full replacement remains necessary when a legacy aggregate hides orphan
+// child rows or sparse attachment indices. Do not retain those hidden assets.
+type mailStorageShape struct{ nonCanonical bool }
+
+func loadMailsWithShape(
+	ctx context.Context,
+	router mysqlRouter,
+	mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID string,
+	shape *mailStorageShape,
 ) (map[string]repository.MailRecord, error) {
 	query := router.selectQuery("SELECT mail_id, sender_character_id, sender_name, recipient_character_id, recipient_name, title, body, gold, read_flag, claimed_flag, deleted_flag, created_at, expire_at FROM " + mailsTable + " WHERE character_id = ? ORDER BY mail_id")
 	rows, err := router.db.QueryContext(ctx, query, characterID)
@@ -188,6 +216,9 @@ func loadMails(
 		}
 		mail, ok := mails[mailID]
 		if !ok {
+			if shape != nil {
+				shape.nonCanonical = true
+			}
 			continue
 		}
 		if mail.Metadata == nil {
@@ -224,9 +255,23 @@ func loadMails(
 		}
 		mail, ok := mails[mailID]
 		if !ok {
+			if shape != nil {
+				shape.nonCanonical = true
+			}
 			continue
 		}
+		if shape != nil && index != len(mail.Attachments) {
+			shape.nonCanonical = true
+			if index < 0 {
+				continue
+			}
+		}
 		attachment.ExpireAt = scanTime(expireAt)
+		if shape != nil && rawEntry != nil && len(rawEntry) == 0 {
+			// The public aggregate loader normalizes an empty BLOB to nil. A
+			// replacement must still preserve its NULL-versus-empty behavior.
+			shape.nonCanonical = true
+		}
 		attachment.RawEntry = append([]byte(nil), rawEntry...)
 		for len(mail.Attachments) <= index {
 			mail.Attachments = append(mail.Attachments, repository.MailAttachment{})
@@ -259,6 +304,9 @@ func loadMails(
 		}
 		mail, ok := mails[mailID]
 		if !ok || index < 0 || index >= len(mail.Attachments) {
+			if shape != nil {
+				shape.nonCanonical = true
+			}
 			continue
 		}
 		if mail.Attachments[index].Extra == nil {
@@ -284,6 +332,15 @@ func replaceMails(
 			return err
 		}
 	}
+	return insertMails(ctx, database, mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID, mails)
+}
+
+func insertMails(
+	ctx context.Context,
+	database SQLDB,
+	mailsTable, metadataTable, attachmentsTable, attachmentExtraTable, characterID string,
+	mails map[string]repository.MailRecord,
+) error {
 	mailQuery := "INSERT INTO " + mailsTable + " (character_id, mail_id, sender_character_id, sender_name, recipient_character_id, recipient_name, title, body, gold, read_flag, claimed_flag, deleted_flag, created_at, expire_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	metadataQuery := "INSERT INTO " + metadataTable + " (character_id, mail_id, metadata_key, metadata_value) VALUES (?, ?, ?, ?)"
 	attachmentQuery := "INSERT INTO " + attachmentsTable + " (character_id, mail_id, attachment_index, item_id, item_count, bind_flag, expire_at, raw_entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
