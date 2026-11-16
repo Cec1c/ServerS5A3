@@ -114,16 +114,12 @@ func (s *Service) finishCurrentGuildEdit(ctx context.Context, source boundGameSe
 }
 
 func (s *Service) refreshCurrentGuildText(ctx context.Context, guildID uint32, source boundGameSessionCharacter, notice bool) {
-	_, r, err := s.loadCurrentGuildRegistry(ctx)
+	_, r, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		s.logGameEvent(source.session, "game-guild-text-refresh-failed", "error", err)
 		return
 	}
-	g, found := r.GuildByID(guildID)
-	if !found {
-		return
-	}
-	for _, member := range dnfguild.SortedMembers(g) {
+	for _, member := range r.Members(guildID) {
 		id, err := strconv.ParseUint(member.CharacterID, 10, 16)
 		if err != nil || id == 0 {
 			continue
@@ -148,12 +144,15 @@ func (s *Service) refreshCurrentGuildTextPeer(ctx context.Context, guildID uint3
 	if err != nil {
 		return err
 	}
-	_, r, err := s.loadCurrentGuildRegistry(ctx)
+	_, r, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	g, _, found := r.GuildForOwner(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
-	if !found || g.ID != guildID {
+	g, err := r.OwnedRoster(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
+	if err != nil {
+		return err
+	}
+	if g == nil || g.ID != guildID {
 		return nil
 	}
 	if notice {

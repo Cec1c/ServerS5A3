@@ -70,13 +70,13 @@ func (s *Service) deliverCurrentGuildChatNotice(ctx context.Context, peer curren
 	}
 	defer s.releaseCurrentCharacterAssets(reservation)
 	validate := func() error {
-		repos, reg, err := s.loadCurrentGuildRegistry(ctx)
+		repos, reg, err := s.readCurrentGuildDirectory(ctx)
 		if err != nil {
 			return err
 		}
 		id := strconv.Itoa(int(peer.identity.character))
-		g, m, found := reg.GuildForCharacter(id)
-		if !found || g.ID != guildID || m.AccountID != peer.account || !m.JoinedAt.Equal(peer.joinedAt) {
+		m, found := reg.Member(id)
+		if !found || m.GuildID != guildID || m.AccountID != peer.account || !m.JoinedAt.Equal(peer.joinedAt) {
 			return guild.ErrNotMember
 		}
 		actor, found, err := repos.Character.Load(ctx, id)
@@ -181,12 +181,15 @@ func (s *Service) projectCurrentGuildChatContribution(identity boundGameSessionC
 			return err
 		}
 	}
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	_, reg, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	g, _, found := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(p), CharacterID: id})
-	if !found {
+	g, err := reg.OwnedRoster(r.GuildOwner{AccountID: s.accountIDForSession(p), CharacterID: id})
+	if err != nil {
+		return err
+	}
+	if g == nil {
 		return nil
 	}
 	body, err := buildCurrentGuildHongbaoPointsBody(guild.SortedMembers(g))

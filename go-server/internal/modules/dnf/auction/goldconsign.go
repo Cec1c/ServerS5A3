@@ -271,13 +271,32 @@ func (o *GoldConsignOwner) AverageCeraPrice(ctx context.Context, itemID int64) (
 	if !IsGoldConsignTier(itemID) {
 		return 0, 0, ErrGoldConsignNotTier
 	}
-	inv, found, e := o.repositories.Inventory.Load(ctx, EscrowCharacterID)
+	slots, found, e := o.loadReadSlots(ctx, goldConsignSoldPrefix, itemID)
 	if e != nil || !found {
 		return 0, 0, e
 	}
-	avg, n := goldConsignAverage(inv.Slots, itemID)
+	avg, n := goldConsignAverage(slots, itemID)
 	return avg, n, nil
 }
+
+// Read projections do not load unrelated auction, payout or warehouse data.
+// Asset-changing operations continue to use their authoritative transaction bag.
+func (o *GoldConsignOwner) loadReadSlots(ctx context.Context, prefix string, itemID int64) (map[string]dnfrepo.ItemStack, bool, error) {
+	inventory := o.repositories.Inventory
+	if itemID > 0 {
+		if reader, ok := inventory.(dnfrepo.InventorySlotItemPrefixReader); ok {
+			slots, err := reader.LoadInventorySlotItemPrefix(ctx, EscrowCharacterID, prefix, itemID)
+			return slots, true, err
+		}
+	}
+	if reader, ok := inventory.(dnfrepo.InventorySlotPrefixReader); ok {
+		slots, err := reader.LoadInventorySlotPrefix(ctx, EscrowCharacterID, prefix)
+		return slots, true, err
+	}
+	bag, found, err := inventory.Load(ctx, EscrowCharacterID)
+	return bag.Slots, found, err
+}
+
 func (o *GoldConsignOwner) Register(ctx context.Context, q GoldConsignRegisterCommand) (GoldConsignResult, error) {
 	amount, ok := GoldConsignTierAmount(q.GoldItemID)
 	if !ok {
@@ -373,13 +392,17 @@ func (o *GoldConsignOwner) Register(ctx context.Context, q GoldConsignRegisterCo
 	return result, nil
 }
 func (o *GoldConsignOwner) Search(ctx context.Context, ids []int64) ([]GoldConsignListing, error) {
-	inv, found, e := o.repositories.Inventory.Load(ctx, EscrowCharacterID)
+	var itemID int64
+	if len(ids) == 1 {
+		itemID = ids[0]
+	}
+	slots, found, e := o.loadReadSlots(ctx, goldConsignListingPrefix, itemID)
 	if e != nil || !found {
 		return nil, e
 	}
 	out := []GoldConsignListing{}
 	now := o.clock()
-	for key, s := range inv.Slots {
+	for key, s := range slots {
 		if !strings.HasPrefix(key, goldConsignListingPrefix) {
 			continue
 		}

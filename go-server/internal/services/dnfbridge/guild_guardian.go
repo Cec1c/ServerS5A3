@@ -75,15 +75,14 @@ func (s *Service) handleCurrentGuildGuardian(session *gameSession, request gamep
 		return fail(guild.ErrRepositoryUnavailable)
 	}
 	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, found, err := guild.ReadGuildID(ctx, repos.Settings, owner)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, found := reg.GuildForOwner(owner)
 	if !found {
 		return fail(guild.ErrNotMember)
 	}
-	expectedGuild := g.ID
+	expectedGuild := guildID
 	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{identity})
 	if err != nil {
 		return nil

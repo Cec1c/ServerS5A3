@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -84,13 +85,13 @@ func TestPetGrowthTokenWindowUsesSingleAppendAndBoundedEviction(t *testing.T) {
 		t.Fatal(err)
 	}
 	writes := db.execs[1:]
-	if len(writes) != 3 {
-		t.Fatalf("expected delete, shift, append: %+v", db.execs)
+	if len(writes) != 2 {
+		t.Fatalf("expected one delete and one append: %+v", db.execs)
 	}
-	if !strings.Contains(writes[0].Query, "AND token = ?") || !strings.Contains(writes[1].Query, "ORDER BY token_order ASC") || !strings.HasPrefix(writes[2].Query, "INSERT INTO") {
+	if !strings.Contains(writes[0].Query, "AND token = ?") || !strings.HasPrefix(writes[1].Query, "INSERT INTO") {
 		t.Fatalf("unsafe token window updates: %+v", db.execs)
 	}
-	if got := writes[2].Args; got[2] != 127 || got[3] != "clear-128" {
+	if got := writes[1].Args; got[2] != int64(128) || got[3] != "clear-128" {
 		t.Fatalf("append=%v", got)
 	}
 }
@@ -99,5 +100,54 @@ func TestPetGrowthDeltaRequiresTransaction(t *testing.T) {
 	s := &mysqlPetStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: &fakeSQLDB{}}}}
 	if err := s.SavePetGrowth(context.Background(), repository.PetRecord{}, "p", repository.PetEntry{}); err == nil || errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("unlocked write err=%v", err)
+	}
+}
+
+func TestPetGrowthTokenPhysicalOrderCompatibilityAndBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		ordinals []int64
+		tokens   []string
+		rebuild  bool
+		appendAt int64
+	}{
+		{"zero-based", []int64{0, 1}, []string{"a", "b"}, false, 2},
+		{"one-based", []int64{1, 2}, []string{"a", "b"}, false, 3},
+		{"sparse", []int64{5, 9}, []string{"a", "b"}, false, 10},
+		{"negative-import", []int64{-2, -1}, []string{"a", "b"}, true, 1},
+		{"reordered-import", []int64{0, 1}, []string{"b", "a"}, true, 1},
+		{"integer-boundary", []int64{math.MaxInt32 - 1, math.MaxInt32}, []string{"a", "b"}, true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := repository.PetEntry{AppliedClearTokens: map[string]bool{"a": true, "b": false}, AppliedClearTokenOrder: []string{"a", "b"}}
+			next := repository.PetEntry{AppliedClearTokens: map[string]bool{"b": false, "c": true}, AppliedClearTokenOrder: []string{"b", "c"}}
+			rows := []fakeSQLRow{}
+			for i, n := range tc.ordinals {
+				rows = append(rows, fakeSQLRow{values: []any{n, tc.tokens[i]}})
+			}
+			db := &fakeSQLDB{rowsets: []fakeSQLRows{{rows: rows}}}
+			if err := savePetGrowthTokens(context.Background(), db, "tokens", "c", "p", before, next); err != nil {
+				t.Fatal(err)
+			}
+			writes := db.execs[1:]
+			want := 2
+			if tc.rebuild {
+				want = 3
+			}
+			if len(writes) != want {
+				t.Fatalf("writes=%+v", writes)
+			}
+			for _, write := range writes {
+				if strings.HasPrefix(write.Query, "UPDATE") {
+					t.Fatal("survivors renumbered")
+				}
+			}
+			if got := writes[len(writes)-1].Args; got[2] != tc.appendAt || got[3] != "c" {
+				t.Fatal(got)
+			}
+			if tc.rebuild && writes[1].Args[4] != false {
+				t.Fatal("legacy false fact lost")
+			}
+		})
 	}
 }

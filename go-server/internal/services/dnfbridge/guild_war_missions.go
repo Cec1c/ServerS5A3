@@ -1,5 +1,7 @@
 package dnfbridge
 
+import r "longheng.io/server/internal/modules/dnf/repository"
+
 // CMD1345/u32(2) requests the native daily/season mission lists. NOTI1283
 // contains two u32 counts followed by (u32 id, u32 progress, u8 claimed)
 // records. The native receiver fills absent records from etc/agitwar.etc.
@@ -32,12 +34,12 @@ func (s *Service) sendCurrentGuildWarMissions(session *gameSession) error {
 	if err != nil {
 		return nil
 	}
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	_, member, found := registry.GuildForCharacter(actor.CharacterID)
-	if !found || member.AccountID != actor.AccountID || actor.Stats["delete_flag"] != 0 {
+	_, found := registry.OwnedMember(r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID})
+	if !found || actor.Stats["delete_flag"] != 0 {
 		return nil
 	}
 	if !session.townMu.TryLock() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -93,8 +94,9 @@ func orderedPetTokens(entry repository.PetEntry) []string {
 
 func savePetGrowthTokens(ctx context.Context, db SQLDB, table, id, key string, before, next repository.PetEntry) error {
 	oldOrder, newOrder := orderedPetTokens(before), orderedPetTokens(next)
-	// The common case retains a suffix of the old window and appends one
-	// token. Shift its ordinals in one ordered UPDATE, without reinserting it.
+	// The common case retains a suffix and appends one token. Physical
+	// ordinals may remain sparse: old readers consume their relative order,
+	// not a zero-based position. Do not rewrite the surviving window.
 	removed := 0
 	for removed < len(oldOrder) {
 		if _, exists := next.AppliedClearTokens[oldOrder[removed]]; exists {
@@ -109,24 +111,27 @@ func savePetGrowthTokens(ctx context.Context, db SQLDB, table, id, key string, b
 			appendOnly = false
 		}
 	}
+	nextOrdinal := int64(0)
 	if appendOnly && len(oldOrder) > 0 {
-		// Older imports may have one-based or sparse ordinals. Load discards
-		// their numeric values, so validate the physical sequence before shifting.
+		// Validate the physical order against the locked logical snapshot.
+		// Imported one-based/sparse sequences are compatible when monotonic.
 		rows, err := db.QueryContext(ctx, "SELECT token_order, token FROM "+table+" WHERE character_id = ? AND pet_key = ? ORDER BY token_order FOR UPDATE", id, key)
 		if err != nil {
 			return err
 		}
 		index := 0
+		previous := int64(-1)
 		for rows.Next() {
-			var ordinal int
+			var ordinal int64
 			var token string
 			if err := rows.Scan(&ordinal, &token); err != nil {
 				rows.Close()
 				return err
 			}
-			if index >= len(oldOrder) || ordinal != index || token != oldOrder[index] {
+			if index >= len(oldOrder) || ordinal < 0 || ordinal > math.MaxInt32 || ordinal <= previous || token != oldOrder[index] {
 				appendOnly = false
 			}
+			previous = ordinal
 			index++
 		}
 		if err := rows.Err(); err != nil {
@@ -139,6 +144,14 @@ func savePetGrowthTokens(ctx context.Context, db SQLDB, table, id, key string, b
 		if index != len(oldOrder) {
 			appendOnly = false
 		}
+		if len(kept) > 0 && appendOnly {
+			nextOrdinal = previous + 1
+		}
+	}
+	// The stored column is signed INT. Compact only at its numeric boundary
+	// or for incompatible legacy state, before making any token writes.
+	if appended := len(newOrder) - len(kept); appended > 0 && nextOrdinal+int64(appended)-1 > math.MaxInt32 {
+		appendOnly = false
 	}
 	if appendOnly {
 		for _, token := range oldOrder[:removed] {
@@ -146,21 +159,18 @@ func savePetGrowthTokens(ctx context.Context, db SQLDB, table, id, key string, b
 				return err
 			}
 		}
-		if removed > 0 && len(kept) > 0 {
-			if _, err := db.ExecContext(ctx, "UPDATE "+table+" SET token_order = token_order - ? WHERE character_id = ? AND pet_key = ? ORDER BY token_order ASC", removed, id, key); err != nil {
-				return err
-			}
-		}
 	} else {
-		// Legacy unordered/false token migration is limited to this creature.
+		// Incompatible history or ordinal compaction is limited to this creature.
 		if _, err := db.ExecContext(ctx, "DELETE FROM "+table+" WHERE character_id = ? AND pet_key = ?", id, key); err != nil {
 			return err
 		}
 		kept = nil
+		nextOrdinal = 0
 	}
 	for i := len(kept); i < len(newOrder); i++ {
 		token := newOrder[i]
-		if _, err := db.ExecContext(ctx, "INSERT INTO "+table+" (character_id, pet_key, token_order, token, applied) VALUES (?, ?, ?, ?, ?)", id, key, i, token, next.AppliedClearTokens[token]); err != nil {
+		ordinal := nextOrdinal + int64(i-len(kept))
+		if _, err := db.ExecContext(ctx, "INSERT INTO "+table+" (character_id, pet_key, token_order, token, applied) VALUES (?, ?, ?, ?, ?)", id, key, ordinal, token, next.AppliedClearTokens[token]); err != nil {
 			return err
 		}
 	}

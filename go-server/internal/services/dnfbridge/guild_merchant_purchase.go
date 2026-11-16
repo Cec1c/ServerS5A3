@@ -60,11 +60,10 @@ func (s *Service) handleCurrentGuildMerchantPurchase(session *gameSession, reque
 		return fail(guild.ErrRepositoryUnavailable)
 	}
 	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, found, err := guild.ReadGuildID(ctx, repos.Settings, owner)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, found := reg.GuildForOwner(owner)
 	if !found {
 		return fail(guild.ErrNotMember)
 	}
@@ -89,7 +88,7 @@ func (s *Service) handleCurrentGuildMerchantPurchase(session *gameSession, reque
 			return guild.MerchantPurchaseReceipt{}, err
 		}
 		return guild.ApplyMerchantPurchase(ctx, repos.Guild, guild.MerchantPurchaseRequest{
-			Owner: owner, GuildID: g.ID, RequestID: requestID, ItemID: itemID, Quantity: quantity, ShopID: shopID, NPCID: npcID,
+			Owner: owner, GuildID: guildID, RequestID: requestID, ItemID: itemID, Quantity: quantity, ShopID: shopID, NPCID: npcID,
 			Revalidate: func() bool {
 				if !s.boundGameSessionCharacterCurrent(identity) || session.townSceneReadyCharacterID != identity.character || session.townPositionSnapshot != p || p.CharacterID != identity.character || p.TownID != 8 || !p.PositionValid {
 					return false

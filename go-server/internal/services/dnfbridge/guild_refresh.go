@@ -1,5 +1,7 @@
 package dnfbridge
 
+import r "longheng.io/server/internal/modules/dnf/repository"
+
 const currentGuildRefreshOpcode uint16 = 339
 
 // V110's guild window requests 339/352 before the 1300/1301 queries. Refresh
@@ -27,12 +29,15 @@ func (s *Service) handleCurrentGuildRefresh(session *gameSession, request gamepl
 	if err != nil {
 		return nil
 	}
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	_, reg, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	g, member, found := reg.GuildForCharacter(actor.CharacterID)
-	if !found || member.AccountID != actor.AccountID {
+	g, err := reg.OwnedRoster(r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID})
+	if err != nil {
+		return err
+	}
+	if g == nil {
 		return nil
 	}
 	if !session.townMu.TryLock() {
@@ -42,6 +47,7 @@ func (s *Service) handleCurrentGuildRefresh(session *gameSession, request gamepl
 	if session.townSceneReadyCharacterID != source.character || !s.boundGameSessionCharacterCurrent(source) {
 		return nil
 	}
+	member := g.Members[actor.CharacterID]
 	s.logGameEvent(session, "game-guild-refresh", "guild_id", g.ID, "members", len(g.Members))
 	if err := s.sendGameUpperRawClass(session, 70, buildCurrentGuildManagementBody(g, len(s.currentGuildOnlineChannels(g, session)), s.gameplayNow(), member.Grade), 0); err != nil {
 		return err

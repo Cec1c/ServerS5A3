@@ -33,31 +33,15 @@ func (s *Service) handleCurrentGuildMemberRanking(session *gameSession, request 
 	if err != nil {
 		return fail(err)
 	}
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	view, err := s.readCurrentGuildRankingView(ctx)
 	if err != nil {
 		return fail(err)
-	}
-	g, _, found := reg.GuildForOwner(r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID})
-	if !found || g.ID != binary.LittleEndian.Uint32(request) {
-		return fail(guild.ErrNotMember)
-	}
-	var target guild.Member
-	for _, m := range g.Members {
-		if m.ServerGroup == request[4] && m.Name == name {
-			if target.CharacterID != "" {
-				return fail(guild.ErrInvalidRegistry)
-			}
-			target = m
-		}
-	}
-	if target.CharacterID == "" {
-		return fail(guild.ErrCharacterNotFound)
 	}
 	rules, err := s.currentGuildRankingRules()
 	if err != nil {
 		return fail(err)
 	}
-	points, err := guild.MemberRankingPoints(target, rules.MemberRanking, s.gameplayNow())
+	points, err := view.MemberPoints(r.GuildOwner{AccountID: actor.AccountID, CharacterID: actor.CharacterID}, binary.LittleEndian.Uint32(request), request[4], name, rules.MemberRanking, s.gameplayNow())
 	if err != nil {
 		return fail(err)
 	}

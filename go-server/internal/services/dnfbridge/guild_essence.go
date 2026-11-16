@@ -106,11 +106,15 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	reg, err := guild.Load(ctx, repos.Settings)
+	view, err := guild.ReadHallView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
-	g, _, _ := reg.GuildForOwner(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
+	projection, found := view.Projection(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
+	var g *guild.Guild
+	if found {
+		g = currentGuildHallDisplay(projection)
+	}
 	body, err := buildCurrentGuildGuardianSnapshot(g)
 	if err != nil {
 		return err
@@ -233,16 +237,13 @@ func (s *Service) projectCurrentGuildEssenceIncome(session *gameSession, income 
 func (s *Service) queueCurrentGuildEssenceRefresh(guildID uint32, skip uint16) {
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	_, reg, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		s.logInfo("guild essence peer refresh deferred", "error", err)
 		return
 	}
-	g := reg.Guilds[guildID]
-	if g == nil {
-		return
-	}
-	for id, member := range g.Members {
+	for _, member := range reg.Members(guildID) {
+		id := member.CharacterID
 		numeric, err := strconv.ParseUint(id, 10, 16)
 		if err != nil || uint16(numeric) == skip {
 			continue

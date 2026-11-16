@@ -135,18 +135,11 @@ func (s *Service) refreshCurrentGuildCargoPurchase(ctx context.Context, id uint3
 }
 
 func (s *Service) refreshCurrentGuildCargoLocked(ctx context.Context, id uint32, source boundGameSessionCharacter) {
-	_, reg, err := s.loadCurrentGuildRegistry(ctx)
+	_, reg, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return
 	}
-	g, found := reg.GuildByID(id)
-	if !found {
-		return
-	}
-	for _, member := range guild.SortedMembers(g) {
-		if guild.GradePermissionsFor(g, member.Grade)&guild.CargoPermission == 0 {
-			continue
-		}
+	for _, member := range reg.CargoMembers(id) {
 		character, err := strconv.ParseUint(member.CharacterID, 10, 16)
 		if err != nil || character == 0 {
 			continue

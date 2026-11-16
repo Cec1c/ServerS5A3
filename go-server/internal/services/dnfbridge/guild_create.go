@@ -258,9 +258,9 @@ func (s *Service) loadCurrentGuildRegistry(ctx context.Context) (dnfrepo.Group, 
 
 func (s *Service) readCurrentGuild(
 	ctx context.Context,
-	read func(dnfrepo.Group, dnfguild.Registry) error,
+	read func(dnfrepo.Group, *dnfguild.DirectoryReadView) error,
 ) error {
-	repositories, registry, err := s.loadCurrentGuildRegistry(ctx)
+	repositories, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
@@ -327,7 +327,7 @@ func (s *Service) handleCurrentGuildNameCheck(session *gameSession, body []byte)
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	available := false
-	err := s.readCurrentGuild(ctx, func(_ dnfrepo.Group, registry dnfguild.Registry) error {
+	err := s.readCurrentGuild(ctx, func(_ dnfrepo.Group, registry *dnfguild.DirectoryReadView) error {
 		available = registry.NameAvailable(name)
 		return nil
 	})
@@ -433,7 +433,7 @@ func (s *Service) handleCurrentGuildCreatePermit(session *gameSession, body []by
 	creator, online := s.boundGameSessionCharacterSnapshot(session)
 	var target boundGameSessionCharacter
 	var character dnfrepo.CharacterRecord
-	err := s.readCurrentGuild(ctx, func(repositories dnfrepo.Group, registry dnfguild.Registry) error {
+	err := s.readCurrentGuild(ctx, func(repositories dnfrepo.Group, registry *dnfguild.DirectoryReadView) error {
 		var err error
 		character, err = selectedGuildCharacter(ctx, repositories, session)
 		if err != nil || !online || character.AccountID != s.accountIDForSession(session) {
@@ -456,7 +456,7 @@ func (s *Service) handleCurrentGuildCreatePermit(session *gameSession, body []by
 			return dnfguild.ErrCharacterNotFound
 		}
 		for _, memberID := range []string{character.CharacterID, id} {
-			if _, _, found := registry.GuildForCharacter(memberID); found {
+			if _, found := registry.Member(memberID); found {
 				return dnfguild.ErrAlreadyMember
 			}
 		}

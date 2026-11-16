@@ -173,8 +173,8 @@ func (o Owner) Open(ctx context.Context, characterID string) (OpenResult, error)
 	// letter. A claimed mail is an empty, read receipt: repair those legacy
 	// rows before projecting the mailbox so the client cannot render or select
 	// a stale attachment again. 默认档同时清掉"已删除却还挂着附件行"的存量形状
-	// （见 clearUnclaimableMailboxAssets）；这份清理由 MailboxFieldMails 的整表
-	// 重写真正落到 dnf_mail_attachments / dnf_mail_attachment_extra 上。
+	// （见 clearUnclaimableMailboxAssets）；MailboxFieldMails 保存必须真正清除
+	// dnf_mail_attachments / dnf_mail_attachment_extra 中对应的附件行。
 	if o.clearUnclaimableMailboxAssets(&record) {
 		record.UpdatedAt = o.clock()
 		if err := dnfrepo.SaveMailboxFields(ctx, o.repos.Mailbox, record, dnfrepo.MailboxFieldMails); err != nil {

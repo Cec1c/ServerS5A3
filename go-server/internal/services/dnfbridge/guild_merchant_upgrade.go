@@ -58,11 +58,10 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 		return fail(guild.ErrRepositoryUnavailable)
 	}
 	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, found, err := guild.ReadGuildID(ctx, repos.Settings, owner)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, found := reg.GuildForOwner(owner)
 	if !found {
 		return fail(guild.ErrNotMember)
 	}
@@ -86,7 +85,7 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 			return guild.MerchantUpgradeReceipt{}, err
 		}
 		return guild.ApplyMerchantUpgrade(ctx, repos.Guild, guild.MerchantUpgradeRequest{
-			Owner: owner, GuildID: g.ID, RequestID: requestID, NPCID: npc,
+			Owner: owner, GuildID: guildID, RequestID: requestID, NPCID: npc,
 			CurrentLevel: binary.LittleEndian.Uint32(request.Body[17:]), TargetLevel: binary.LittleEndian.Uint32(request.Body[21:]),
 			Revalidate: func() bool {
 				current := session.townPositionSnapshot
@@ -113,15 +112,11 @@ func (s *Service) handleCurrentGuildMerchantUpgrade(session *gameSession, reques
 		return err
 	}
 	// Recover the latest committed level even when this is an older receipt.
-	current, err := guild.Load(ctx, repos.Settings)
+	current, err := guild.ReadHallView(ctx, repos.Settings)
 	if err != nil {
 		return err
 	}
-	currentGuild, _, found := current.GuildForOwner(owner)
-	if !found || currentGuild.ID != result.GuildID {
-		return guild.ErrNotMember
-	}
-	level, err := guild.MerchantLevel(currentGuild, result.MerchantIndex)
+	level, err := current.MerchantLevel(owner, result.GuildID, result.MerchantIndex)
 	if err != nil {
 		return err
 	}

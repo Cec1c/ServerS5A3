@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // Matched class1 op747 (RVA 0x1bc2340) reads count u32 then 48-byte rows.
@@ -73,15 +74,15 @@ func (s *Service) handleCurrentGuildMileageHistory(session *gameSession, request
 	if err != nil {
 		return reject()
 	}
-	_, registry, err := s.loadCurrentGuildRegistry(ctx)
+	_, registry, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
 		return err
 	}
-	g, member, found := registry.GuildForCharacter(strconv.Itoa(int(identity.character)))
-	if !found || member.AccountID != character.AccountID || !s.boundGameSessionCharacterCurrent(identity) {
+	history, found := registry.MileageHistory(dnfrepo.GuildOwner{CharacterID: strconv.Itoa(int(identity.character)), AccountID: character.AccountID})
+	if !found || !s.boundGameSessionCharacterCurrent(identity) {
 		return reject()
 	}
-	body, err := buildCurrentGuildMileageHistoryBody(g.MileageHistory)
+	body, err := buildCurrentGuildMileageHistoryBody(history)
 	if err != nil {
 		return reject()
 	}

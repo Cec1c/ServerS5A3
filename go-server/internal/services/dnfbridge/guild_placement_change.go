@@ -74,11 +74,10 @@ func (s *Service) handleCurrentGuildPlacementChange(session *gameSession, reques
 		return fail(guild.ErrRepositoryUnavailable)
 	}
 	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, ok, err := guild.ReadGuildID(ctx, repos.Settings, owner)
 	if err != nil {
 		return fail(err)
 	}
-	g, _, ok := reg.GuildForOwner(owner)
 	if !ok {
 		return fail(guild.ErrNotMember)
 	}
@@ -102,7 +101,7 @@ func (s *Service) handleCurrentGuildPlacementChange(session *gameSession, reques
 			return guild.PlacementChangeReceipt{}, err
 		}
 		return guild.ApplyPlacementChange(ctx, repos.Guild, guild.PlacementChangeRequest{
-			Owner: owner, GuildID: g.ID, RequestID: requestID, Change: change, Books: catalog.books, Map: m,
+			Owner: owner, GuildID: guildID, RequestID: requestID, Change: change, Books: catalog.books, Map: m,
 			Revalidate: func() bool {
 				if !s.boundGameSessionCharacterCurrent(identity) || session.townSceneReadyCharacterID != identity.character || session.townPositionSnapshot != p || p.CharacterID != identity.character || p.TownID != 8 || !p.PositionValid {
 					return false

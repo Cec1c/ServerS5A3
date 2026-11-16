@@ -719,8 +719,22 @@ func (o *Owner) Search(ctx context.Context, itemIDs []uint32) ([]Listing, error)
 	if o == nil {
 		return nil, ErrUnavailable
 	}
+	wanted := make(map[int64]struct{}, len(itemIDs))
+	var singleItemID int64
+	for _, itemID := range itemIDs {
+		if itemID != 0 {
+			singleItemID = int64(itemID)
+			wanted[singleItemID] = struct{}{}
+		}
+	}
 	var slots map[string]dnfrepo.ItemStack
-	if reader, ok := o.repositories.Inventory.(dnfrepo.InventorySlotPrefixReader); ok {
+	if reader, ok := o.repositories.Inventory.(dnfrepo.InventorySlotItemPrefixReader); ok && len(wanted) == 1 {
+		var err error
+		slots, err = reader.LoadInventorySlotItemPrefix(ctx, EscrowCharacterID, listingPrefix, singleItemID)
+		if err != nil {
+			return nil, err
+		}
+	} else if reader, ok := o.repositories.Inventory.(dnfrepo.InventorySlotPrefixReader); ok {
 		var err error
 		slots, err = reader.LoadInventorySlotPrefix(ctx, EscrowCharacterID, listingPrefix)
 		if err != nil {
@@ -732,12 +746,6 @@ func (o *Owner) Search(ctx context.Context, itemIDs []uint32) ([]Listing, error)
 			return nil, err
 		}
 		slots = record.Slots
-	}
-	wanted := make(map[int64]struct{}, len(itemIDs))
-	for _, itemID := range itemIDs {
-		if itemID != 0 {
-			wanted[int64(itemID)] = struct{}{}
-		}
 	}
 	now := o.clock()
 	result := make([]Listing, 0)

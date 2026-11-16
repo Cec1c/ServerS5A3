@@ -31,11 +31,10 @@ func (s *Service) prepareCurrentGuildHongbaoMutation(ctx context.Context, sessio
 		return nil, guild.HongbaoRequest{}, nil, guild.ErrRepositoryUnavailable
 	}
 	actor := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(identity.character))}
-	reg, err := guild.Load(ctx, repos.Settings)
+	guildID, found, err := guild.ReadGuildID(ctx, repos.Settings, actor)
 	if err != nil {
 		return nil, guild.HongbaoRequest{}, nil, err
 	}
-	g, _, found := reg.GuildForOwner(actor)
 	if !found {
 		return nil, guild.HongbaoRequest{}, nil, guild.ErrNotMember
 	}
@@ -43,7 +42,7 @@ func (s *Service) prepareCurrentGuildHongbaoMutation(ctx context.Context, sessio
 	if err != nil {
 		return nil, guild.HongbaoRequest{}, nil, err
 	}
-	return owner, guild.HongbaoRequest{Owner: actor, GuildID: g.ID, OperationID: operation, Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(identity) }}, release, nil
+	return owner, guild.HongbaoRequest{Owner: actor, GuildID: guildID, OperationID: operation, Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(identity) }}, release, nil
 }
 
 func (s *Service) handleCurrentGuildHongbaoIssue(session *gameSession, request gameplayRequest) error {

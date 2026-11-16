@@ -162,6 +162,10 @@ func mysqlSchemaMigrations(options SchemaOptions) ([]string, error) {
 			statements = append(statements, "ALTER TABLE "+mysqlTable(database, tablePrefix, table)+" MODIFY COLUMN metric VARCHAR(64) NOT NULL")
 		}
 		statements = append(statements, "ALTER TABLE "+mysqlTable(database, tablePrefix, activityCountersTable)+" ADD INDEX idx_activity_ranking (metric,bucket,account_id,character_id,total)")
+		// Recovery is also needed after notification overflow, restart and
+		// legacy writes. Keep it durable, but seek the literal event-key prefix
+		// instead of scanning every ordinary character statistic each round.
+		statements = append(statements, recoveryIndexDDL(database, tablePrefix))
 	}
 	return statements, nil
 }

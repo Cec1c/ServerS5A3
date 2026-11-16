@@ -725,11 +725,14 @@ func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onl
 			"switch", townCopresenceSkipSamePartyFrameEnv)
 		return nil
 	}
+	frameBatch := newPartyFrameCharacterBatch(s)
+	frameBatch.seedProjectionCharacter(actorIdentity, charName, character, hasCharacter)
 	if _, err := s.sendCurrentPartyActorFrameProjection(
 		target,
 		actor.Session,
 		s.townCopresenceActorPartyState(actor.Session),
 		"town_copresence_actor_initial_party_state",
+		frameBatch,
 	); err != nil {
 		return fmt.Errorf("send remote town actor op9 display: %w", err)
 	}

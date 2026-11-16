@@ -17,12 +17,13 @@ type Component struct {
 	options ComponentOptions
 	now     func() time.Time
 
-	mu        sync.RWMutex
-	group     repository.Group
-	plan      repository.DatabasePlan
-	started   bool
-	startedAt time.Time
-	lastError string
+	mu                     sync.RWMutex
+	group                  repository.Group
+	plan                   repository.DatabasePlan
+	started                bool
+	startedAt              time.Time
+	lastError              string
+	storedGuildFingerprint bool
 }
 
 type ComponentOptions struct {
@@ -36,6 +37,7 @@ type ComponentOptions struct {
 }
 
 type ComponentSnapshot struct {
+	StoredGuildFingerprint    bool      `json:"stored_guild_fingerprint,omitempty"`
 	Started                   bool      `json:"started"`
 	StartedAt                 time.Time `json:"started_at,omitempty"`
 	ShardID                   string    `json:"shard_id,omitempty"`
@@ -121,7 +123,13 @@ func (c *Component) Start(ctx context.Context) error {
 		c.recordError(err)
 		return err
 	}
-	group, err := NewMySQLGroup(c.db, c.groupOptions(plan))
+	groupOptions := c.groupOptions(plan)
+	groupOptions.storedGuildFingerprint, err = GuildSnapshotFingerprintReady(ctx, c.db, groupOptions)
+	if err != nil {
+		c.recordError(err)
+		return err
+	}
+	group, err := NewMySQLGroup(c.db, groupOptions)
 	if err != nil {
 		c.recordError(err)
 		return err
@@ -137,6 +145,7 @@ func (c *Component) Start(ctx context.Context) error {
 	c.started = true
 	c.startedAt = c.clock().UTC()
 	c.lastError = ""
+	c.storedGuildFingerprint = groupOptions.storedGuildFingerprint
 	c.mu.Unlock()
 	return nil
 }
@@ -152,6 +161,7 @@ func (c *Component) Stop(context.Context) error {
 	c.plan = repository.DatabasePlan{}
 	c.started = false
 	c.startedAt = time.Time{}
+	c.storedGuildFingerprint = false
 	c.mu.Unlock()
 	return nil
 }
@@ -179,6 +189,7 @@ func (c *Component) Snapshot() ComponentSnapshot {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return ComponentSnapshot{
+		StoredGuildFingerprint:    c.storedGuildFingerprint,
 		Started:                   c.started,
 		StartedAt:                 c.startedAt,
 		ShardID:                   c.plan.ShardID,
