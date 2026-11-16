@@ -165,7 +165,7 @@ func mysqlSchemaMigrations(options SchemaOptions) ([]string, error) {
 		// Recovery is also needed after notification overflow, restart and
 		// legacy writes. Keep it durable, but seek the literal event-key prefix
 		// instead of scanning every ordinary character statistic each round.
-		statements = append(statements, "ALTER TABLE "+mysqlTable(database, tablePrefix, mysqlCharacterStatsTable)+" ADD INDEX idx_stats_pending_level (stat_key,stat_value,character_id)")
+		statements = append(statements, recoveryIndexDDL(database, tablePrefix))
 	}
 	return statements, nil
 }
