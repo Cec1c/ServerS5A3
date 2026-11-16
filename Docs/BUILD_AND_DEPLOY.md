@@ -3,10 +3,7 @@
 [返回项目首页](../README.md)
 
 > [!IMPORTANT]
-> **频道表在首次准备资源时就要选对。** `prepare` 显式传入 `--channel-info`，使用[完整的 120 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)并按[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)核对。PVF 内置表曾导致无法完成登录；已有服和 PVF 更新都保留已选外部表，检查运行进程真正加载的文件。
-
-> [!NOTE]
-> **Docker 配置有公开参考可直接交给 Agent。** 阅读[运行配置与脱敏说明](DOCKER_RUNTIME_REFERENCE.md)，下载[环境配置参考](../deploy/templates/docker-server.redacted.env)，核对 `DNFBRIDGE_GAME_UPPER_*`、资源路径及实际进程值。普通／魂大会设为 `dungeon_tournament: "vendor"`，赛马保持关闭。
+> **首次 `prepare` 必须同时做好两件事：① 显式传入 [完整的 120 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)（详见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)）；② 将官方推荐预设包 [`docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 合并进 `runtime/docker/instance.json`。** 仅下载构建程序而不合入 Docker 运行配置包，会导致青龙/黄龙/魂大会进图不出怪（漏设 `dungeon_tournament: "vendor"`）、2365 赛马闪退、双组 Buff 与公会功能关闭等问题；环境变量说明与进程核验见[Docker 运行配置包与脱敏环境参考](DOCKER_RUNTIME_REFERENCE.md)。
 
 你准备服务器、客户端和想法，Agent 负责读源码、运行命令、配置服务和排查问题。第一步的目标很具体：让自己的账号能进入游戏，创建角色，打一张图，退出后还能读到存档。
 
@@ -113,7 +110,7 @@ cd ServerS5A3
 ```text
 请帮我部署这个 ServerS5A3 / DNF90 项目。
 
-先阅读 AGENTS.md、README.md、Docs/BUILD_AND_DEPLOY.md、Docs/CHANNEL_TABLE_DEPLOYMENT.md 和 changlog.md。
+先阅读 AGENTS.md、README.md、Docs/BUILD_AND_DEPLOY.md、Docs/DOCKER_RUNTIME_REFERENCE.md、Docs/CHANNEL_TABLE_DEPLOYMENT.md 和 changlog.md。
 
 我的环境：
 - 服务器：[IP 或 SSH 别名]
@@ -127,8 +124,8 @@ cd ServerS5A3
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
 频道表显式选择已批准的完整外部ETC，与仓库120频道CSV逐项核对；不要默认提取PVF内置表替代它。
-赛马活动2365保持关闭，检查配置、持久化覆盖与重启后的生效值；列出其余活动的实际开启状态。
-按当前源码支持的方式构建，生成独立运行配置，准备数据库和资源。
+首次 prepare 后将 deploy/templates/docker-instance.recommended.json 合并进 runtime/docker/instance.json（保留自动生成的本机IP、数据库密码和令牌）：确保 dungeon_tournament="vendor"（开启青龙/黄龙/魂大会刷怪）、buff_group_sync="on"、buff_swap_reapply="on"、disjoint_epic_display="paired-v1"、town_display_only="on"、公会功能及 runtime_compatibility 推荐项全部生效。
+赛马活动2365保持关闭（joust_event_enabled=false），检查配置、持久化覆盖与重启后的生效值；按 Docs/DOCKER_RUNTIME_REFERENCE.md 核对运行中 DNF90Server 进程的真实环境变量，并列出其余活动的实际开启状态。
 有旧数据时先备份并验证，再部署本次服务。
 
 请完成账号注册、登录令牌、频道连接和存档持久化检查，
@@ -202,11 +199,22 @@ sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --channel-
 sh deploy/docker/manage.sh prepare --channel-info "/srv/dnf-assets/channel_info.etc"
 ```
 
-**启动前，把 `runtime/docker/instance.json` 中的 `joust_event_enabled` 设为 `false`。** 复用旧数据库时，另按[活动开关说明](#已有服检查保存值实际生效值和目录)确认 2365 的持久化设置已关闭。
-
-同一实例源中设置 `dungeon_tournament` 为 `"vendor"`，启用普通与魂大会赛程；协议字段及生成方式见[运行配置参考](DOCKER_RUNTIME_REFERENCE.md#从实例源生成配置)。然后启动并检查：
+**启动前，将官方推荐配置包 [`deploy/templates/docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 合并进 `runtime/docker/instance.json`**（一次性设好 `joust_event_enabled: false` 关闭赛马、`dungeon_tournament: "vendor"` 开启青龙/黄龙/魂大会刷怪，以及双组 Buff、分解显示、城镇同屏、公会与 `runtime_compatibility` 推荐项；各字段详解见[运行配置包与脱敏环境参考](DOCKER_RUNTIME_REFERENCE.md#一键合入官方推荐配置包首次-prepare-后必做)）。复用旧数据库时，另按[活动开关说明](#已有服检查保存值实际生效值和目录)确认 2365 的持久化设置已关闭。合并命令如下：
 
 ```sh
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+inst_path = Path("runtime/docker/instance.json")
+rec_path = Path("deploy/templates/docker-instance.recommended.json")
+inst = json.loads(inst_path.read_text(encoding="utf-8"))
+rec = json.loads(rec_path.read_text(encoding="utf-8"))
+compat = {**inst.get("runtime_compatibility", {}), **rec.get("runtime_compatibility", {})}
+merged = {**inst, **rec, "runtime_compatibility": compat}
+inst_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+PY
+
 sh deploy/docker/manage.sh up
 sh deploy/docker/manage.sh status
 sh deploy/docker/manage.sh logs
@@ -317,17 +325,18 @@ sh deploy/docker/manage.sh up
 
 ## 改了源码怎么检查
 
-以下命令在 `go-server/` 目录运行：
+日常按范围验证默认复用 Go 测试缓存并执行完整 Linux 服务端构建（详见 [本地按范围验证说明](LOCAL_CICD.md)），在仓库根目录执行：
 
 ```sh
-go list -buildvcs=false -mod=readonly ./...
-go test -buildvcs=false -mod=readonly -count=1 ./internal/modules/dnf/...
-go test -buildvcs=false -mod=readonly -count=1 ./internal/services/dnfbridge
-go test -buildvcs=false -mod=readonly -count=1 ./cmd/server/control
-go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor ./internal/app/dnf90 ./internal/services/dnfbridge
+# Linux 原生按范围验证
+sh scripts/ci/test_core.sh --package ./internal/modules/dnf/guild/...
+sh scripts/ci/test_core.sh --package ./internal/services/dnfbridge --run '^Test(Auction|TownPeerDelivery)'
+
+# Windows 使用 Docker 只读挂载执行 Linux 按范围验证
+LOCAL_VERIFY.bat --package ./internal/modules/dnf/inventory/... --output runtime/verify-inventory
 ```
 
-修改 Go 文件后先运行 `gofmt`，检查通过后再用根目录构建脚本生成目标平台程序。数据库测试变量 `DNFBRIDGE_PLAYER_TEST_DSN` 指向独立的一次性测试库；依赖客户端或 PVF 的测试使用已核对的资源。
+涉及跨模块公共依赖或需要强制无缓存全量回归时，使用 `sh scripts/ci/test_core.sh --full --fresh`（或在 `go-server/` 目录按模块运行完整 `go test` / `go vet`）。修改 Go 文件后先运行 `gofmt`；数据库测试变量 `DNFBRIDGE_PLAYER_TEST_DSN` 指向独立的一次性测试库，依赖客户端或 PVF 的测试使用已核对的资源。
 
 修改 Docker 工具时，在仓库根目录运行：
 
@@ -335,4 +344,4 @@ go vet -mod=readonly ./cmd/server/control ./cmd/server/dnf90 ./cmd/server/doctor
 python3 -m unittest discover -s deploy/docker -p "test_*.py" -v
 ```
 
-贡献变更前阅读 [AGENTS.md](../AGENTS.md) 和[仓库协作流程](REPOSITORY_SYNC.md)。代码和文档通过 GitHub PR 集成，GitGud 随后异步镜像主干；每项修复说明触发条件、修改内容和验证结果。
+贡献变更前阅读 [AGENTS.md](../AGENTS.md)、[变更记录规范](CHANGELOG_WORKFLOW.md) 和[仓库协作流程](REPOSITORY_SYNC.md)。代码和文档通过 GitHub PR 集成，GitGud 随后异步镜像主干；每项改动在 `changelog.d/` 新增独立记录，说明变更内容和验证结果。

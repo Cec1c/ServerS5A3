@@ -6,7 +6,7 @@ V212 客户端已经包含双组 Buff 协议，服务端也实现了对应的 8 
 
 Docker 首次 `prepare` 创建实例时，默认面向当前公开的 V212 及后续双组客户端，自动把 `buff_group_sync: "on"` 保存到 `runtime/docker/instance.json`，并写入游戏服务使用的 `server.env`。无需再手动补环境变量。
 
-如果同时传入 `--client-dir`，首次准备会核对 `DNF.exe`：已验证的 V212、V213、V214 选择 `on`，旧版 v56 选择 `off`；文件缺失或摘要未知时停止准备，要求明确选择配套协议。仅服务端部署、没有客户端目录时按当前 V212+ 选择 `on`。使用其他经过自行验证的旧客户端，可以在首次准备时传入 `--buff-group-sync off`；明确配套的双组客户端使用 `--buff-group-sync on`。选择会持久保存，重复准备不会自动改写。
+如果同时传入 `--client-dir`，首次准备会核对 `DNF.exe`：已验证的 V212、V213、V214、V215（`28e04d1d…`）选择 `on`，旧版 v56 选择 `off`；文件缺失或摘要未知时停止准备，要求明确选择配套协议。仅服务端部署、没有客户端目录时按当前 V212+ 选择 `on`。使用其他经过自行验证的旧客户端，可以在首次准备时传入 `--buff-group-sync off`；明确配套的双组客户端使用 `--buff-group-sync on`。选择会持久保存，重复准备不会自动改写。
 
 普通控制器的新 `instance.example.json` 带 `protocol.buffGroupSync: "auto"`。使用 `native-channel-profile-official-24.9` 配套 V212+ 时解析为 `on`，旧 `90cn-decode-bypass-v1` 保持原协议。控制器把选择显式传给游戏子进程，外层继承环境的清理不会再丢掉该设置。旧版官方原生客户端可显式设 `protocol.buffGroupSync: "off"`；已有实例省略该字段时不自动迁移。
 

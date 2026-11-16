@@ -22,10 +22,13 @@ BUFF_GROUP_CLIENTS = {
     "69ea3a8b38d70af340baed28ec03e88162e7d3e434f5f99c9d5b71dafc12f544": "on",  # V212
     "a28601e349a65a1ec0356995b693a326620d81887031c17b76b5b73daaeb5216": "on",  # V213
     "6402835223a23f9e4300c57c175d1b990b78ab0eecc46bd03fd373d0893e73f4": "on",  # V214
+    "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84": "on",  # V215
     "bc613e368e8fd49c50c35163f2ed8a28564fc23342701a5a6c22b839f3bf6b7a": "off",  # legacy v56
 }
 
 RUNTIME_COMPATIBILITY_VALUES = {
+    "DNFBRIDGE_BUFF_GROUP_SYNC": ("off", "on"),
+    "DNFBRIDGE_EXPERIMENTAL_PEAK": ("off", "on"),
     "DNFBRIDGE_MYSQL_INSERT_BATCH": None,
     "DNFBRIDGE_INVENTORY_SAVE_SCOPE": ("collection", "slot"),
     "DNFBRIDGE_EQUIPMENT_SAVE_SCOPE": ("collection", "entry"),
@@ -41,7 +44,6 @@ RUNTIME_COMPATIBILITY_VALUES = {
     "DNFBRIDGE_PARTY_PEER_ENDPOINTS_AFTER_ROSTER": ("repeat",),
     "DNFBRIDGE_PARTY_PEER_ENDPOINT_REBROADCAST": ("on",),
     "DNFBRIDGE_LOGIN_AREA_GATES": ("strict",),
-    "DNFBRIDGE_BUFF_GROUP_SYNC": ("on", "off"),
     "DNFBRIDGE_HOTKEY_SEEDED_LAYOUT": ("off",),
     "DNFBRIDGE_SKILL_SWITCH_CANDIDATE_PAIRS": ("off",),
     "DNFBRIDGE_LOGIN_SKILL_SWITCH_LOADOUT_AFTER_COMMIT": ("before_transition_only",),
@@ -329,6 +331,19 @@ def generate(c, catalog):
     percent = c.get("main_quest_exp_percent")
     if "main_quest_exp_percent" in c and (type(percent) is not int or not 0 <= percent <= 100):
         raise ValueError("main_quest_exp_percent must be an integer from 0 to 100")
+    gold_diagnostic_character = c.get("gold_diagnostic_character")
+    if "gold_diagnostic_character" in c and (
+            type(gold_diagnostic_character) is not int
+            or not 0 <= gold_diagnostic_character <= 2147483647):
+        raise ValueError("gold_diagnostic_character must be an integer from 0 to 2147483647")
+    disjoint_epic_display = c.get("disjoint_epic_display")
+    if "disjoint_epic_display" in c and (
+            type(disjoint_epic_display) is not str
+            or disjoint_epic_display not in ("off", "paired-v1")):
+        raise ValueError("disjoint_epic_display must be off or paired-v1")
+    town_display_only = c.get("town_display_only")
+    if "town_display_only" in c and (type(town_display_only) is not str or town_display_only not in ("off", "on")):
+        raise ValueError("town_display_only must be off or on")
     game_token = management_token(c)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
@@ -434,6 +449,12 @@ create_databases = false
         env[BUFF_GROUP_SYNC_KEY] = buff_group_sync
     if encoding is not None:
         env["DNFBRIDGE_CHANNEL_SCRIPT_ENCODING"] = encoding
+    if gold_diagnostic_character is not None:
+        env["DNFBRIDGE_GOLD_DIAGNOSTIC_CHARACTER"] = str(gold_diagnostic_character)
+    if disjoint_epic_display is not None:
+        env["DNFBRIDGE_DISJOINT_EPIC_DISPLAY"] = disjoint_epic_display
+    if town_display_only is not None:
+        env["DNFBRIDGE_TOWN_DISPLAY_ONLY"] = town_display_only
     write(RUNTIME / "server.env", "".join(f"{k}={v}\n" for k, v in env.items()))
     write(RUNTIME / "database.env", f"MARIADB_DATABASE=dnf_local\nMARIADB_USER=dnf\nMARIADB_PASSWORD={c['database_password']}\nMARIADB_ROOT_PASSWORD={c['root_password']}\n")
     logging = {"driver": "json-file", "options": {"max-size": "20m", "max-file": "3"}}
