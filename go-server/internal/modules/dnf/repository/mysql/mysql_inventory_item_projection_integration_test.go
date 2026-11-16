@@ -69,6 +69,13 @@ func TestInventoryItemProjectionDisposableMariaDB(t *testing.T) {
 				seed.Slots[fmt.Sprintf("auction:listing:%d", i)] = stack
 				seed.Slots[fmt.Sprintf("auction:outbox:%d", i)] = stack
 				seed.Warehouse[fmt.Sprint(i)] = stack
+				stack.ItemID = 2681726
+				if i%10 == 0 {
+					stack.ItemID = 2681725
+				}
+				for _, prefix := range []string{"goldconsign:listing:", "goldconsign:sold:", "goldconsign:payout:"} {
+					seed.Slots[fmt.Sprintf("%s%d", prefix, i)] = stack
+				}
 			}
 			seed.Slots["auction:history:no-extra"] = r.ItemStack{ItemID: 6001, Count: 1}
 			seed.Slots["literal!_%:1"] = r.ItemStack{ItemID: 6001, Count: 1, Extra: map[string]string{"值": "中文'?\\\x00"}}
@@ -114,6 +121,33 @@ func TestInventoryItemProjectionDisposableMariaDB(t *testing.T) {
 				t.Fatalf("returned row reduction absent: full=%d prefix=%d item=%d", fullRows, prefixRows, itemRows)
 			}
 			t.Logf("actual SQL returned rows full=%d history-prefix=%d one-item=%d; complete slot values equal", fullRows, prefixRows, itemRows)
+			for _, name := range []string{"goldconsign:listing:", "goldconsign:sold:"} {
+				before = readRows()
+				projected, err := store.LoadInventorySlotPrefix(ctx, seed.CharacterID, name)
+				if err != nil || len(projected) != 400 {
+					t.Fatal(name, len(projected), err)
+				}
+				goldPrefixRows := readRows() - before
+				before = readRows()
+				oneTier, err := store.LoadInventorySlotItemPrefix(ctx, seed.CharacterID, name, 2681725)
+				if err != nil || len(oneTier) != 40 {
+					t.Fatal(name, len(oneTier), err)
+				}
+				goldItemRows := readRows() - before
+				wantPrefix, wantItem := map[string]r.ItemStack{}, map[string]r.ItemStack{}
+				for key, stack := range full.Slots {
+					if strings.HasPrefix(key, name) {
+						wantPrefix[key] = stack
+						if stack.ItemID == 2681725 {
+							wantItem[key] = stack
+						}
+					}
+				}
+				if !reflect.DeepEqual(projected, wantPrefix) || !reflect.DeepEqual(oneTier, wantItem) || goldItemRows >= goldPrefixRows || goldPrefixRows >= fullRows || store.loadedSnapshot != snapshot {
+					t.Fatalf("gold projection mismatch: prefix=%s full=%d prefixRows=%d oneTierRows=%d", name, fullRows, goldPrefixRows, goldItemRows)
+				}
+				t.Logf("actual SQL returned rows full=%d %s=%d one-tier=%d; complete slot values equal", fullRows, name, goldPrefixRows, goldItemRows)
+			}
 			literal, err := store.LoadInventorySlotItemPrefix(ctx, seed.CharacterID, "literal!_%:", 6001)
 			if err != nil || len(literal) != 1 || !reflect.DeepEqual(literal["literal!_%:1"], full.Slots["literal!_%:1"]) {
 				t.Fatal("literal prefix broadened", literal, err)
