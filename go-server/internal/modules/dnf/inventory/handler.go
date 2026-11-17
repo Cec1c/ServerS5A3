@@ -788,7 +788,7 @@ func ownerAppliedUpgradeResult(ctx context.Context, settings dnfrepo.SettingsRep
 		responses = append(responses, class0Response(msgItemListUpdate, wallet.bytes()))
 	}
 	announcement := equipmentUpgradeAnnouncement(cmd, result.Mode, result.TargetItemTemplateID, result.OldLevel, result.NewLevel, result.UpgradeSucceeded, result.TargetNoticeStack)
-	if announcement != nil {
+	if announcement != nil && announcement.Kind != "amplify" {
 		responses = append(responses, class0Response(msgUpgradeNotice, announcement.Body))
 	}
 	return alignedcmd.Result{
@@ -1079,7 +1079,7 @@ func ownerAppliedUpgradeTicketResult(ctx context.Context, settings dnfrepo.Setti
 		responses = append(responses, class0Response(msgItemListUpdate, buildCommonItemListUpdateBody(listTypeMain, entries)))
 	}
 	announcement := equipmentUpgradeAnnouncement(cmd, result.Mode, int32(result.TargetUpdatedStack.ItemID), result.OldLevel, result.NewLevel, result.UpgradeSucceeded, result.TargetUpdatedStack)
-	if announcement != nil {
+	if announcement != nil && announcement.Kind != "amplify" {
 		responses = append(responses, class0Response(msgUpgradeNotice, announcement.Body))
 	}
 	return alignedcmd.Result{

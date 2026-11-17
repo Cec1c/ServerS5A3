@@ -50,6 +50,15 @@ func TestEquipmentUpgradeNoticeTicketsShareThresholdAfterCommit(t *testing.T) {
 			if bag.Slots["0:121"].Count != 1 {
 				t.Fatal("播报改变券的消耗次数")
 			}
+			count := 0
+			for _, response := range result.UpperResponses {
+				if response.MsgID == msgUpgradeNotice && response.Classification == 0 {
+					count++
+				}
+			}
+			if (tc.want && mode == "reinforce" && count != 1) || ((!tc.want || mode == "amplify") && count != 0) {
+				t.Fatalf("券产生错误的原生强化播报 mode=%s count=%d", mode, count)
+			}
 			if tc.want && (result.EquipmentUpgradeNotice.Kind != mode || len(result.EquipmentUpgradeNotice.Body) != 10) {
 				t.Fatal("券播报模式或原生尾部错误")
 			}
