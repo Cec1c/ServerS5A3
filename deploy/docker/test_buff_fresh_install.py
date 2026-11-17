@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import manage
 import test_buff_swap_config as existing_tests
+from test_channel_baseline import catalog
 
 
 class FreshBuffConfiguration(unittest.TestCase):
@@ -19,8 +20,7 @@ class FreshBuffConfiguration(unittest.TestCase):
         runtime = root / "runtime"
 
         def extract(*unused, **kwargs):
-            (runtime / "data/channel_info.etc").write_text("isolated mocked asset output\n")
-            return json.dumps({"channels": 1, "ports": [10006]})
+            return json.dumps(catalog())
 
         with patch.object(manage, "RUNTIME", runtime), patch.object(manage, "check_network"), \
                 patch.object(manage.socket, "socket"), patch.object(manage, "run", side_effect=extract):
@@ -79,6 +79,7 @@ class FreshBuffConfiguration(unittest.TestCase):
                 runtime = root / "runtime"
                 runtime.mkdir()
                 config = existing_tests.BuffSwapReapplyConfiguration().local_config() | settings
+                config.update(channel_file="channel.override.etc", channel_source=str(manage.CHANNEL_TABLE))
                 instance = runtime / "instance.json"
                 instance.write_text(json.dumps(config, indent=2) + "\n")
                 args = self.args(root / "unused")
@@ -86,6 +87,7 @@ class FreshBuffConfiguration(unittest.TestCase):
                 assets = runtime / "data"
                 assets.mkdir()
                 (assets / "Script.pvf").write_bytes(b"isolated mocked PVF")
+                (assets / "channel.override.etc").write_bytes(manage.CHANNEL_TABLE.read_bytes())
                 self.prepare(root, args)
                 saved = json.loads(instance.read_text())
                 self.assertEqual(saved, config)

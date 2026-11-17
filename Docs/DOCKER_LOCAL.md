@@ -6,7 +6,7 @@ Docker Compose v2, Python 3.10+ (with Tk for the launcher), approximately 4 GiB
 for the server, and matching client/PVF/channel assets supplied separately.
 
 > [!IMPORTANT]
-> Select the complete external channel table on the first `prepare` call with `--channel-info`. Use the [120-channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md) to verify the actual loaded table; preserve it when updating the PVF.
+> New `prepare` calls select the shared 120-channel external table automatically and verify its exact SHA256. An explicit `--channel-info` must contain the same baseline. Existing different runtime tables require reviewed migration; see the [channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md). PVF updates do not replace this directory.
 
 For a shareable environment example and the full recommended preset, see the
 [Docker runtime reference](DOCKER_RUNTIME_REFERENCE.md),
@@ -76,21 +76,21 @@ then prepare using local asset paths. The game still requires Windows.
 do not hand-edit the generated files. The old Windows controller and its
 `runtime/config/instance.json` are separate and must not manage these containers.
 
-Select the external channel table explicitly on the first `prepare` call.
+The first `prepare` selects the bundled shared channel table even when `--channel-info` is omitted.
 The [channel deployment guide](CHANNEL_TABLE_DEPLOYMENT.md) includes the approved
 120-row CSV and the matching complete ETC input. Preparation copies the supplied
 PVF and selected table, records SHA256 values, and derives game ports from that
 external catalog. Preserve it across PVF updates. The implementation can extract
 a PVF table when no override is selected; that is not this deployment procedure.
 
-An externally maintained channel table can be selected explicitly:
+The identical baseline from another location can be selected explicitly:
 
 ```bat
 DOCKER.bat prepare --channel-info "D:\your-assets\channel_info.etc"
 DOCKER.bat up
 ```
 
-This preserves the PVF-extracted table, stages `channel.override.etc`, records
+This preserves any previous PVF-extracted table, stages the shared `channel.override.etc`, records
 the source path and hash, and uses the external table for both the server
 catalog and client download. A parser accepting a table does not prove that
 the current game can use it. The linked repository table has been explicitly
