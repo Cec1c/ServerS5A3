@@ -35,14 +35,16 @@ def checked_empire_area_map_delta(current, candidate):
         raise ValueError('Imperial channel update changes bytes beyond the reviewed dungeon mapping')
 
 
-def expected_server_ports(bind, ports):
+def expected_server_ports(bind, ports, relay_count=64):
+    if type(relay_count) is not int or not 64 <= relay_count <= 1024:
+        raise ValueError('party UDP relay count must be an integer from 64 to 1024')
     if (not isinstance(ports, list) or not ports or
             any(type(port) is not int or port < 10001 or port > 10999 for port in ports) or
             len(ports) != len(set(ports))):
         raise ValueError('invalid game channel ports')
     return ([f'127.0.0.1:{port}:{port}/tcp' for port in (7001, 17002, 18111)] +
             [f'{bind}:{port}:{port}/tcp' for port in ports] +
-            [f'{bind}:30000-30063:30000-30063/udp'])
+            [f'{bind}:30000-{29999 + relay_count}:30000-{29999 + relay_count}/udp'])
 
 
 def channel_info_env_path(file_name):
@@ -54,7 +56,7 @@ def channel_info_env_path(file_name):
 def player_endpoint_projection(instance, catalog, manage):
     bind, advertised, bootstrap = manage.player_endpoints(instance, catalog)
     return {'bind': bind, 'advertised': advertised, 'bootstrap': bootstrap,
-            'serverPorts': expected_server_ports(bind, catalog['ports'])}
+            'serverPorts': expected_server_ports(bind, catalog['ports'], instance.get('party_udp_relay_port_count', 64))}
 
 
 def projected_server_ports(instance, catalog, manage):

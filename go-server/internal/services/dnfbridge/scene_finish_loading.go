@@ -36,8 +36,10 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	}
 	stateNeeded := !gates.State
 	completionNeeded := !gates.Completion && !currentTownReturnOmitsSceneActivation(session)
-	followupsNeeded := completionNeeded || !gates.PostFinish
+	deferredGuardianRefreshNeeded := session.pendingGuardianGemAwaitFinishLoading
+	followupsNeeded := completionNeeded || !gates.PostFinish || deferredGuardianRefreshNeeded
 	if !stateNeeded && !followupsNeeded {
+		s.resyncMailboxAlarmAfterSceneReady(session, source)
 		s.finishDungeonPartyPeerActorProjection(session, "finish_loading_after_player_state")
 		return s.sendCurrentTagTournamentInitialRoleAfterLoading(session)
 	}
@@ -62,6 +64,10 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 		}
 	}
 	if err := s.sendCurrentPostFinishLoadingPlayerState(session, source+"_after_finish_loading_state"); err != nil {
+		return err
+	}
+	s.resyncMailboxAlarmAfterSceneReady(session, source)
+	if err := s.sendDeferredSelectedActorGuardianGemRowRefresh(session, source+"_after_finish_loading_state"); err != nil {
 		return err
 	}
 	if err := s.sendCurrentTagTournamentInitialRoleAfterLoading(session); err != nil {

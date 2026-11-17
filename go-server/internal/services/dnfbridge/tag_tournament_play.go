@@ -345,8 +345,8 @@ func (s *Service) handleCurrentTagTournamentMove(p *gameSession, body []byte) er
 		return err
 	}
 	runtime.Room, runtime.NextObjectKey, runtime.Seed = room.room, room.nextKey, room.seed
-	p.currentFinishLoadingStateSent = false
-	p.currentFinishLoadingCompletionSent = false
+	p.setFinishLoadingGateState(false)
+	p.setFinishLoadingGateCompletion(false)
 	if _, err = room.room.AnnounceAllActors(runtime.Session); err != nil {
 		return err
 	}

@@ -46,3 +46,60 @@ func (s *Service) sendSelectedActorGuardianGemRowRefresh(session *gameSession, s
 	s.logGameEvent(session, "game-current-guardian-gem-actor-row-refresh", "source", source, "item_id", binary.LittleEndian.Uint32(row.data[2:6]), "actor_slot", currentGuildMedalActorSlot)
 	return nil
 }
+
+// deferSelectedActorGuardianGemRowRefreshUntilFinishLoading keeps the exact
+// mode1-generation medal row alive through dungeon room activation. The
+// current client applies the worn-equipment object only after the
+// op120/op3/op37/op30/op19 entry sequence, so replaying list-3 op14 earlier can
+// be overwritten by that activation. Other full actor rebuilds continue to use
+// sendSelectedActorGuardianGemRowRefresh immediately.
+func (s *Service) deferSelectedActorGuardianGemRowRefreshUntilFinishLoading(session *gameSession, source string) {
+	if session == nil || session.selectedCharacterID == 0 ||
+		session.pendingGuardianGemCharacterID != session.selectedCharacterID ||
+		session.pendingGuardianGemRow == nil {
+		if session != nil {
+			session.pendingGuardianGemAwaitFinishLoading = false
+		}
+		return
+	}
+	row := *session.pendingGuardianGemRow
+	if binary.LittleEndian.Uint16(row.data[:2]) != uint16(currentGuildMedalActorSlot) ||
+		!currentGuardianGemRawSocketOccupied(row.data[:]) {
+		session.pendingGuardianGemAwaitFinishLoading = false
+		return
+	}
+	session.pendingGuardianGemAwaitFinishLoading = true
+	if s != nil {
+		s.logGameEvent(session, "game-current-guardian-gem-actor-row-refresh-deferred",
+			"source", source,
+			"item_id", binary.LittleEndian.Uint32(row.data[2:6]),
+			"actor_slot", currentGuildMedalActorSlot,
+			"deferred_until", "dungeon_finish_loading_after_op19_and_op120",
+			"reason", "room_activation_precedes_the_current_client_equipment_apply_boundary")
+	}
+}
+
+func (s *Service) sendDeferredSelectedActorGuardianGemRowRefresh(session *gameSession, source string) error {
+	if session == nil || !session.pendingGuardianGemAwaitFinishLoading {
+		return nil
+	}
+	if session.selectedCharacterID == 0 ||
+		session.pendingGuardianGemCharacterID != session.selectedCharacterID ||
+		session.pendingGuardianGemRow == nil {
+		session.pendingGuardianGemAwaitFinishLoading = false
+		return nil
+	}
+	if err := s.sendSelectedActorGuardianGemRowRefresh(session, source); err != nil {
+		// The exact mode1-generation row and the deferred marker survive a
+		// failed write so a later finish-loading retry can resend it.
+		return err
+	}
+	session.pendingGuardianGemAwaitFinishLoading = false
+	return nil
+}
+
+func clearDeferredSelectedActorGuardianGemRowRefresh(session *gameSession) {
+	if session != nil {
+		session.pendingGuardianGemAwaitFinishLoading = false
+	}
+}

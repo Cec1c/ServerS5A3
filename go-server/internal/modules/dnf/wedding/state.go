@@ -122,21 +122,29 @@ func ValidatePair(a, b r.CharacterRecord) (State, State, error) {
 }
 
 func eligible(a, b r.CharacterRecord, rules *Rules) error {
-	if rules == nil || int64(a.Level) < rules.MinimumLevel || int64(b.Level) < rules.MinimumLevel || a.AccountID == "" || a.AccountID == b.AccountID {
+	return Eligible(a, b, rules)
+}
+
+func Eligible(a, b r.CharacterRecord, rules *Rules) error {
+	if rules == nil || int64(a.Level) < rules.MinimumLevel || int64(b.Level) < rules.MinimumLevel || a.AccountID == "" || b.AccountID == "" || a.AccountID == b.AccountID {
 		return ErrEligibility
 	}
-	female := func(job string) (bool, bool) {
-		switch job {
-		case "0", "2", "4", "7", "8", "9", "13", "15":
-			return false, true
-		case "1", "3", "5", "6", "10", "11", "12", "14":
-			return true, true
-		}
-		return false, false
+	x, ok1 := Female(a.Job)
+	y, ok2 := Female(b.Job)
+	if !ok1 || !ok2 {
+		return ErrEligibility
 	}
-	x, ok1 := female(a.Job)
-	y, ok2 := female(b.Job)
-	if !ok1 || !ok2 || x == y {
+	switch rules.GenderPolicy {
+	case "", GenderPolicyOppositeOnly:
+		if x == y {
+			return ErrEligibility
+		}
+	case GenderPolicyDenyMaleMale:
+		if !x && !y {
+			return ErrEligibility
+		}
+	case GenderPolicyUnrestricted:
+	default:
 		return ErrEligibility
 	}
 	return nil

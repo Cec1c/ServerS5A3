@@ -162,7 +162,7 @@ func (s *Service) writeCurrentWeddingCeremony(session *gameSession, a, b r.Chara
 		return wedding.ErrOwnership
 	}
 	route := wedding.CeremonyRoute{Channel: byte(state.CeremonyChannel), Area: byte(state.CeremonyArea)}
-	groom, bride, err := currentWeddingCeremonyNames(a, b)
+	groom, bride, err := s.currentWeddingCeremonyNames(a, b)
 	if err != nil {
 		return err
 	}
@@ -207,37 +207,68 @@ type currentWeddingCeremonyProjection struct {
 // (1accf40(true), vow72771 at1acd3c4) uses+1734=record+30=raw first name;
 // bride lookup(false, vow72773 at1acd4a5) uses+1714=record+10=raw second name.
 func currentWeddingCeremonyNames(a, b r.CharacterRecord) ([]byte, []byte, error) {
-	female := func(job string) (bool, bool) {
-		switch job {
-		case "0", "2", "4", "7", "8", "9", "13", "15":
-			return false, true
-		case "1", "3", "5", "6", "10", "11", "12", "14":
-			return true, true
-		}
-		return false, false
-	}
-	af, ak := female(a.Job)
-	bf, bk := female(b.Job)
-	if !ak || !bk || af == bf {
+	return currentWeddingCeremonyOrderedNames(a, b, wedding.GenderPolicyDenyMaleMale)
+}
+
+func currentWeddingCeremonyOrderedNames(a, b r.CharacterRecord, policy string) ([]byte, []byte, error) {
+	af, ak := wedding.Female(a.Job)
+	bf, bk := wedding.Female(b.Job)
+	if !ak || !bk {
 		return nil, nil, wedding.ErrEligibility
 	}
-	if af {
-		a, b = b, a
+	if af != bf {
+		if af {
+			a, b = b, a
+		}
+	} else {
+		if !af && policy != wedding.GenderPolicyUnrestricted {
+			return nil, nil, wedding.ErrEligibility
+		}
+		ai, ae := wedding.NumericID(a.CharacterID)
+		bi, be := wedding.NumericID(b.CharacterID)
+		if ae != nil || be != nil || ai == bi {
+			return nil, nil, wedding.ErrEligibility
+		}
+		if ai > bi {
+			a, b = b, a
+		}
 	}
 	return rosterNameBytes(a.Name), rosterNameBytes(b.Name), nil
 }
 
-func currentWeddingCeremonyPosition(rules *wedding.Rules, c r.CharacterRecord) (wedding.CeremonyPosition, error) {
-	if rules == nil {
-		return wedding.CeremonyPosition{}, wedding.ErrUnavailable
+func (s *Service) currentWeddingCeremonyNames(a, b r.CharacterRecord) ([]byte, []byte, error) {
+	rules, err := s.currentWeddingRules()
+	if err != nil {
+		return nil, nil, err
 	}
-	switch c.Job {
-	case "0", "2", "4", "7", "8", "9", "13", "15":
-		return rules.ForceMove[0], nil
-	case "1", "3", "5", "6", "10", "11", "12", "14":
-		return rules.ForceMove[1], nil
+	if err = wedding.Eligible(a, b, rules); err != nil {
+		return nil, nil, err
 	}
-	return wedding.CeremonyPosition{}, wedding.ErrEligibility
+	return currentWeddingCeremonyOrderedNames(a, b, rules.GenderPolicy)
+}
+
+func currentWeddingCeremonyPairPosition(rules *wedding.Rules, actor, partner r.CharacterRecord) (wedding.CeremonyPosition, error) {
+	if err := wedding.Eligible(actor, partner, rules); err != nil {
+		return wedding.CeremonyPosition{}, err
+	}
+	af, _ := wedding.Female(actor.Job)
+	bf, _ := wedding.Female(partner.Job)
+	slot := 0
+	if af != bf {
+		if af {
+			slot = 1
+		}
+	} else {
+		ai, ae := wedding.NumericID(actor.CharacterID)
+		bi, be := wedding.NumericID(partner.CharacterID)
+		if ae != nil || be != nil || ai == bi {
+			return wedding.CeremonyPosition{}, wedding.ErrEligibility
+		}
+		if ai > bi {
+			slot = 1
+		}
+	}
+	return rules.ForceMove[slot], nil
 }
 
 // The consent owner calls this while holding wedding.mu, after Reserve's one
@@ -464,7 +495,7 @@ func (s *Service) runCurrentWeddingCeremony(key string, ceremony *currentWedding
 		}
 		return
 	}
-	groom, bride, namesErr := currentWeddingCeremonyNames(result.Actor, result.Partner)
+	groom, bride, namesErr := s.currentWeddingCeremonyNames(result.Actor, result.Partner)
 	err = errors.Join(err, namesErr)
 	var beginSent [2]bool
 	for index, pair := range []struct {
@@ -690,7 +721,14 @@ func (s *Service) handleCurrentWeddingCeremonyEntry(session *gameSession, body [
 		if err != nil {
 			return err
 		}
-		position, err := currentWeddingCeremonyPosition(owner.Rules, c)
+		partner, found, err := owner.Repositories.Character.Load(ctx, req.Partner.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return wedding.ErrOwnership
+		}
+		position, err := currentWeddingCeremonyPairPosition(owner.Rules, c, partner)
 		if err != nil {
 			return err
 		}

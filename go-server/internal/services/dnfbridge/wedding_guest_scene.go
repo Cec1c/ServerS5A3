@@ -198,7 +198,7 @@ func (s *Service) sendCurrentWeddingGuestBeginForSession(session *gameSession) e
 	if s.wedding.guestBegins[identity.character] == stamp {
 		return nil
 	}
-	first, second, err := currentWeddingCeremonyNames(hosts[0], hosts[1])
+	first, second, err := s.currentWeddingCeremonyNames(hosts[0], hosts[1])
 	if err != nil {
 		return err
 	}

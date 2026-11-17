@@ -13,3 +13,5 @@
 /.gitlab/merge_request_templates/*.md text eol=lf
 /deploy/windows/*.bat text eol=crlf
 *.go linguist-language=Go
+# Historical protocol asset: retain its exact reviewed bytes and CRLF identity.
+resource-recipes/bundle008/channel.override.etc -text -diff

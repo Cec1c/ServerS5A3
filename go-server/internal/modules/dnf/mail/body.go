@@ -425,7 +425,9 @@ func buildMailboxRemoveNotification(mailIDs []uint32) []byte {
 // recipient independently from the sender's command response.
 func buildMailboxAlarmNotification(count int) []byte {
 	writer := mailboxBodyWriter{}
-	writer.u16(clampMailboxU16(count))
+	// Native op99 sign-extends its WORD before checking count > 0.
+	// Saturate here only; mailbox row/count fields retain their unsigned range.
+	writer.u16(uint16(max(0, min(count, math.MaxInt16))))
 	return writer.bytes()
 }
 

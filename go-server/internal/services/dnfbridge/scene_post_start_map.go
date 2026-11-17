@@ -438,9 +438,7 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	if err := s.sendSelectedWornTitleEnchantRowRefresh(session, source+"_after_dungeon_mode1"); err != nil {
 		return err
 	}
-	if err := s.sendSelectedActorGuardianGemRowRefresh(session, source+"_after_dungeon_mode1"); err != nil {
-		return err
-	}
+	s.deferSelectedActorGuardianGemRowRefreshUntilFinishLoading(session, source+"_after_dungeon_mode1")
 	session.selectedUserInfoRefreshSent = true
 
 	insertBody := s.buildCurrentInsertOverseerBodyForSession(ctx, session, buildCurrentInsertOverseerBody())

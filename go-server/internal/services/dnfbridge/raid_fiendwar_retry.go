@@ -69,7 +69,7 @@ func (s *Service) advanceCurrentFiendWarRetryFlow(f *currentAntonRewardFlow, cat
 		cmd := raid.RewardCommand{AccountID: recipient.AccountID, CharacterID: strconv.Itoa(int(recipient.CharacterID)), InstanceID: f.InstanceID, Mode: 3, Kind: 4, Fingerprint: plan.Fingerprint, CompletedAt: f.CompletedAt}
 		s.raidMu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		_, err := grantCurrentAntonRewardPlan(ctx, repos, catalog, plan, cmd)
+		granted, err := grantCurrentAntonRewardPlan(ctx, repos, catalog, plan, cmd)
 		cancel()
 		s.raidMu.Lock()
 		if err == nil {
@@ -81,6 +81,7 @@ func (s *Service) advanceCurrentFiendWarRetryFlow(f *currentAntonRewardFlow, cat
 		if err != nil {
 			return err
 		}
+		s.notifyCurrentRaidRewardMailbox(recipient.CharacterID, granted.MailboxChanged)
 	}
 	s.raidMu.Lock()
 	f.FinishedAt = now

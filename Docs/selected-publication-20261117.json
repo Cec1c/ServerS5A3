@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "publicBase": "9d276928a8d47584df0194b7b1e12bb9e56a7fef",
+  "selectedItems": [
+    "NF01",
+    "NF02",
+    "NF03",
+    "NF04",
+    "NF05",
+    "NF06",
+    "NF07",
+    "NF08",
+    "NF09",
+    "NF10",
+    "NF11",
+    "NF12",
+    "NF13",
+    "NF14",
+    "NF15",
+    "NF16",
+    "NF17",
+    "NF21",
+    "NF22",
+    "NF23",
+    "NF24",
+    "NF25",
+    "T17"
+  ],
+  "behaviors": "Docs/SELECTED_PUBLICATION_20261117.md",
+  "client": {
+    "baseExeSha256": "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84",
+    "intermediateExeSha256": "40657c19955dc2f594fc2221ef91044170d86406ba6fd193cdb1839877f28cb0",
+    "finalExeSha256": "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
+    "pvfSha256": "664829766ab016ad6935370281bb24820e40990a6db4d607607aa67b49d8da4b"
+  },
+  "validation": {
+    "go": {
+      "topLevel": 231,
+      "passNodes": 491,
+      "failures": 0,
+      "skips": 0,
+      "actualLinux": true,
+      "disposableMariaDB": true
+    },
+    "python": {
+      "dockerUnique": 68,
+      "remoteUnique": 48,
+      "failures": 0,
+      "linuxRootFilesystemTests": true
+    },
+    "native": {
+      "hookCases": 42,
+      "parserCases": 6,
+      "weddingTests": 10,
+      "clientGUI": false,
+      "fullCourageCast": false
+    },
+    "LinuxTargetBuilds": true,
+    "vetTarget": "linux-amd64",
+    "cloudCIClaimed": false
+  },
+  "physicalAcceptance": "Not performed; full Courage cast and real player GUI remain pending",
+  "sourceOnlyPublication": true,
+  "productionDeployment": false
+}

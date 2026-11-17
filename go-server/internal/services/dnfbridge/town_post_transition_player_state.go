@@ -129,6 +129,13 @@ func (s *Service) sendCurrentTownPostTransitionPlayerState(session *gameSession,
 		return err
 	}
 	s.resendTownCopresenceAfterTownPostTransition(session, source+"_town_copresence_resend")
+	// Completed dungeon returns publish this actor chain before the client sends
+	// its normal op37 request. Defer the mailbox resync to that real op37 ACK-only
+	// branch; treating the server-side state write as client scene readiness would
+	// recreate the early-notification race this candidate is intended to avoid.
+	if session != nil && !session.returnTownFinishLoadingAckOnly {
+		s.resyncMailboxAlarmAfterSceneReady(session, source)
+	}
 	return nil
 }
 

@@ -13,6 +13,10 @@ import (
 const Version = 1
 const Path = "/api/game/admin"
 
+// ActionNotifyMailbox projects a mailbox already committed by another process.
+// Offline recipients are covered by the selected-town bootstrap.
+const ActionNotifyMailbox = "notify_mailbox"
+
 type Request struct {
 	QQChange        *qqbinding.Change                  `json:"qqChange,omitempty"`
 	QQCheck         *qqbinding.CheckResult             `json:"qqCheck,omitempty"`

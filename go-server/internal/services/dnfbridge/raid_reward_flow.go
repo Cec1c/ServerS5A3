@@ -522,6 +522,7 @@ func (s *Service) advanceCurrentAntonRewardFlows(now time.Time, roll func(int64)
 					errors = append(errors, grantErr)
 					break
 				}
+				s.notifyCurrentRaidRewardMailbox(owner.CharacterID, granted.MailboxChanged)
 			}
 		}
 		s.raidMu.Lock()

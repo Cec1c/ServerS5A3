@@ -50,8 +50,9 @@ func TestP161LoginActorGenerationRebuildRestoresWornMedalRawSockets(t *testing.T
 	p161RequireWornMedalRefresh(t, connection.write.Bytes(), medalItemID, want)
 }
 
-func TestP161DungeonEntryMode1RestoresWornMedalRawSockets(t *testing.T) {
+func TestP161DungeonEntryRestoresWornMedalRawSocketsAfterFinishLoading(t *testing.T) {
 	service, session, connection, _ := newSceneReadyReplayFixture(t)
+	p161EnableFinishLoadingSkillInfo(t, service)
 	p161BindSessionOwner(t, service, session)
 	medalItemID, want := p161SeedWornMedalSockets(t, service)
 	p161MakeFixturePetValid(t, service)
@@ -66,7 +67,103 @@ func TestP161DungeonEntryMode1RestoresWornMedalRawSockets(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	p161RequireWornMedalRefresh(t, connection.write.Bytes(), medalItemID, want)
+	if rows := p161WornMedalRows(t, connection.write.Bytes(), medalItemID); len(rows) != 0 {
+		t.Fatalf("dungeon entry replayed the medal before room activation: rows=%d stream=%x", len(rows), connection.write.Bytes())
+	}
+	if !session.pendingGuardianGemAwaitFinishLoading || session.pendingGuardianGemRow == nil {
+		t.Fatal("dungeon entry did not retain the mode1-generation medal row for finish-loading")
+	}
+	beforeFinishLoading := connection.write.Len()
+	if err := service.sendCurrentFinishLoadingCharacterState(session, "p161_dungeon_finish_loading"); err != nil {
+		t.Fatal(err)
+	}
+
+	stream := connection.write.Bytes()
+	p161RequireWornMedalRefresh(t, stream, medalItemID, want)
+	rows := p161WornMedalRows(t, stream, medalItemID)
+	if len(rows) != 1 {
+		t.Fatalf("finish-loading medal replay rows=%d, want=1", len(rows))
+	}
+	row := rows[0]
+	if row.offset < beforeFinishLoading {
+		t.Fatalf("medal replay still preceded the finish-loading request: row=%d finish=%d", row.offset, beforeFinishLoading)
+	}
+
+	op37End, op30End, lastOp120End, skillEnd := -1, -1, -1, -1
+	for _, frame := range loginActorGenerationSplit(t, stream) {
+		if p161FrameClassification(t, frame) != 0 {
+			continue
+		}
+		switch frame.msgID {
+		case uint16(dnfenum.CmdPacketFinishLoading):
+			op37End = frame.end
+		case currentIncreaseStatusResultMsgID:
+			op30End = frame.end
+		case currentSkillInfoMsgID:
+			skillEnd = frame.end
+		case uint16(dnfenum.CmdPacketRequestBlacklist):
+			lastOp120End = frame.end
+		}
+	}
+	if op37End < 0 || op37End > row.offset || op30End < 0 || op30End > row.offset ||
+		lastOp120End < beforeFinishLoading || lastOp120End > row.offset {
+		t.Fatalf("medal replay order op37=%d op30=%d post_op120=%d medal=%d finish_boundary=%d", op37End, op30End, lastOp120End, row.offset, beforeFinishLoading)
+	}
+	if skillEnd < 0 || skillEnd > row.offset {
+		t.Fatalf("medal replay order op19=%d medal=%d", skillEnd, row.offset)
+	}
+	if session.pendingGuardianGemAwaitFinishLoading || session.pendingGuardianGemRow != nil {
+		t.Fatal("successful finish-loading replay did not consume the deferred medal generation")
+	}
+}
+
+func p161EnableFinishLoadingSkillInfo(t *testing.T, service *Service) {
+	p161EnableCharacterFinishLoadingSkillInfo(t, service, p161CharacterID, 7)
+}
+
+func p161EnableCharacterFinishLoadingSkillInfo(t *testing.T, service *Service, characterID string, level int) {
+	t.Helper()
+	repositories, ok := service.repositoryGroup()
+	if !ok {
+		t.Fatal("p161 repository unavailable")
+	}
+	ctx := context.Background()
+	character, found, err := repositories.Character.Load(ctx, characterID)
+	if err != nil || !found {
+		t.Fatalf("load p161 character: found=%t err=%v", found, err)
+	}
+	character.Job = "15"
+	character.Level = level
+	if err := repositories.Character.Save(ctx, character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Skill.Save(ctx, dnfrepo.SkillRecord{
+		CharacterID: characterID,
+		Points: dnfrepo.SkillPointState{
+			TotalSP: 11, RemainingSP: 11,
+			TotalTP: 14, RemainingTP: 14,
+			SyncedLevel: level,
+		},
+		Skills: map[int64]dnfrepo.SkillState{
+			1: {Level: 1, Enabled: true},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := buildSkillCatalogFromSource(ctx, initialEquipmentMemSource{
+		"skill/skilllist.lst":     "15 `job15.lst`\n",
+		"skill/job15.lst":         "1 `job15/one.skl`\n",
+		"skill/job15/one.skl":     "[skill type]\n`active`\n[skill class]\n1\n[required level]\n1\n",
+		"character/character.lst": "15 `job15.chr`\n",
+		"character/job15.chr":     "[job]\n`[gunblader]`\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.initialSkillsByJob = map[byte][]initialSkillEntry{15: {{SkillID: 1, Level: 1}}}
+	service.initialSPTable = map[int]int{1: 11}
+	service.initialTPTable = map[int]int{1: 14}
+	service.skillCatalog = catalog
 }
 
 func TestP161TownReturnPostTransitionRestoresWornMedalRawSockets(t *testing.T) {

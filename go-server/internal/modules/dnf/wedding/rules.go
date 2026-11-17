@@ -10,9 +10,35 @@ import (
 )
 
 const (
-	SystemPath = "etc/weddingsystem.etc"
-	RoomPath   = "decoration/coupleroomiteminfo.etc"
+	SystemPath               = "etc/weddingsystem.etc"
+	RoomPath                 = "decoration/coupleroomiteminfo.etc"
+	GenderPolicyOppositeOnly = "opposite_only"
+	GenderPolicyDenyMaleMale = "deny_male_male"
+	GenderPolicyUnrestricted = "unrestricted"
 )
+
+func ParseGenderPolicy(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	switch raw {
+	case "", GenderPolicyOppositeOnly:
+		return GenderPolicyOppositeOnly, nil
+	case GenderPolicyDenyMaleMale, GenderPolicyUnrestricted:
+		return raw, nil
+	default:
+		return "", fmt.Errorf("wedding: invalid gender policy %q", raw)
+	}
+}
+
+// Female recognizes the client job IDs; unknown jobs never imply a gender.
+func Female(job string) (bool, bool) {
+	switch job {
+	case "0", "2", "4", "7", "8", "9", "13", "15":
+		return false, true
+	case "1", "3", "5", "6", "10", "11", "12", "14":
+		return true, true
+	}
+	return false, false
+}
 
 // Bonuses keeps ability fields separate from weapon damage and town speed.
 // Speed values retain the native PVF units; the bridge owns wire conversion.
@@ -61,6 +87,7 @@ type Ceremony struct {
 	TicketID, TicketCount int64
 }
 type Rules struct {
+	GenderPolicy                               string
 	CeremonySeconds                            int64
 	EngagementCancellationGold                 int64
 	Furniture                                  map[int64]Furniture
@@ -94,7 +121,7 @@ func Load(source pvf.Source) (*Rules, error) {
 	if err != nil {
 		return nil, fmt.Errorf("wedding room rules: %w", err)
 	}
-	r := &Rules{Ceremonies: make(map[byte]Ceremony)}
+	r := &Rules{GenderPolicy: GenderPolicyOppositeOnly, Ceremonies: make(map[byte]Ceremony)}
 	r.CeremonySeconds, _ = system.Int("noti end")
 	if r.CeremonySeconds <= 0 || r.CeremonySeconds > 86400 {
 		return nil, fmt.Errorf("wedding: invalid ceremony end interval")

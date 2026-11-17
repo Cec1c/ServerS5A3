@@ -241,6 +241,21 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 			break
 		}
 		_, out.Online = s.onlineGameSession(req.CharacterID)
+	case adminapi.ActionNotifyMailbox:
+		if req.CharacterID == 0 {
+			out.OK = false
+			out.Error = "character required"
+			break
+		}
+		var err error
+		out.Online, err = s.queueMailboxAlarmForOnlineRecipient(req.CharacterID)
+		if err != nil {
+			s.logWarn("dnfbridge admin mailbox notification deferred",
+				"char_id", req.CharacterID,
+				"error", err)
+			out.OK = false
+			out.Error = "mailbox notification unavailable"
+		}
 	case "catalog":
 		var err error
 		out.PremiumTypes, err = s.currentGMAdministrativePremiumTypes()

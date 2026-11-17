@@ -335,6 +335,7 @@ type gameSession struct {
 	currentFinishLoadingStateSent      bool
 	currentFinishLoadingCompletionSent bool
 	postFinishLoadingPlayerStateSent   bool
+	mailboxSceneAlarmSent              bool // guarded by finishLoadingMu; reset with the scene gates
 	returnTownFinishLoadingAckOnly     bool
 	confirmedDungeonReturnStatePending bool
 	selectorReturnPresence             *currentSelectorReturnPresence // guarded by dungeon.mu
@@ -487,6 +488,10 @@ type gameSession struct {
 	// 见 item_grant_notice.go。
 	itemGrantNoticeArmed      bool
 	itemGrantNoticeContainers []byte
+
+	// pendingGuardianGemAwaitFinishLoading defers only the dungeon-entry
+	// list-3 op14 until room activation and the finish-loading tail complete.
+	pendingGuardianGemAwaitFinishLoading bool
 }
 
 // partySessionState 持有组队投影与待处理邀请的会话状态。
@@ -808,6 +813,9 @@ func (s *gameSession) setFinishLoadingGateState(value bool) {
 		s.finishLoadingRevision++
 	}
 	s.currentFinishLoadingStateSent = value
+	if !value {
+		s.mailboxSceneAlarmSent = false
+	}
 	s.finishLoadingMu.Unlock()
 }
 
@@ -846,6 +854,9 @@ func (s *gameSession) setFinishLoadingGates(gates finishLoadingGates) {
 		s.finishLoadingRevision++
 	}
 	s.currentFinishLoadingStateSent = gates.State
+	if !gates.State {
+		s.mailboxSceneAlarmSent = false
+	}
 	s.currentFinishLoadingCompletionSent = gates.Completion
 	s.postFinishLoadingPlayerStateSent = gates.PostFinish
 	s.finishLoadingMu.Unlock()

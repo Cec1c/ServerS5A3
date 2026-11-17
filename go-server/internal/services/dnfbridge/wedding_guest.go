@@ -84,7 +84,7 @@ func (s *Service) sendCurrentWeddingGuestLetter(session *gameSession, ledger wed
 	if !invited {
 		return wedding.ErrOwnership
 	}
-	first, second, err := currentWeddingCeremonyNames(hosts[0], hosts[1])
+	first, second, err := s.currentWeddingCeremonyNames(hosts[0], hosts[1])
 	if err != nil {
 		return err
 	}

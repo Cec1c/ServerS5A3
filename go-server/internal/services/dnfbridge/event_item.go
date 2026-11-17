@@ -13,6 +13,7 @@ import (
 )
 
 const currentPermanentWeaponAction uint32 = 88
+const currentNPCFavorItemAction uint32 = 159
 
 func eventItemGameplayModule() gameplayModuleDefinition {
 	op := uint16(dnfenum.CmdPacketUpgradeInventory)
@@ -23,6 +24,9 @@ func eventItemGameplayModule() gameplayModuleDefinition {
 // Matching native writers: op430=u16 slot; action88's two u32 arguments are
 // target list and slot. They are not reserved zeros as in the quest coupons.
 func parseCurrentEventItemRequest(op uint16, body []byte) (inventory.EventItemKind, int16, int16, error) {
+	if op == 515 && len(body) == 19 && body[2] == 0 && binary.LittleEndian.Uint16(body) <= math.MaxInt16 && binary.LittleEndian.Uint32(body[3:7]) == 0 && binary.LittleEndian.Uint32(body[7:11]) == currentNPCFavorItemAction && binary.LittleEndian.Uint32(body[11:15]) != 0 && binary.LittleEndian.Uint32(body[15:]) == 0 {
+		return inventory.EventNPCFavor, int16(binary.LittleEndian.Uint16(body)), 0, nil
+	}
 	if (op == 430 || op == 160) && len(body) == 2 && binary.LittleEndian.Uint16(body) <= math.MaxInt16 {
 		kind := inventory.EventInventoryExpansion
 		if op == 160 {
@@ -43,6 +47,13 @@ func (s *Service) handleCurrentPermanentWeapon(session *gameSession, body []byte
 	return true, s.handleCurrentEventItem(session, 515, body)
 }
 
+func (s *Service) handleCurrentNPCFavorItem(session *gameSession, body []byte) (bool, error) {
+	if len(body) < 11 || binary.LittleEndian.Uint32(body[7:11]) != currentNPCFavorItemAction {
+		return false, nil
+	}
+	return true, s.handleCurrentEventItem(session, 515, body)
+}
+
 func (s *Service) handleCurrentEventItem(p *gameSession, op uint16, body []byte) error {
 	if op == uint16(dnfenum.CmdPacketUpgradeInventory) {
 		// The registered event module runs before the aligned fallback. Route
@@ -51,10 +62,14 @@ func (s *Service) handleCurrentEventItem(p *gameSession, op uint16, body []byte)
 		return err
 	}
 	kind, slot, targetSlot, err := parseCurrentEventItemRequest(op, body)
+	action := currentPermanentWeaponAction
+	if op == 515 && len(body) >= 11 {
+		action = binary.LittleEndian.Uint32(body[7:11])
+	}
 	reject := func(reason any) error {
 		s.logGameEvent(p, "game-event-item-rejected", "opcode", op, "reason", reason)
 		if op == 515 && len(body) >= 3 {
-			return s.sendGameUpperRawClass(p, op, inventory.BuildStackableActionFailure(int16(binary.LittleEndian.Uint16(body)), body[2], byte(currentPermanentWeaponAction), 17), 1)
+			return s.sendGameUpperRawClass(p, op, inventory.BuildStackableActionFailure(int16(binary.LittleEndian.Uint16(body)), body[2], byte(action), 17), 1)
 		}
 		return s.sendGameUpperFailure(p, op, 17)
 	}
@@ -100,6 +115,9 @@ func (s *Service) handleCurrentEventItem(p *gameSession, op uint16, body []byte)
 		}
 		now := s.gameplayNow()
 		return inventory.ApplyEventItem(ctx, g, inventory.EventItemRequest{AccountID: s.accountIDForSession(p), CharacterID: strconv.Itoa(int(identity.character)), SourceSlot: slot, TargetSlot: targetSlot, Kind: kind, Revalidate: func() bool { return s.boundGameSessionCharacterCurrent(identity) && p.dungeon.runtime == nil }, Resolve: func(_ repo.CharacterRecord, source, target repo.ItemStack) (inventory.EventItemPolicy, repo.ItemStack, repo.ItemStack, error) {
+			if kind == inventory.EventNPCFavor {
+				return currentNPCFavorItemPolicy(catalog, source, binary.LittleEndian.Uint32(body[11:15]), now, place)
+			}
 			return currentEventItemPolicy(catalog, kind, source, target, now, place)
 		}}, now)
 	}()
@@ -108,6 +126,15 @@ func (s *Service) handleCurrentEventItem(p *gameSession, op uint16, body []byte)
 	}
 	s.logGameEvent(p, "game-event-item-committed", "opcode", op, "source_item", r.SourceItemID, "source_slot", slot, "remaining", r.Remaining, "target_item", r.Target.ItemID, "target_slot", targetSlot, "main_expansion", r.MainExpansion, "cargo_slots", r.CargoSlots)
 	switch kind {
+	case inventory.EventNPCFavor:
+		// The client resolves the source slot before dispatching action159.
+		// Commit first, but write the ACK before removing that slot on screen.
+		if err := s.sendGameUpperRawClass(p, op, inventory.BuildStackableActionAck(slot, 0, currentNPCFavorItemAction), 1); err != nil {
+			return err
+		}
+		if err := s.sendCurrentNPCFavorState(p, r.Character); err != nil {
+			return err
+		}
 	case inventory.EventPermanentWeapon:
 		if err := s.sendGameUpperRawClass(p, op, inventory.BuildStackableActionAck(slot, 0, currentPermanentWeaponAction), 1); err != nil {
 			return err

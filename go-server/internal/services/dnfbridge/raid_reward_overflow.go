@@ -15,7 +15,8 @@ import (
 // mail. A failed partial character placement is restored before the complete
 // remaining row is mailed; the account placement is retained in the same UOW.
 // Fate rows are account-ledger mutations and never enter bag/overflow-mail
-// placement.
+// placement. The third result is true only after AppendSystemMail succeeds; the
+// caller can therefore use it for a post-commit live warning.
 func grantCurrentAntonRewardRow(ctx context.Context, a *raid.RewardAssets, catalog *pvfDungeonDropCatalog, reward currentBoosterReward, cmd raid.RewardCommand) ([]string, bool, bool, error) {
 	if a == nil || reward.Count == 0 {
 		return nil, false, false, raid.ErrRewardReceipt

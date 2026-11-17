@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/party"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/raid"
@@ -54,7 +55,36 @@ func (s *Service) currentRaidDungeonEntryBindingRequired(session *gameSession, r
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(session.selectedCharacterID)
-	return state != nil && state.Started && state.Battle != nil
+	if state == nil || !state.Started || state.Battle == nil {
+		return false
+	}
+	b := state.Battle
+	// A completed raid retains its roster and reward journal, including the
+	// disconnect grace seat. That retained membership must not claim a new
+	// ordinary dungeon after the character has left the raid channel. Keep
+	// first-phase breaks and every already-bound or raid-map entry guarded.
+	terminal := b.TimedOut || b.PhaseCompleted && (b.Single || b.Phase == 1 || b.FiendWar != nil)
+	if terminal && runtime != nil && runtime.Dungeon.ID > 0 {
+		// The current phase list excludes earlier phases and other raids.
+		// Use the loaded DGN's own declaration before treating it as ordinary.
+		for _, section := range runtime.Dungeon.SourceSections {
+			if strings.EqualFold(strings.TrimSpace(section.Name), "raid dungeon") {
+				return true
+			}
+		}
+		for _, section := range runtime.Dungeon.Extensions {
+			if strings.EqualFold(strings.TrimSpace(section.Name), "raid dungeon") {
+				return true
+			}
+		}
+		for _, dungeon := range b.Dungeons {
+			if int64(dungeon.ID) == runtime.Dungeon.ID {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // The leader freezes the complete participant set before committing any member.

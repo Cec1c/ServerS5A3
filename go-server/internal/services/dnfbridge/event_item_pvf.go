@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/inventory"
+	"longheng.io/server/internal/modules/dnf/onlineevent"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -67,6 +68,12 @@ func currentEventItemPolicy(catalog *pvfDungeonDropCatalog, kind inventory.Event
 		if !currentEventSilverCargoDefinition(d, doc) {
 			return reject()
 		}
+	case inventory.EventNPCFavor:
+		action, _ := doc.Section("action type")
+		if d.StackableType != "[waste]" || len(action) != 2 || action[0].Value != "[use favor point]" || action[1].Kind != dnfpvf.TokenInt || action[1].Int <= 0 || action[1].Int > math.MaxInt32 {
+			return reject()
+		}
+		p.FavorPoints = action[1].Int
 	case inventory.EventPermanentWeapon:
 		action, _ := doc.Section("action type")
 		if d.StackableType != "[etc]" || len(action) != 6 || action[0].Value != "[change growth equipment]" {
@@ -118,6 +125,38 @@ func currentEventItemPolicy(catalog *pvfDungeonDropCatalog, kind inventory.Event
 		return p, source, target, err
 	}
 	return p, source, target, nil
+}
+
+func currentNPCFavorItemPolicy(catalog *pvfDungeonDropCatalog, source repo.ItemStack, npc uint32, now time.Time, place string) (inventory.EventItemPolicy, repo.ItemStack, repo.ItemStack, error) {
+	p, projected, target, err := currentEventItemPolicy(catalog, inventory.EventNPCFavor, source, repo.ItemStack{}, now, place)
+	if err != nil {
+		return p, projected, target, err
+	}
+	d, err := catalog.ResolveItem(uint32(source.ItemID))
+	if err != nil {
+		return p, projected, target, err
+	}
+	doc, err := parseDungeonCardPVFDocument(catalog.source, d.PVFPath)
+	if err != nil {
+		return p, projected, target, err
+	}
+	values, _ := doc.Section("npc select category")
+	allowed := false
+	for _, value := range values {
+		if value.Kind != dnfpvf.TokenInt || value.Int <= 0 || value.Int > math.MaxUint32 {
+			return p, projected, target, inventory.ErrEventItem
+		}
+		allowed = allowed || uint32(value.Int) == npc
+	}
+	if !allowed {
+		return p, projected, target, inventory.ErrEventItem
+	}
+	rules, err := onlineevent.LoadReturneeGiftRules(catalog.source, npc)
+	if err != nil {
+		return p, projected, target, err
+	}
+	p.FavorNPC, p.FavorMaximum = npc, rules.MaxPoints
+	return p, projected, target, nil
 }
 
 // This one virtual booster reward has a verified storage meaning. Do not

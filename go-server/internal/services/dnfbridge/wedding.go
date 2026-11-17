@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"errors"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -59,8 +60,18 @@ func (s *Service) currentWeddingRules() (*wedding.Rules, error) {
 	if e == nil {
 		s.wedding.rules, e = wedding.Load(a)
 	}
+	if e == nil {
+		s.wedding.rules.GenderPolicy, e = wedding.ParseGenderPolicy(os.Getenv("DNFBRIDGE_WEDDING_GENDER_POLICY"))
+	}
 	s.wedding.loadErr = e
 	return s.wedding.rules, e
+}
+
+func currentWeddingGenderHint(policy string) string {
+	if policy == wedding.GenderPolicyDenyMaleMale {
+		return "抱歉，当前仅允许男女或女女角色订婚。"
+	}
+	return "抱歉，目前只允许异性角色订婚。"
 }
 
 func (s *Service) currentWeddingOwner() (wedding.Owner, error) {
@@ -196,6 +207,9 @@ func (s *Service) handleCurrentWeddingRequest(session *gameSession, body []byte)
 	if r.Operation == 1 {
 		if x.Phase != wedding.Single || y.Phase != wedding.Single || int64(a.Level) < owner.Rules.MinimumLevel || int64(b.Level) < owner.Rules.MinimumLevel || a.AccountID == b.AccountID {
 			return fail(-1)
+		}
+		if e = wedding.Eligible(a, b, owner.Rules); e != nil {
+			return s.sendCurrentWeddingRequestHint(session, r, currentWeddingGenderHint(owner.Rules.GenderPolicy))
 		}
 	} else {
 		if _, _, e = wedding.ValidatePair(a, b); e != nil || x.Phase != wedding.Engaged || int(r.Duration) >= len(owner.Rules.Durations) {
