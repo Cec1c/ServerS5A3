@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"testing"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -102,13 +105,51 @@ func TestRealPVFEquipmentUpgradeNoticeChannelRules(t *testing.T) {
 				if err := s.sendAlignedUpperResponses(source, result); err != nil {
 					t.Fatal(err)
 				}
-				ack, _ := splitGameServerUpperPacket(t, self.write.Bytes())
+				ack, remaining := splitGameServerUpperPacket(t, self.write.Bytes())
 				if ack.Header.MsgID != uint16(dnfenum.CmdPacketUpgradeItem) || ack.Header.Classification != 1 || ack.Body[0] != 1 {
 					t.Fatalf("事务应答缺失 header=%+v body=%x", ack.Header, ack.Body)
 				}
 				packet, rest := splitGameServerUpperPacket(t, peer.write.Bytes())
-				if packet.Header.MsgID != 86 || packet.Header.Classification != 0 || !bytes.Equal(packet.Body, fact.Body) || len(rest) != 0 {
-					t.Fatal("观察者播报缺失或泄露资产包")
+				wantID := uint16(86)
+				if mode == "amplify" {
+					wantID = 12
+				}
+				if packet.Header.MsgID != wantID || packet.Header.Classification != 0 || len(rest) != 0 {
+					t.Fatalf("观察者应只收到播报 %d，实际 %+v", wantID, packet.Header)
+				}
+				if mode == "amplify" {
+					outcome, level := "成功", int(fact.Level)
+					if !succeeded {
+						outcome, level = "失败", level+1
+					}
+					if len(packet.Body) < 8 {
+						t.Fatal("系统消息缺少正文长度")
+					}
+					n := int(binary.LittleEndian.Uint32(packet.Body[4:8]))
+					if n > len(packet.Body)-8 {
+						t.Fatal("系统消息正文长度错误")
+					}
+					text, err := simplifiedchinese.GBK.NewDecoder().Bytes(packet.Body[8 : 8+n])
+					want := fmt.Sprintf("增幅 +%d %s", level, outcome)
+					if err != nil || !bytes.Contains(text, []byte(want)) || bytes.Contains(text, []byte("强化")) {
+						t.Fatalf("增幅播报=%s want=%s err=%v", text, want, err)
+					}
+				} else if !bytes.Equal(packet.Body, fact.Body) {
+					t.Fatal("强化播报的原生装备信息有误")
+				}
+				noticeCount := 0
+				for len(remaining) > 0 {
+					message, tail := splitGameServerUpperPacket(t, remaining)
+					remaining = tail
+					if message.Header.MsgID == 12 || message.Header.MsgID == 86 {
+						noticeCount++
+						if message.Header.MsgID != wantID || !bytes.Equal(message.Body, packet.Body) {
+							t.Fatal("本人与同屏观察者的装备播报不一致")
+						}
+					}
+				}
+				if noticeCount != 1 {
+					t.Fatalf("本人收到 %d 条装备播报", noticeCount)
 				}
 				stored, _, _ := repos.Character.Load(ctx, "1")
 				if stored.Stats["gold"] != 999900 {

@@ -36,21 +36,29 @@ func (s *Service) currentEquipmentNoticeRecipients(source *gameSession) []boundG
 	return out
 }
 
-// 原生86依赖接收端角色对象，同屏使用完整原生播报；同频道其他场景采用
-// 已有NOTI12系统消息携带真实角色名和装备名，不制造城镇角色或要求EXE补丁。
-// 两条展示链互斥，操作者的原生提示已经由资产应答链发送。
-func (s *Service) broadcastCurrentEquipmentUpgradeNotice(source *gameSession, notice *alignedcmd.EquipmentUpgradeNotice) {
+// 原生 86 的类型 1 会显示强化。增幅在本人和同频道观众处统一发送系统文本。
+// 强化和锻造继续使用本人和同屏的原生通知，异区观众接收系统文本。
+func (s *Service) broadcastCurrentEquipmentUpgradeNotice(source *gameSession, notice *alignedcmd.EquipmentUpgradeNotice) error {
 	if notice == nil || len(notice.Body) < 10 || notice.ItemID <= 0 || source == nil {
-		return
+		return nil
 	}
 	recipients := s.currentEquipmentNoticeRecipients(source)
-	if len(recipients) == 0 {
-		return
+	amplify := notice.Kind == "amplify"
+	if len(recipients) == 0 && !amplify {
+		return nil
 	}
 	channel := currentTownPresenceChannelID(source)
 	sourceID := source.selectedCharacterID
 	sourceBinding := boundGameSessionCharacter{session: source, character: sourceID, generation: source.characterGeneration}
 	textBody := s.currentEquipmentNoticeText(source, notice)
+	if amplify {
+		if len(textBody) == 0 {
+			return nil
+		}
+		if err := s.sendGameUpperRawClassCodec(source, 12, textBody, 0, true); err != nil {
+			return err
+		}
+	}
 	for _, target := range recipients {
 		target := target
 		err := s.postCurrentEquipmentNotice(target, func() error {
@@ -58,7 +66,7 @@ func (s *Service) broadcastCurrentEquipmentUpgradeNotice(source *gameSession, no
 				return nil
 			}
 			native := false
-			if s.onlinePlayers != nil && s.boundGameSessionCharacterCurrent(sourceBinding) {
+			if !amplify && s.onlinePlayers != nil && s.boundGameSessionCharacterCurrent(sourceBinding) {
 				info, found := s.onlinePlayers.PlayerForCharacter(sourceID)
 				peer, peerFound := s.onlinePlayers.PlayerForCharacter(target.character)
 				native = found && info.Session == source && peerFound && peer.Session == target.session && currentTownPresenceChannelID(source) == channel &&
@@ -76,6 +84,7 @@ func (s *Service) broadcastCurrentEquipmentUpgradeNotice(source *gameSession, no
 			s.logGameEvent(source, "频道装备播报投递失败", "target_char_id", target.character, "channel_id", channel, "error", err)
 		}
 	}
+	return nil
 }
 
 // 装备播报是非关键通知。满队列时立即省略，不能在操作者事件中等待其他会话。
