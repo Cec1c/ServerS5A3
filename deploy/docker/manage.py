@@ -18,11 +18,20 @@ IMAGE = "servers5a3-local:dev"
 PROJECT = "servers5a3-local"
 
 BUFF_GROUP_SYNC_KEY = "DNFBRIDGE_BUFF_GROUP_SYNC"
+TAG_BUFF_CLIENTS = frozenset((
+    "40657c19955dc2f594fc2221ef91044170d86406ba6fd193cdb1839877f28cb0",
+    "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
+))
+WEDDING_FEMALE_CLIENTS = frozenset((
+    "f16d3bf48b6b802378fb066eaab96add8132c6406d7941a6d8d60328e47f6d8b",
+    "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
+))
 BUFF_GROUP_CLIENTS = {
     "69ea3a8b38d70af340baed28ec03e88162e7d3e434f5f99c9d5b71dafc12f544": "on",  # V212
     "a28601e349a65a1ec0356995b693a326620d81887031c17b76b5b73daaeb5216": "on",  # V213
     "6402835223a23f9e4300c57c175d1b990b78ab0eecc46bd03fd373d0893e73f4": "on",  # V214
     "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84": "on",  # V215
+    **{identity: "on" for identity in TAG_BUFF_CLIENTS | WEDDING_FEMALE_CLIENTS},
     "bc613e368e8fd49c50c35163f2ed8a28564fc23342701a5a6c22b839f3bf6b7a": "off",  # legacy v56
 }
 
@@ -51,6 +60,49 @@ RUNTIME_COMPATIBILITY_VALUES = {
     "DNFBRIDGE_SKILL_SWITCH_DOWNLINK_SHAPE": ("off",),
     "DNFBRIDGE_SKILL_SWITCH_ANSWER_AT_SCENE_READY": ("off",),
 }
+
+
+def party_udp_relay_port_count(config):
+    value = config.get("party_udp_relay_port_count", 64)
+    if type(value) is not int or not 64 <= value <= 1024:
+        raise ValueError("party_udp_relay_port_count must be an integer from 64 to 1024")
+    return value
+
+
+def reviewed_client_sha256(config):
+    directory = config.get("client_dir")
+    executable = Path(directory) / "DNF.exe" if isinstance(directory, str) else None
+    if executable is None or not executable.is_file():
+        raise ValueError("paired client option requires DNF.exe in client_dir")
+    with executable.open("rb") as handle:
+        digest = hashlib.sha256()
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+        return digest.hexdigest()
+
+
+def selected_client_protocol_env(config, buff_group_sync):
+    mode = config.get("tag_buff_group_sync", "off")
+    if type(mode) is not str or mode not in ("off", "auto", "on"):
+        raise ValueError("tag_buff_group_sync must be off, auto or on")
+    policy = config.get("wedding_gender_policy", "opposite_only")
+    if type(policy) is not str or policy not in ("opposite_only", "deny_male_male"):
+        raise ValueError("wedding_gender_policy must be opposite_only or deny_male_male")
+    env = {"DNFBRIDGE_TAG_BUFF_GROUP_SYNC": "off",
+           "DNFBRIDGE_WEDDING_GENDER_POLICY": policy}
+    if mode != "off" or policy == "deny_male_male":
+        if config.get("client_version", "official-24.9") != "official-24.9":
+            raise ValueError("selected client options require official-24.9")
+        identity = reviewed_client_sha256(config)
+        if mode == "on" and identity not in TAG_BUFF_CLIENTS:
+            raise ValueError("tag Buff groups require the exact paired receiver")
+        if mode != "off" and identity in TAG_BUFF_CLIENTS:
+            if buff_group_sync != "on":
+                raise ValueError("tag Buff groups require buff_group_sync on")
+            env["DNFBRIDGE_TAG_BUFF_GROUP_SYNC"] = "on"
+        if policy == "deny_male_male" and identity not in WEDDING_FEMALE_CLIENTS:
+            raise ValueError("wedding gender policy requires the exact paired client")
+    return env
 
 
 def runtime_compatibility_env(config):
@@ -322,6 +374,8 @@ def generate(c, catalog):
         raise ValueError("buff_swap_reapply must be 'on' or 'off' when configured")
     compatibility_env = runtime_compatibility_env(c)
     buff_group_sync = buff_group_sync_env(c, compatibility_env)
+    selected_protocol_env = selected_client_protocol_env(c, buff_group_sync)
+    relay_count = party_udp_relay_port_count(c)
     advertised_server = c.get("channel_advertise_server", 0)
     if type(advertised_server) is not int or not 0 <= advertised_server < 250:
         raise ValueError("channel_advertise_server must be an integer from 0 to 249")
@@ -409,6 +463,7 @@ create_databases = false
                                                    "dnf.repository.read_database": "dnf_local"}}]}
     write(server / "configs/servergroup/plan.json", json.dumps(plan, indent=2))
     env = {
+        **selected_protocol_env,
         "DNFBRIDGE_GUILD_SOLO_CREATE": str(solo_create).lower(),
         "DNFBRIDGE_GUILD_RANKING_ENABLED": str(guild_ranking).lower(),
         "DNFBRIDGE_GUILD_ESSENCE_ENABLED": str(guild_essence).lower(),
@@ -425,7 +480,7 @@ create_databases = false
         "DNFBRIDGE_GAME_UPPER_HEADER": "server16", "DNFBRIDGE_GAME_UPPER_BODY_CODEC": c["body_codec"],
         "DNFBRIDGE_GAME_UPPER_CLIENT_BODY_CODEC": c["client_body_codec"], "DNFBRIDGE_DPROTO_MODE": "legacy_patch",
         "DNFBRIDGE_PARTY_UDP_RELAY_MODE": "embedded", "DNFBRIDGE_PARTY_UDP_RELAY_PORT_START": "30000",
-        "DNFBRIDGE_PARTY_UDP_RELAY_PORT_COUNT": "64", "DNFBRIDGE_ACCOUNT_API_LISTEN": c["server_ip"] + ":17002",
+        "DNFBRIDGE_PARTY_UDP_RELAY_PORT_COUNT": str(relay_count), "DNFBRIDGE_ACCOUNT_API_LISTEN": c["server_ip"] + ":17002",
         "DNFBRIDGE_ACCOUNT_API_DSN": dsn, "DNFBRIDGE_ACCOUNT_API_ALLOW_REGISTER": "true",
         "DNFBRIDGE_ACCOUNT_API_LOGIN_TOKEN": "true", "DNFBRIDGE_PACKET_LOG": str(c.get("packet_log", False)).lower(),
         "DNFBRIDGE_JOUST_EVENT_ENABLED": str(c["joust_event_enabled"]).lower(),
@@ -472,7 +527,7 @@ create_databases = false
                        "networks": {"private": {"ipv4_address": c["server_ip"]}},
                        "ports": [f"127.0.0.1:{p}:{p}/tcp" for p in (7001, 17002, 18111)] +
                                 [f"{c['host_ip']}:{p}:{p}/tcp" for p in catalog["ports"]] +
-                                [f"{c['host_ip']}:30000-30063:30000-30063/udp"],
+                                [f"{c['host_ip']}:30000-{29999 + relay_count}:30000-{29999 + relay_count}/udp"],
                        "healthcheck": {"test": ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", f"http://{c['server_ip']}:17002/api/status"],
                                        "start_period": "180s", "interval": "10s", "timeout": "5s", "retries": 12}},
         },

@@ -23,6 +23,7 @@ const (
 	EventInventoryExpansion EventItemKind = iota + 1
 	EventSilverCargo
 	EventPermanentWeapon
+	EventNPCFavor
 )
 
 // EventItemPolicy contains only server-resolved PVF data. Resolve executes
@@ -34,6 +35,9 @@ type EventItemPolicy struct {
 	MinimumLevel  int64
 	OutputItemID  int64
 	OutputPVFPath string
+	FavorNPC      uint32
+	FavorPoints   int64
+	FavorMaximum  int64
 }
 
 type EventItemRequest struct {
@@ -49,6 +53,7 @@ type EventItemResult struct {
 	Remaining                 int64
 	MainExpansion, CargoSlots uint16
 	Target                    repo.ItemStack
+	Character                 repo.CharacterRecord
 }
 
 // ApplyEventItem commits consumption and its effect together. These legacy
@@ -136,6 +141,24 @@ func ApplyEventItem(ctx context.Context, g repo.Group, req EventItemRequest, now
 			target = makeEventWeaponPermanent(projectedTarget, policy.OutputItemID, policy.OutputPVFPath)
 			bag.Slots[targetKey] = target
 			result.Target = cloneStack(target)
+		case EventNPCFavor:
+			if policy.FavorNPC == 0 || policy.FavorPoints <= 0 || policy.FavorPoints > math.MaxInt32 || policy.FavorMaximum <= 0 || policy.FavorMaximum > math.MaxInt32 {
+				return ErrEventItem
+			}
+			key := "npc_favor_" + strconv.FormatUint(uint64(policy.FavorNPC), 10) + "_points"
+			if c.Stats[key] < 0 || c.Stats[key] >= policy.FavorMaximum {
+				return ErrEventItem
+			}
+			c = repo.CloneCharacter(c)
+			if c.Stats == nil {
+				c.Stats = make(map[string]int64)
+			}
+			c.Stats[key] = min(c.Stats[key]+policy.FavorPoints, policy.FavorMaximum)
+			c.UpdatedAt = now
+			if err := repo.SaveCharacterFields(ctx, characters, c, repo.CharacterFieldStats); err != nil {
+				return err
+			}
+			result.Character = c
 		default:
 			return ErrEventItem
 		}
@@ -151,7 +174,7 @@ func ApplyEventItem(ctx context.Context, g repo.Group, req EventItemRequest, now
 		if err := repo.SaveInventoryFields(ctx, inventories, bag, repo.InventoryFieldSlots); err != nil {
 			return err
 		}
-		if req.Kind != EventPermanentWeapon {
+		if req.Kind == EventInventoryExpansion || req.Kind == EventSilverCargo {
 			stateRecord.Values["source"] = "event_container_item"
 			stateRecord.Values["last_event_item"] = strconv.FormatInt(source.ItemID, 10)
 			stateRecord.UpdatedAt = now

@@ -451,6 +451,7 @@ func (s *Service) handleCurrentAntonRewardCard(session *gameSession, op uint16, 
 			return err
 		}
 	}
+	s.notifyCurrentRaidRewardMailbox(session.selectedCharacterID, result.MailboxChanged)
 	// The periodic flow projects current-squad reveals to viewers whose movie
 	// is finished. Their completion predicate remains tied to their own row.
 	s.logGameEvent(session, "game-raid-party-card-committed", "raid_key", state.RaidKey, "phase", command.Phase, "card", card.Card, "replayed", result.Replayed, "at", time.Now().Unix())

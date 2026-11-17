@@ -108,6 +108,9 @@ type currentAntonRewardGrantResult struct {
 	AccountChanged bool
 	LedgerChanged  bool
 	WalletChanged  bool
+	// MailboxChanged reports AppendSystemMail success from the first projection.
+	// Transaction failure discards this result; a replay returns before Project.
+	MailboxChanged bool
 }
 
 // Caller must authenticate the online/frozen raid owner, its authoritative
@@ -175,6 +178,7 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 			}
 			changes.Inventory = changes.Inventory || len(keys) > 0
 			changes.Mailbox = changes.Mailbox || mailed
+			result.MailboxChanged = result.MailboxChanged || mailed
 			changes.Ledger = changes.Ledger || a.LedgerChanged
 			if accountChanged {
 				slot, found := currentDisjointWarehouseFixedSlots[r.Definition.ItemID]
@@ -219,6 +223,20 @@ func grantCurrentAntonRewardPlan(ctx context.Context, group repo.Group, catalog 
 		return a.SlotIndex < b.SlotIndex
 	})
 	return result, nil
+}
+
+// notifyCurrentRaidRewardMailbox is a post-commit projection. Callers must run
+// it after the reward transaction returned success and after releasing raidMu;
+// it never retries or rewrites the durable reward transaction.
+func (s *Service) notifyCurrentRaidRewardMailbox(characterID uint16, created bool) {
+	if s == nil || !created || characterID == 0 {
+		return
+	}
+	if err := s.sendMailboxAlarmToOnlineRecipient(characterID); err != nil {
+		s.logWarn("dnfbridge raid overflow mailbox alarm deferred",
+			"char_id", characterID,
+			"error", err)
+	}
 }
 
 func tagCurrentAntonRewardStack(stack repo.ItemStack, cmd raid.RewardCommand) repo.ItemStack {

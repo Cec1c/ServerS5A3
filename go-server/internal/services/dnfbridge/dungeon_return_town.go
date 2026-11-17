@@ -1201,6 +1201,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.selectPreviewActorRemoved = false
 	session.preDungeonContextPlayerStateSent = false
 	session.postStartMapPlayerStateSent = false
+	clearDeferredSelectedActorGuardianGemRowRefresh(session)
 	session.deferredDungeonUserStateObjectKey = 0
 	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false

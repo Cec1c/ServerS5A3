@@ -20,7 +20,7 @@ const (
 
 type currentTagTournamentSkillState struct {
 	commands, buffSwap, darkKnight []byte
-	buffSources                    [2]buffswap.OwnedProjection
+	buffSources                    [2][]buffswap.OwnedProjection
 }
 
 // 145CAF0读取count及每名队员在双角色容器的位置，随后按slot/u16技能/等级/count/指令
@@ -123,10 +123,15 @@ func (s *Service) prepareCurrentTagTournamentSkillState(ctx context.Context, p *
 		combos.writeByte(comboCount)
 	}
 	commands.writeByte(2)
-	swaps.writeByte(2)
+	pairedBuffs := s.currentTagTournamentBuffGroupsEnabled()
+	groupCount := 1
+	if pairedBuffs {
+		groupCount = buffswap.SelectedGroupCount
+	}
+	swaps.writeByte(byte(2 * groupCount))
 	var saved [2]repo.SettingsRecord
 	var exists [2]bool
-	var swapSources [2]buffswap.OwnedProjection
+	var swapSources [2][]buffswap.OwnedProjection
 	for i, row := range characters {
 		if row.character.AccountID != p.accountID {
 			return currentTagTournamentSkillState{}, fmt.Errorf("帝国竞技场技能资料账号不符")
@@ -153,13 +158,22 @@ func (s *Service) prepareCurrentTagTournamentSkillState(ctx context.Context, p *
 		if err = writeCurrentTagTournamentSkillCommands(&commands, row, r, found); err != nil {
 			return currentTagTournamentSkillState{}, err
 		}
-		part, source, err := s.currentTagTournamentBuffSwapBody(ctx, p, row)
-		if err != nil {
-			return currentTagTournamentSkillState{}, err
+		for group := 0; group < groupCount; group++ {
+			var selectedGroup *byte
+			groupID := byte(group)
+			if pairedBuffs {
+				selectedGroup = &groupID
+			}
+			part, source, err := s.currentTagTournamentBuffSwapBodyForGroup(ctx, p, row, selectedGroup)
+			if err != nil {
+				return currentTagTournamentSkillState{}, err
+			}
+			swapSources[i] = append(swapSources[i], source)
+			// Paired native consumer clears this actor on group0 only, then
+			// appends group1. Keep both entries, including empty groups.
+			swaps.writeByte(nativeIDs[i] | groupID<<7)
+			swaps.writeBytes(part)
 		}
-		swapSources[i] = source
-		swaps.writeByte(nativeIDs[i])
-		swaps.writeBytes(part)
 	}
 	for i, row := range characters {
 		ch, found, err := g.Character.Load(ctx, row.character.CharacterID)
@@ -194,14 +208,21 @@ func (s *Service) prepareCurrentTagTournamentSkillState(ctx context.Context, p *
 		if found != exists[i] || !reflect.DeepEqual(r, saved[i]) {
 			return currentTagTournamentSkillState{}, fmt.Errorf("帝国竞技场准备期间技能指令变化")
 		}
-		_, source, err := s.currentTagTournamentBuffSwapBody(ctx, p, row)
-		if err != nil {
-			return currentTagTournamentSkillState{}, err
-		}
-		// 宠物有效期投影会随当前秒变化；比较脱离事务的持久来源，不能将
-		// 同一只宠物的倒计时当作另一连接修改资料。
-		if !reflect.DeepEqual(source, swapSources[i]) {
-			return currentTagTournamentSkillState{}, fmt.Errorf("帝国竞技场准备期间Buff换装资料变化")
+		for group := 0; group < groupCount; group++ {
+			var selectedGroup *byte
+			groupID := byte(group)
+			if pairedBuffs {
+				selectedGroup = &groupID
+			}
+			_, source, err := s.currentTagTournamentBuffSwapBodyForGroup(ctx, p, row, selectedGroup)
+			if err != nil {
+				return currentTagTournamentSkillState{}, err
+			}
+			// Compare each detached durable source, not time-dependent pet
+			// serialization. Never compare only the last-edited group.
+			if !reflect.DeepEqual(source, swapSources[i][group]) {
+				return currentTagTournamentSkillState{}, fmt.Errorf("帝国竞技场准备期间Buff换装资料变化")
+			}
 		}
 		if err := currentTagTournamentDarkKnightSourceCurrent(ctx, g, row); err != nil {
 			return currentTagTournamentSkillState{}, err
@@ -213,15 +234,18 @@ func (s *Service) prepareCurrentTagTournamentSkillState(ctx context.Context, p *
 			return currentTagTournamentSkillState{}, err
 		}
 	}
-	if !s.boundGameSessionCharacterCurrent(identity) {
+	if !s.boundGameSessionCharacterCurrent(identity) || pairedBuffs != s.currentTagTournamentBuffGroupsEnabled() {
 		return currentTagTournamentSkillState{}, fmt.Errorf("帝国竞技场准备技能资料期间会话变化")
 	}
 	return currentTagTournamentSkillState{commands: commands.bytes(), buffSwap: swaps.bytes(), darkKnight: combos.bytes(), buffSources: swapSources}, nil
 }
 
 func (s *Service) currentTagTournamentBuffSwapBody(ctx context.Context, p *gameSession, row currentTagTournamentCharacterProjection) ([]byte, buffswap.OwnedProjection, error) {
-	r := csharpLegacyUserInfoReader{ctx: ctx, service: s, session: p, characterID: row.character.CharacterID}
-	source, err := r.loadNativeBuffOwnedProjection()
+	return s.currentTagTournamentBuffSwapBodyForGroup(ctx, p, row, nil)
+}
+
+func (s *Service) currentTagTournamentBuffSwapBodyForGroup(ctx context.Context, p *gameSession, row currentTagTournamentCharacterProjection, group *byte) ([]byte, buffswap.OwnedProjection, error) {
+	r, source, err := s.currentTagTournamentBuffProjection(ctx, p, row, group)
 	if err != nil {
 		return nil, buffswap.OwnedProjection{}, err
 	}

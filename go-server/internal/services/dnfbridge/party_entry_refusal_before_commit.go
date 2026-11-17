@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
@@ -52,10 +53,12 @@ import (
 //
 // ── 拒绝码与包形状（复用既有出口，不新增包型、不新增错误码）──────────────
 //
-// 发起者与队员拿到的都是 `sendSelectDungeonFailure` 的 `{0, reason, 0}`（msg id = op16、
+// 发起者与队员拿到的都是 `sendSelectDungeonFailure` 的 `{0, reason, context}`（msg id = op16、
 // 普通频道分类），reason/class 由调用方按**该出口自己的**判定给出（等级不足 = 14、
 // InvalidSelectionState = 0x13、DungeonUnavailable = 0x01 …），来源是 A21 参考实现
 // `DungeonAdmissionRejectBuilder.cs:16-41`，与本仓已上线的 op16 失败码同一张表。
+// 对可明确归因到队员的疲劳/必需材料不足，第三字节使用既有 runtimePartyMemberIndex
+// 固定槽位；队长失败或非成本类失败继续写 0，改变的是提示归属而不是接收者/门禁。
 //
 // ── 出口范围（这次拒绝发生在哪一步）────────────────────────────────────────
 //
@@ -69,9 +72,11 @@ import (
 //
 // ── EXE 侧核实与不覆盖的范围（交父代理/用户）──────────────────────────────
 //
-//   · 当前客户端 EXE（20261005 构建，SHA256 1AC1264553F8F762E64F2C637C4C26D3BF5FF0FDC60A090CA8B077D452FD4331）
+//   · 101 当前配套客户端 EXE（SHA256 f42687518c286ecb70f571adb03957c278e3c8e302b0785b58a3546be8d3cc24）
 //     的入站准入位图（VA 0x6E92300，谓词 0x6E83610）对 opcode 16 置位、且无 class 维度 ⇒ op16
-//     的成功 ACK 与拒绝（同一个 msg id）都会派发到客户端处理器。
+//     的成功 ACK 与拒绝（同一个 msg id）都会派发到客户端处理器。op16 拒绝路径在
+//     0x1FAABA0 的 0x1FAAC17/0x1FAAC1E 读取第三 u8，随后把它交给 0x2974890；后者只接受 0..7，
+//     并以 `[partyManager + slot*4 + 0x48]` 取固定 party slot，不是 u16 角色 ID 或顺序下标。
 //   · **未证**：客户端在"已经认为自己选图成功"之后再收到这条 op16 失败时是否一定退出等待
 //     窗口（准入位图只证明包被派发，不证明状态机放行）。这一条需要实机抓包或更长的离线 RE，
 //     按"协议不明交父代理"上报——本文件不放行任何未解锁地图、不改客户端、不改 PVF。
@@ -88,6 +93,46 @@ type partyDungeonEntryRoutedRequest struct {
 	generation     uint64
 	seq            uint64
 	sourceRunToken uint64
+}
+
+// partyDungeonEntryMemberFailure preserves the party member whose entry cost
+// failed. The slot is taken from the existing normalized party index instead of
+// parsing the formatted error or guessing a wire value.
+type partyDungeonEntryMemberFailure struct {
+	memberID uint16
+	slot     byte
+	indexed  bool
+	err      error
+}
+
+func (e *partyDungeonEntryMemberFailure) Error() string {
+	if e == nil || e.err == nil {
+		return "party dungeon entry member failure"
+	}
+	return e.err.Error()
+}
+
+func (e *partyDungeonEntryMemberFailure) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func wrapPartyDungeonEntryMemberFailure(state alignedcmd.PartyState, memberID uint16, err error) error {
+	if err == nil {
+		return nil
+	}
+	slot, indexed := runtimePartyMemberIndex(memberID, state)
+	return &partyDungeonEntryMemberFailure{memberID: memberID, slot: slot, indexed: indexed, err: err}
+}
+
+func currentPartyDungeonEntryMemberFailureOwner(err error) (uint16, byte, bool) {
+	var failure *partyDungeonEntryMemberFailure
+	if !errors.As(err, &failure) || failure == nil || !failure.indexed {
+		return 0, 0, false
+	}
+	return failure.memberID, failure.slot, true
 }
 
 // bindPartyDungeonEntryRoutedPending 记下"这名角色的 op16 已经被回 ACK、正在等队长那条

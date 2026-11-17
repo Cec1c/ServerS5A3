@@ -103,7 +103,12 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	}
 	rng := newCurrentDungeonDropLCG(runtime.Seed)
 	var visit *runtimeDungeonRoomVisit
-	if runtime.Session != nil {
+	if runtime.partyInstance != nil {
+		// Peers share the map seed, while only the drop owner advances the
+		// room stream. Freeze cards from a separate owner-specific stream so
+		// idle followers do not all receive the same free/paid reward pair.
+		rng = newCurrentDungeonDropLCG(runtime.Seed ^ (uint32(session.selectedCharacterID) * 0x9E3779B9) ^ 0x43415244)
+	} else if runtime.Session != nil {
 		if scene, ok := runtime.Session.Scene(); ok {
 			if ownedVisit, visitErr := runtime.currentDungeonRoomVisit(scene); visitErr == nil {
 				visit = ownedVisit

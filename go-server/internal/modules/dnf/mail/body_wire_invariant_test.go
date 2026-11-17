@@ -428,8 +428,8 @@ func TestMailboxSmallNotificationBodiesKeepTheirFixedWidths(t *testing.T) {
 	if body := buildMailboxAlarmNotification(-1); len(body) != 2 || binary.LittleEndian.Uint16(body) != 0 {
 		t.Fatalf("alarm body=% X, want one zero word", body)
 	}
-	if body := buildMailboxAlarmNotification(70000); len(body) != 2 || binary.LittleEndian.Uint16(body) != 0xffff {
-		t.Fatalf("clamped alarm body=% X, want ffff", body)
+	if body := buildMailboxAlarmNotification(70000); len(body) != 2 || binary.LittleEndian.Uint16(body) != 0x7fff {
+		t.Fatalf("clamped alarm body=% X, want ff7f (positive signed word)", body)
 	}
 	ids := []uint32{7, 8, 9}
 	remove := buildMailboxRemoveNotification(ids)

@@ -135,7 +135,7 @@ func (s *Service) recoverCurrentWeddingReadyChurchLocked(ctx context.Context, id
 	if !found || !townMapPathLooksLikeWeddingChurch(area.MapPath) {
 		return pair, false, wedding.ErrUnavailable
 	}
-	position, err := currentWeddingCeremonyPosition(owner.Rules, pair.Actor)
+	position, err := currentWeddingCeremonyPairPosition(owner.Rules, pair.Actor, pair.Partner)
 	if err != nil {
 		return pair, false, err
 	}

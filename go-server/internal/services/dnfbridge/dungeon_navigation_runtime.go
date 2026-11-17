@@ -36,8 +36,9 @@ const currentSelectDungeonEntryLevelTooLowReason byte = 14
 // 因此无法证明可以进图"的状态类失败，按 A21 对 `EntryCostFailureKind.InvalidState`
 // 的处理（`Network/Handlers/Dungeon/DungeonEntryHandler.cs:4454-4457` ->
 // `DungeonAdmissionReject.InvalidSelectionState`）取 0x13。
-// 等级不足档 14 是本仓既有已上线取值，保持不变；`{0,reason,0}` 的第三个字节
-// （A21 里的 member slot context）沿用本仓既有写法的 0，不引入未证明的槽位语义。
+// 等级不足档 14 是本仓既有已上线取值，保持不变。`{0,reason,0}` 的第三个字节
+// 是 A21 的 member slot context；只有能明确归因到队员的疲劳/材料不足，才使用既有
+// runtimePartyMemberIndex 固定槽位，其它失败继续沿用 0。
 const (
 	currentSelectDungeonInsufficientFatigueReason   byte = 0x16
 	currentSelectDungeonMemberEntryLimitReason      byte = 0xad
@@ -509,7 +510,11 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 		var err error
 		runtime, scene, err = s.prepareDungeonRuntime(ctx, session, request)
 		if err != nil {
-			return s.refuseDungeonSelectEntryValidation(session, request, err)
+			return s.refuseDungeonSelectEntryValidation(
+				session,
+				request,
+				wrapPartyDungeonEntryMemberFailure(partyStateAtRequest, session.selectedCharacterID, err),
+			)
 		}
 	}
 	runtime.partyMemberIndex, runtime.partyMemberIndexed = partyMemberIndex, partyMemberIndexed
@@ -1182,7 +1187,11 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 		}
 		followerRuntime, followerScene, err := s.prepareDungeonRuntimePlanned(ctx, follower, request, &plan)
 		if err != nil {
-			return nil, fmt.Errorf("prepare party member %d for dungeon %d: %w", member.UserID, request.DungeonID, err)
+			return nil, wrapPartyDungeonEntryMemberFailure(
+				state,
+				member.UserID,
+				fmt.Errorf("prepare party member %d for dungeon %d: %w", member.UserID, request.DungeonID, err),
+			)
 		}
 		if inRunTransfer && (followerRuntime.antonHatcheryTransfer == nil || followerRuntime.antonHatcheryTransfer.Entry.RunID != leaderRuntime.antonHatcheryTransfer.Entry.RunID || !sameRaidParticipants(followerRuntime.antonHatcheryTransfer.Entry.Participants, leaderRuntime.antonHatcheryTransfer.Entry.Participants)) {
 			return nil, fmt.Errorf("Anton hatchery transfer follower has another active run")
@@ -1550,14 +1559,33 @@ func (s *Service) replayDungeonSelectAckForActiveRuntime(
 
 func (s *Service) sendSelectDungeonFailure(session *gameSession, reason byte) error {
 	// Current EXE op16 reads failure, reason, and a separate supplemental byte.
-	return s.sendGameUpperRaw(session, uint16(dnfenum.CmdPacketSelectDungeon), []byte{0, reason, 0})
+	return s.sendSelectDungeonFailureWithMemberSlot(session, reason, 0)
 }
 
-func (s *Service) sendSelectDungeonFailureForError(session *gameSession, reason byte, err error) error {
+func (s *Service) sendSelectDungeonFailureWithMemberSlot(session *gameSession, reason, memberSlot byte) error {
+	return s.sendGameUpperRaw(session, uint16(dnfenum.CmdPacketSelectDungeon), []byte{0, reason, memberSlot})
+}
+
+func (s *Service) sendSelectDungeonFailureForError(session *gameSession, reason, memberSlot byte, err error) error {
 	if reason == currentSelectDungeonMissingPermissionReason && errors.Is(err, errDungeonMapQuestRequired) {
 		return s.sendCurrentRiftUnlockFailure(session, err)
 	}
-	return s.sendSelectDungeonFailure(session, reason)
+	return s.sendSelectDungeonFailureWithMemberSlot(session, reason, memberSlot)
+}
+
+// currentSelectDungeonRefusalMemberSlot limits the protocol's member-slot
+// context to the report's entry-cost owners. Level/selection/unknown failures
+// retain the established zero context.
+func currentSelectDungeonRefusalMemberSlot(err error) byte {
+	if !errors.Is(err, dnfdungeon.ErrEntryFatigueExhausted) &&
+		!errors.Is(err, dnfdungeon.ErrEntryRequiredItemMissing) {
+		return 0
+	}
+	_, slot, owned := currentPartyDungeonEntryMemberFailureOwner(err)
+	if !owned {
+		return 0
+	}
+	return slot
 }
 
 // currentSelectDungeonEntryFailureReason 把一次进图前置失败映射成
@@ -1662,6 +1690,13 @@ func (s *Service) refuseDungeonSelectEntry(
 		"reply_sent", reply,
 		"failure_body_source", "a21_dungeon_admission_reject_0_success_1_reason_2_context",
 	}
+	memberSlot := currentSelectDungeonRefusalMemberSlot(err)
+	fields = append(fields, "failure_member_slot_context", memberSlot)
+	if ownerID, slot, owned := currentPartyDungeonEntryMemberFailureOwner(err); owned {
+		fields = append(fields,
+			"failure_owner_char_id", ownerID,
+			"failure_owner_slot", slot)
+	}
 	if unlockNotice {
 		fields = append(fields, "unlock_character_id", unlockFailure.characterID,
 			"unlock_quest_id", unlockFailure.questID, "unlock_text_notice", true)
@@ -1675,7 +1710,7 @@ func (s *Service) refuseDungeonSelectEntry(
 	if suppressed {
 		return nil
 	}
-	return s.sendSelectDungeonFailureForError(session, reason, err)
+	return s.sendSelectDungeonFailureForError(session, reason, memberSlot, err)
 }
 
 // dungeonSelectRefusalSuppression 报告 `refuseDungeonSelectEntry` 对这条请求会不会真的

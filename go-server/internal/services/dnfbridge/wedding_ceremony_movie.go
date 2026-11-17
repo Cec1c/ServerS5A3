@@ -95,7 +95,7 @@ func (s *Service) publishCurrentWeddingAvatarSetupLocked(session *gameSession, p
 		}
 		hosts, kind = [2]r.CharacterRecord{c, partner}, state.Kind
 	}
-	first, second, e := currentWeddingCeremonyNames(hosts[0], hosts[1])
+	first, second, e := s.currentWeddingCeremonyNames(hosts[0], hosts[1])
 	if e != nil {
 		return e
 	}
