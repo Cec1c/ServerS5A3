@@ -1,4 +1,4 @@
-"""Use the existing extracted channel table; mutations exercise refusal only."""
+"""Derive the historical three high IDs from the shared current table."""
 import contextlib
 import hashlib
 import io
@@ -17,6 +17,14 @@ class FiendWarU8MigrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.original = FIXTURE.read_bytes()
+        for old, new in ((261, 244), (262, 245), (263, 246)):
+            token = f"   {new}   `".encode()
+            assert cls.original.count(token) == 1
+            cls.original = cls.original.replace(token, f"   {old}   `".encode(), 1)
+
+    def test_current_baseline_is_already_migrated(self):
+        with self.assertRaisesRegex(ValueError, "occupied"):
+            migrate(FIXTURE.read_bytes())
 
     def test_real_table_changes_only_three_id_tokens(self):
         result = migrate(self.original)

@@ -15,3 +15,6 @@
 *.go linguist-language=Go
 # Historical protocol asset: retain its exact reviewed bytes and CRLF identity.
 resource-recipes/bundle008/channel.override.etc -text -diff
+
+# Shared public/private deployment input: preserve its exact SHA256.
+/go-server/internal/services/dnfbridge/testdata/channel_info.etc -text -diff

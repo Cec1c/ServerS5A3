@@ -31,7 +31,7 @@
 - 已授权远端更新使用 `GAME_UPDATE_REMOTE.bat`，先 inspect actual active，再由 deploy 强制核对最新主干、完整范围、测试构建、备份、运行摘要、签名与频道；私有 profile 和累计基线不上传。工具及恢复来源约束见 [Docs/GAME_UPDATE.md](Docs/GAME_UPDATE.md)。
 
 - Read recent `changelog.d/` entries and relevant design notes before changes; consult `changlog.md` for historical context. Follow [the change-note workflow](Docs/CHANGELOG_WORKFLOW.md).
-- 部署前先读 [外部频道表选择与验收](Docs/CHANNEL_TABLE_DEPLOYMENT.md)，按仓库118频道CSV核对已批准的完整外部表，首次prepare就显式传入 `--channel-info`。不要默认提取PVF内置表作为部署目录；升级PVF时保留现有外部表。CSV仅供核对，运行输入必须是完整ETC，并读回实际进程路径、摘要、端口及客户端目录。
+- 部署前先读 [外部频道表选择与验收](Docs/CHANNEL_TABLE_DEPLOYMENT.md)，按仓库120频道CSV核对公私统一的完整外部表（SHA256 `5630b099ef98e322806c35cec25be7c7aae699ebfbc8f16e60f1a70d12bfe7d7`）。新建Docker prepare默认选定该表；显式 `--channel-info` 也须匹配同一基线。已有不同运行表先备份并按文档迁移；不从PVF提取目录替代，升级PVF时保留外部表。运行 `python scripts/check_channel_table.py` 防止ETC、历史副本与CSV漂移。CSV仅供核对，运行输入必须是完整ETC，并读回实际进程路径、摘要、端口及客户端目录。
 - Keep `go-server` source-only. Runtime configuration, binaries, logs, PVF, database state, and PID files belong under `runtime`.
 - Edit `runtime/config/instance.json` or `deploy/templates/instance.example.json`; do not hand-edit generated files under `runtime/configs`.
 - Windows deployment entrypoints must stay BAT-only. Do not add PowerShell scripts or PowerShell calls.

@@ -16,6 +16,43 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "runtime" / "docker"
 IMAGE = "servers5a3-local:dev"
 PROJECT = "servers5a3-local"
+CHANNEL_TABLE = ROOT / "go-server/internal/services/dnfbridge/testdata/channel_info.etc"
+CHANNEL_TABLE_SHA256 = "5630b099ef98e322806c35cec25be7c7aae699ebfbc8f16e60f1a70d12bfe7d7"
+
+
+def selected_channel_table(config, explicit_source, existing):
+    """Select the common public/private baseline before preparing any files."""
+    if digest(CHANNEL_TABLE) != CHANNEL_TABLE_SHA256:
+        raise ValueError("Bundled channel table differs from the common 120-channel baseline")
+    source = Path(explicit_source).resolve(strict=True) if explicit_source else CHANNEL_TABLE
+    if digest(source) != CHANNEL_TABLE_SHA256:
+        raise ValueError("External channel table must match the common 120-channel baseline; see Docs/CHANNEL_TABLE_DEPLOYMENT.md")
+    current = config.get("channel_file", "channel_info.etc")
+    if current not in ("channel_info.etc", "channel.override.etc"):
+        raise ValueError("Unrecognized channel_file in instance.json")
+    assets = RUNTIME / "data"
+    active = assets / current
+    if existing and not explicit_source and (not active.is_file() or digest(active) != CHANNEL_TABLE_SHA256):
+        raise ValueError("Existing runtime channel table differs or is missing; back it up and explicitly select --channel-info after reviewing Docs/CHANNEL_TABLE_DEPLOYMENT.md")
+    override = assets / "channel.override.etc"
+    if override.exists() and digest(override) != CHANNEL_TABLE_SHA256:
+        raise ValueError("Existing external channel table differs; preserve it before replacing")
+    return source
+
+
+def checked_channel_catalog(catalog, channel_path):
+    """Reject an old extractor ignoring -channel or reporting other ports."""
+    raw = channel_path.read_bytes()
+    ports = [10000 + int(value) for value in re.findall(rb"(?m)^[ \t]*(\d+)[ \t]+`<chn_channel_info_[^`]+>`", raw)]
+    actual = catalog.get("ports")
+    if (hashlib.sha256(raw).hexdigest() != CHANNEL_TABLE_SHA256 or
+            catalog.get("sha256") != CHANNEL_TABLE_SHA256 or
+            catalog.get("source") != "external:channel.override.etc" or
+            type(catalog.get("channels")) is not int or catalog["channels"] != 120 or
+            not isinstance(actual, list) or any(type(p) is not int for p in actual) or
+            len(actual) != 120 or len(set(actual)) != 120 or sorted(actual) != sorted(ports)):
+        raise ValueError("Prepared channel catalog differs from the common 120-channel baseline")
+    return catalog
 
 BUFF_GROUP_SYNC_KEY = "DNFBRIDGE_BUFF_GROUP_SYNC"
 TAG_BUFF_CLIENTS = frozenset((
@@ -254,6 +291,7 @@ def prepare(args):
     if not existing and config["buff_group_sync"] == "auto":
         config["buff_group_sync"] = buff_group_sync
     management_token(config)
+    channel_source = selected_channel_table(config, getattr(args, "channel_info", None), existing)
     private_ipv4(config["host_ip"])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((config["host_ip"], 0))
@@ -273,26 +311,21 @@ def prepare(args):
     if not target.is_file():
         raise ValueError("Run prepare --pvf <client/Script.pvf> first")
     target.chmod(0o644)
-    if args.channel_info:
-        source = Path(args.channel_info).resolve(strict=True)
-        override = assets / "channel.override.etc"
-        if override.exists() and digest(source) != digest(override):
-            raise ValueError("Existing external channel table differs; preserve it before replacing")
-        if not override.exists():
-            shutil.copyfile(source, override)
-        override.chmod(0o644)
-        config["channel_file"] = override.name
-        config["channel_source"] = str(source)
-    # Decode the PVF or explicitly selected external table with the server's library.
+    override = assets / "channel.override.etc"
+    if not override.exists():
+        shutil.copyfile(channel_source, override)
+    override.chmod(0o644)
+    if args.channel_info or config.get("channel_file") != override.name or not config.get("channel_source"):
+        config["channel_source"] = str(channel_source)
+    config["channel_file"] = override.name
+    # Always pass the shared external table, independent of the PVF's directory.
     user = f"{os.getuid()}:{os.getgid()}" if os.name != "nt" else "0:0"
-    channel_file = config.get("channel_file", "channel_info.etc")
-    if channel_file not in ("channel_info.etc", "channel.override.etc"):
-        raise ValueError("Unrecognized channel_file in instance.json")
-    channel_args = ["-channel", "/data/" + channel_file] if channel_file == "channel.override.etc" else []
+    channel_file = override.name
+    channel_args = ["-channel", "/data/" + channel_file]
     report = run("docker", "run", "--rm", "--network", "none", "--user", user,
                  "--mount", f"type=bind,source={assets},target=/data", "--entrypoint", "DNF90Assets",
                  config.get("server_image", IMAGE), "-pvf", "/data/Script.pvf", "-output", "/data/" + channel_file, *channel_args, capture=True)
-    catalog = json.loads(report)
+    catalog = checked_channel_catalog(json.loads(report), override)
     (assets / channel_file).chmod(0o644)
     catalog["pvf_sha256"] = digest(target)
     write(assets / "manifest.json", json.dumps(catalog, indent=2) + "\n")
@@ -552,7 +585,7 @@ def main():
     parser.add_argument("--client-dir")
     parser.add_argument("--buff-group-sync", choices=("auto", "on", "off"),
                         help="Fresh installs select V212+ automatically; use off only for a legacy client")
-    parser.add_argument("--channel-info", help="Explicit external channel table; preserves the PVF-extracted table")
+    parser.add_argument("--channel-info", help="Explicit path to the common 120-channel baseline; fresh installs use the bundled table")
     parser.add_argument("--runtime-dir", type=Path, default=RUNTIME)
     parser.add_argument("--project", default=PROJECT)
     parser.add_argument("--image", default=IMAGE)

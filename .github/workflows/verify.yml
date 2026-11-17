@@ -29,6 +29,7 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
+          python3 scripts/check_channel_table.py
           if [ -n "$BASE" ]; then
             git fetch --no-tags --depth=1 origin "$BASE"
             python3 scripts/ci/verification_scope.py --base "$BASE"
@@ -71,6 +72,7 @@ jobs:
           python3 -m unittest discover -s deploy/windows -p 'test_authoritative_source.py' -v
           python3 -m unittest discover -s deploy/remote -p 'test_game_update*.py' -v
           python3 -m unittest discover -s scripts -p 'test_migrate_fiendwar_channel_u8.py' -v
+          python3 -m unittest discover -s scripts -p 'test_channel_table_baseline.py' -v
           sh scripts/ci/test_build_components.sh
   container:
     needs: scope

@@ -2,6 +2,8 @@ package dnfbridge
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -160,8 +162,19 @@ func TestExternalOfficial249TagTournamentChannelDirectory(t *testing.T) {
 	}
 	s := &Service{options: options{currentClientVersion: "official-24.9", channelServerID: 1, channelAdvertiseID: 0}}
 	channels := catalog.Channels()
-	if len(channels) != 119 {
-		t.Fatalf("完整候选目录应有118条原记录加1条帝国频道，实际%d", len(channels))
+	if len(channels) != 120 || fmt.Sprintf("%x", sha256.Sum256(raw)) != "5630b099ef98e322806c35cec25be7c7aae699ebfbc8f16e60f1a70d12bfe7d7" {
+		t.Fatalf("当前公私统一目录必须为精确120频道基线，实际%d", len(channels))
+	}
+	for _, id := range []int{244, 245, 246} {
+		entry, found := catalog.Channel(id)
+		if !found || entry.Type != 42 || entry.Group != "fiendwar" || entry.Port != 10000+id {
+			t.Fatalf("统一目录缺少超时空频道%d及其端口", id)
+		}
+	}
+	for _, id := range []int{261, 262, 263} {
+		if _, found := catalog.Channel(id); found {
+			t.Fatalf("统一目录仍保留旧超时空频道%d", id)
+		}
 	}
 	channel, ok := catalog.Channel(187)
 	if !ok || channel.Type != 39 || channel.Group != "tagtournament" || channel.Port != 10187 {
@@ -176,7 +189,7 @@ func TestExternalOfficial249TagTournamentChannelDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	onlineChannel, ok := online.ServerChannel(0, 187)
-	if !ok || onlineChannel.Type != 39 || onlineChannel.AreaKey != "tagtournament" || onlineChannel.NameKey != "帝国竞技场" {
+	if !ok || onlineChannel.Type != 39 || onlineChannel.AreaKey != "tagtournament" || onlineChannel.NameKey != "chn_channel_info_049" {
 		t.Fatalf("帝国频道未进入动态下载目录：%+v ok=%v", onlineChannel, ok)
 	}
 	for _, dungeonID := range []int{320, 336} {

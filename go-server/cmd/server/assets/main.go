@@ -33,18 +33,9 @@ func run(pvf, output, channel string) error {
 	if err != nil {
 		return err
 	}
-	text, source, err := channelinfo.ReadPVFText(archive, []string{"etc/channel_info.etc"})
+	data, sourceName, err := readChannelTable(archive, channel)
 	if err != nil {
 		return err
-	}
-	data := []byte(text)
-	sourceName := source.Path
-	if channel != "" {
-		data, err = os.ReadFile(channel)
-		if err != nil {
-			return err
-		}
-		sourceName = "external:" + filepath.Base(channel)
 	}
 	index, err := channelinfo.Parse(data)
 	if err != nil {
@@ -85,4 +76,15 @@ func run(pvf, output, channel string) error {
 		"source": sourceName, "format": archive.Format(), "entries": archive.FileCount(),
 		"sha256": hex.EncodeToString(sum[:]), "ports": ports, "channels": len(ports),
 	})
+}
+
+// An explicitly selected external directory must not depend on a PVF directory.
+// run still opens the supplied PVF for the matching game resources.
+func readChannelTable(reader channelinfo.Reader, external string) ([]byte, string, error) {
+	if external != "" {
+		data, err := os.ReadFile(external)
+		return data, "external:" + filepath.Base(external), err
+	}
+	text, source, err := channelinfo.ReadPVFText(reader, []string{"etc/channel_info.etc"})
+	return []byte(text), source.Path, err
 }
