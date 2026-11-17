@@ -3,7 +3,7 @@
 [返回项目首页](../README.md)
 
 > [!IMPORTANT]
-> **首次 `prepare` 必须同时做好两件事：① 显式传入 [完整的 120 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)（详见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)）；② 将官方推荐预设包 [`docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 合并进 `runtime/docker/instance.json`。** 仅下载构建程序而不合入 Docker 运行配置包，会导致青龙/黄龙/魂大会进图不出怪（漏设 `dungeon_tournament: "vendor"`）、2365 赛马闪退、双组 Buff 与公会功能关闭等问题；环境变量说明与进程核验见[Docker 运行配置包与脱敏环境参考](DOCKER_RUNTIME_REFERENCE.md)。
+> **首次 `prepare --pvf <路径>` 默认使用 [完整的 120 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)（详见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)）。准备完成后，将官方推荐预设包 [`docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 合并进 `runtime/docker/instance.json`。** 仅下载构建程序而不合入 Docker 运行配置包，会导致青龙/黄龙/魂大会进图不出怪（漏设 `dungeon_tournament: "vendor"`）、2365 赛马闪退、双组 Buff 与公会功能关闭等问题；环境变量说明与进程核验见[Docker 运行配置包与脱敏环境参考](DOCKER_RUNTIME_REFERENCE.md)。
 
 你准备服务器、客户端和想法，Agent 负责读源码、运行命令、配置服务和排查问题。第一步的目标很具体：让自己的账号能进入游戏，创建角色，打一张图，退出后还能读到存档。
 
@@ -123,7 +123,7 @@ cd ServerS5A3
 - 登录器与 GM：[基础登录器 / PurpleMagic / 自己指定的工具]
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
-频道表显式选择已批准的完整外部ETC，与仓库120频道CSV逐项核对；不要默认提取PVF内置表替代它。
+首次 prepare 默认选择仓库统一的 120 频道外部表；如从其他路径读取，文件须与仓库 ETC 逐字节相同。
 首次 prepare 后将 deploy/templates/docker-instance.recommended.json 合并进 runtime/docker/instance.json（保留自动生成的本机IP、数据库密码和令牌）：确保 dungeon_tournament="vendor"（开启青龙/黄龙/魂大会刷怪）、buff_group_sync="on"、buff_swap_reapply="on"、disjoint_epic_display="paired-v1"、town_display_only="on"、公会功能及 runtime_compatibility 推荐项全部生效。
 赛马活动2365保持关闭（joust_event_enabled=false），检查配置、持久化覆盖与重启后的生效值；按 Docs/DOCKER_RUNTIME_REFERENCE.md 核对运行中 DNF90Server 进程的真实环境变量，并列出其余活动的实际开启状态。
 有旧数据时先备份并验证，再部署本次服务。
@@ -188,12 +188,12 @@ go build -buildvcs=false -mod=readonly -trimpath -o ../dist/DNF90Server ./cmd/se
 
 ```sh
 sh deploy/docker/manage.sh build
-sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --channel-info "go-server/internal/services/dnfbridge/testdata/channel_info.etc" --host-ip 192.168.1.50
+sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --host-ip 192.168.1.50
 ```
 
 `prepare` 会生成独立数据库密码和管理令牌，保存PVF和明确选定的外部频道表，并生成Compose、环境文件和服务端配置。本方案应输出120条频道，清单摘要及部署后验收见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)。
 
-若用户指定其他已经确认配套的外部表，在启动前记录与参考目录的差异并明确指定：
+若统一表保存在其他位置，可用下列命令指定该副本。准备程序会核对完整 SHA256；已有实例的旧表迁移见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)。
 
 ```sh
 sh deploy/docker/manage.sh prepare --channel-info "/srv/dnf-assets/channel_info.etc"
@@ -257,7 +257,7 @@ curl http://127.0.0.1:17002/api/status
 
 ```bat
 .\DOCKER.bat build
-.\DOCKER.bat prepare --pvf "D:\GameClient\Script.pvf" --channel-info "go-server\internal\services\dnfbridge\testdata\channel_info.etc" --client-dir "D:\GameClient" --host-ip 192.168.1.50
+.\DOCKER.bat prepare --pvf "D:\GameClient\Script.pvf" --client-dir "D:\GameClient" --host-ip 192.168.1.50
 ```
 
 在生成的 `runtime/docker/instance.json` 中把 `joust_event_enabled` 改为 `false`，再启动：

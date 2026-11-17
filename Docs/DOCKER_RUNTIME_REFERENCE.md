@@ -25,7 +25,7 @@ runtime/docker/
 
 ## 一键合入官方推荐配置包（首次 `prepare` 后必做）
 
-首次执行 `prepare`（记得显式带上 `--pvf` 与 `--channel-info go-server/internal/services/dnfbridge/testdata/channel_info.etc`）后，`manage.py` 会在 `runtime/docker/instance.json` 中生成本机私网 IP、随机数据库密码与管理令牌，但**默认不会自动打开大会、公会与大部分 `runtime_compatibility` 开关，且赛马 `joust_event_enabled` 仍默认为 `true`**。
+首次执行 `prepare`（指定 `--pvf`，频道表默认使用仓库统一的 120 条记录）后，`manage.py` 会在 `runtime/docker/instance.json` 中生成本机私网 IP、随机数据库密码与管理令牌，但**默认不会自动打开大会、公会与大部分 `runtime_compatibility` 开关，且赛马 `joust_event_enabled` 仍默认为 `true`**。
 
 在启动容器前，在仓库根目录运行下面这段 Python 命令，即可把 [`deploy/templates/docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 安全合并进 `runtime/docker/instance.json`（完整保留本机 IP、密码、频道表路径与已有兼容项）：
 
