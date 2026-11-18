@@ -158,6 +158,8 @@ type runtimeDungeonState struct {
 	bossDieCheckRelatedActorObjectKey    uint16
 	bossDieCheckTargetObjectKey          uint16
 	bossDieCheckResponseSent             bool
+	storyNPCNotificationRoom             *runtimeDungeonRoom
+	storyNPCNotificationCount            int
 	ordinaryFinalRoomClearAccepted       bool
 	tutorialFinalRoomClearPending        bool
 	tutorialFinalRoomClearAccepted       bool

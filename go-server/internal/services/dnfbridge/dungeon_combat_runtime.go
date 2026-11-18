@@ -193,9 +193,18 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if hasScene && s.dungeonDeathRoomProofActive() {
 		roomProvenHostile = currentDungeonRoomAnnouncedLiveHostile(runtime, scene, request.RuntimeObjectKey)
 	}
+	if hasScene {
+		if handled, err := s.notifyStoryNPCClientMonsterDeath(session, runtime, scene, request); handled {
+			return err
+		}
+	}
 	ownerIsSentinel := request.OwnerObjectKey == ^uint16(0)
 	friendlyAPCDeath := hasScene && s.currentDungeonFriendlyAPCDeath(runtime, scene, request)
 	friendlyOwnerDeath := hasScene && s.currentDungeonFriendlyOwnerDeath(runtime, scene, request)
+	if hasScene && !friendlyAPCDeath && !friendlyOwnerDeath && s.options.currentClientVersion == "official-24.9" && storyNPCSpecialChildDeath(runtime, scene, request) {
+		friendlyAPCDeath = ownerIsSentinel
+		friendlyOwnerDeath = !ownerIsSentinel
+	}
 	logCurrentSentinelDeathShape(s, session, runtime, request)
 	if friendlyAPCDeath || friendlyOwnerDeath {
 		if _, defeated := runtime.Room.DefeatedDeathTarget(request.RuntimeObjectKey); defeated {

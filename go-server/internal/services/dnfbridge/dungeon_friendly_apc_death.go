@@ -129,6 +129,11 @@ func (s *Service) currentDungeonFriendlyOwnerDeath(
 	if currentDungeonRoomContainsFriendlyOwner(runtime.Room, scene, owner, false) {
 		return true
 	}
+	// A client-local hit can carry its server-announced story APC as a
+	// contributor, or its parent can retire before the hit arrives.
+	if storyNPCDeathSource(runtime.Room, scene, request, false) {
+		return true
+	}
 	for _, visit := range runtime.Rooms {
 		if visit == nil || visit.Room == nil || visit.Room == runtime.Room {
 			continue
