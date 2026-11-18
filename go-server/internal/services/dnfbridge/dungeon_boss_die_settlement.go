@@ -223,5 +223,5 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 			"phase", state.Battle.Phase, "single", state.Battle.Single, "phase_completed", state.Battle.PhaseCompleted,
 			"progress_version", state.Battle.ProgressVersion, "source", "owned_completed_cmt_op117_settlement")
 	}
-	return nil
+	return s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, false)
 }

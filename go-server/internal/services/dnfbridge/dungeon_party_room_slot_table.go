@@ -576,7 +576,10 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 			generation: session.characterGeneration,
 		}
 	}
-	charID, charName, character, hasCharacter := s.characterForEnter(ctx, actorIdentity.session, actorIdentity.character)
+	// This table contains identity fields only. Do not load equipment and
+	// entry aggregates for each row, or read the receiver again as a member.
+	batch := newPartyFrameCharacterBatch(s)
+	charID, charName, character, hasCharacter := batch.loadCharacter(ctx, actorIdentity)
 	if charID == 0 {
 		charID = session.selectedCharacterID
 	}
@@ -593,11 +596,7 @@ func (s *Service) sendDungeonPartyRoomSlotTable(
 		if !found {
 			continue
 		}
-		memberID, memberName, memberCharacter, memberHasCharacter := s.characterForEnter(
-			ctx,
-			memberIdentity.session,
-			memberIdentity.character,
-		)
+		memberID, memberName, memberCharacter, memberHasCharacter := batch.loadCharacter(ctx, memberIdentity)
 		if memberID != member.UserID {
 			continue
 		}

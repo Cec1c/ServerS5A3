@@ -20,7 +20,12 @@ import (
 // raid start and town presence are fixtures; client requests use the upper handler.
 func r134N1Fixture(t *testing.T) (*raidStartGuardFixture, []*gameSession) {
 	t.Helper()
-	f, peers := actualCurrentFiendWar(t, 2)
+	return r134N1FixtureMembers(t, 2)
+}
+
+func r134N1FixtureMembers(t *testing.T, count int) (*raidStartGuardFixture, []*gameSession) {
+	t.Helper()
+	f, peers := actualCurrentFiendWar(t, count)
 	s, b := f.service, f.state.Battle
 	s.options.pvfPath = os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	s.onlinePlayers = newOnlinePlayerManager()

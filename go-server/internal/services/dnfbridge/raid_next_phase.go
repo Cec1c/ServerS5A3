@@ -37,9 +37,26 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 	if len(state.Members) == 0 || runtimeRaidHasOversizedGroup(*state) {
 		return false, fmt.Errorf("Anton next phase party unavailable")
 	}
+	// A manager clear may leave a live UI row unassigned. Give that member
+	// a canonical admission seat for the next phase on a detached copy;
+	// keep its solo intent and the completed phase's frozen owners intact.
+	planned := *state
+	planned.Members = append([]runtimeRaidMemberState(nil), state.Members...)
+	if state.CurrentLayout && state.RouteOrRaidType <= 1 {
+		for i, member := range planned.Members {
+			if member.GroupIndex != 0 {
+				continue
+			}
+			group, slot, ok := nextRuntimeRaidMemberPlacement(planned, member.CharID)
+			if !ok {
+				return false, fmt.Errorf("Anton next phase member placement unavailable")
+			}
+			planned.Members[i].GroupIndex, planned.Members[i].SlotOrder = group, slot
+		}
+	}
 	seen := map[uint16]bool{}
-	for _, member := range state.Members {
-		if member.CharID == 0 || seen[member.CharID] || b.MemberAccounts[member.CharID] == "" || member.GroupIndex < 1 || member.GroupIndex > runtimeRaidMaxGroups {
+	for _, member := range planned.Members {
+		if member.CharID == 0 || seen[member.CharID] || b.MemberAccounts[member.CharID] == "" || member.GroupIndex < 1 || member.GroupIndex > currentRaidGroupMaximum(*state) {
 			return false, fmt.Errorf("Anton next phase member not admitted")
 		}
 		seen[member.CharID] = true
@@ -73,6 +90,7 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 	if err != nil {
 		return false, err
 	}
+	state.Members = planned.Members
 	b.Phase, b.StartedAt, b.EnterAfter, b.Deadline = 1, now, enter, deadline
 	b.Anton, b.Dungeons = next, next.Dungeons()
 	b.PhaseCompleted, b.PhaseCompletedAt, b.TimedOut, b.ProgressVersion = false, time.Time{}, false, 0

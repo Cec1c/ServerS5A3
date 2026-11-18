@@ -11,23 +11,28 @@ import (
 // evidence. No dungeon lock is held while acquiring another member's lock.
 // Members may still disconnect after this check; socket writes are not atomic.
 func (s *Service) preflightRuntimePartyRoomOwners(leader *gameSession, request dungeoncmd.MoveMapRequest) error {
+	_, err := s.prepareRuntimePartyRoomMoveTargets(leader, request)
+	return err
+}
+
+func (s *Service) prepareRuntimePartyRoomMoveTargets(leader *gameSession, request dungeoncmd.MoveMapRequest) (map[uint16]partyRoomMoveTarget, error) {
 	if leader == nil || leader.selectedCharacterID == 0 {
-		return nil
+		return nil, nil
 	}
 	state := s.runtimePartyStateForSession(leader)
 	if state.PartyID <= 0 || state.UserID != leader.selectedCharacterID {
-		return nil
+		return nil, nil
 	}
 	leader.dungeon.mu.Lock()
 	runtime := leader.dungeon.runtime
 	if runtime == nil || runtime.Session == nil || runtime.Room == nil {
 		leader.dungeon.mu.Unlock()
-		return nil // The established local move handler owns this refusal.
+		return nil, nil // The established local move handler owns this refusal.
 	}
 	scene, ok := runtime.Session.Scene()
 	if !ok || (scene.Coordinate.X == int64(request.NextX) && scene.Coordinate.Y == int64(request.NextY)) {
 		leader.dungeon.mu.Unlock()
-		return nil // Keep the existing same-coordinate layer/ACK path unchanged.
+		return nil, nil // Keep the existing same-coordinate layer/ACK path unchanged.
 	}
 	source := runtimeDungeonRoomKeyFromScene(scene)
 	dungeonID, mazeIndex, seed := runtime.Dungeon.ID, runtime.MazeIndex, runtime.Seed
@@ -38,17 +43,19 @@ func (s *Service) preflightRuntimePartyRoomOwners(leader *gameSession, request d
 	target := runtimeDungeonRoomKeyFromScene(preview.Scene)
 	leader.dungeon.mu.Unlock()
 
+	targets := make(map[uint16]partyRoomMoveTarget)
 	for _, member := range runtimePartyMembers(state) {
 		if member.UserID == 0 || member.UserID == leader.selectedCharacterID {
 			continue
 		}
-		follower, found := s.onlineGameSession(member.UserID)
+		identity, found := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		follower := identity.session
 		if !found || follower == leader {
-			return fmt.Errorf("party member %d has no resident game session before room transition", member.UserID)
+			return nil, fmt.Errorf("party member %d has no resident game session before room transition", member.UserID)
 		}
 		followerState := s.runtimePartyStateForSession(follower)
 		if followerState.PartyID != state.PartyID || followerState.UserID != state.UserID {
-			return fmt.Errorf("party member %d changed party before room transition", member.UserID)
+			return nil, fmt.Errorf("party member %d changed party before room transition", member.UserID)
 		}
 		follower.dungeon.mu.Lock()
 		err := validateRuntimePartyRoomOwner(follower.dungeon.runtime, source, dungeonID, mazeIndex, seed, instance)
@@ -59,12 +66,18 @@ func (s *Service) preflightRuntimePartyRoomOwners(leader *gameSession, request d
 				err = nil
 			}
 		}
+		if err == nil && !s.boundGameSessionCharacterCurrent(identity) {
+			err = fmt.Errorf("party member binding changed during room preflight")
+		}
+		if err == nil {
+			targets[member.UserID] = snapshotPartyRoomMoveTargetLocked(identity)
+		}
 		follower.dungeon.mu.Unlock()
 		if err != nil {
-			return fmt.Errorf("party member %d cannot follow room transition: %w", member.UserID, err)
+			return nil, fmt.Errorf("party member %d cannot follow room transition: %w", member.UserID, err)
 		}
 	}
-	return nil
+	return targets, nil
 }
 
 // Caller holds this member's dungeon lock. Validate both the session scene and

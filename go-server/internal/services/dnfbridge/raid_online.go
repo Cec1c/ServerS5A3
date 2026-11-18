@@ -20,7 +20,7 @@ import (
 
 const (
 	runtimeRaidDefaultGroup = 1
-	runtimeRaidMaxGroups    = 5
+	runtimeRaidMaxGroups    = 10
 	runtimeRaidGroupSize    = 4
 	runtimeRaidFailureCode  = 3
 )
@@ -679,6 +679,12 @@ func (s *Service) handleOnlineRaidManagerWork(session *gameSession, typ uint16, 
 		s.logGameEvent(session, "game-raid-manager-body-invalid", "type", typ, "body_len", len(body), "error", err)
 		return nil
 	}
+	// All three native fields are u32. Validate before narrowing so an
+	// out-of-range member or group cannot alias a valid manager request.
+	if req.MemberCharKey == 0 || req.MemberCharKey > 0xffff || req.TargetGroup > runtimeRaidMaxGroups ||
+		(req.TargetGroup == 0 && req.ActionOrMode != 0) {
+		return nil
+	}
 	sourceID := selectedCharacterID(session)
 	state, ok, projectionChanged := s.moveRuntimeRaidMember(sourceID, uint16(req.MemberCharKey), byte(req.TargetGroup))
 	if !ok {
@@ -950,7 +956,7 @@ func (s *Service) changeRuntimeRaidMemberState(sourceID uint16, userState byte) 
 }
 
 func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, targetGroup byte) (runtimeRaidState, bool, bool) {
-	if targetGroup == 0 || targetGroup > 8 {
+	if targetGroup > runtimeRaidMaxGroups {
 		return runtimeRaidState{}, false, false
 	}
 	s.raidMu.Lock()
@@ -963,13 +969,19 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	if index < 0 {
 		return runtimeRaidState{}, false, false
 	}
+	// V215's RemovePartyBtn/group selector sends {0, member, 0} for
+	// every member of the selected normal raid group. Zero clears only the
+	// planned placement; ordinary-party and frozen battle owners stay intact.
+	if targetGroup == 0 && (!state.CurrentLayout || state.RouteOrRaidType > 1) {
+		return runtimeRaidState{}, false, false
+	}
 	if targetGroup > currentRaidGroupMaximum(*state) {
 		return runtimeRaidState{}, false, false
 	}
 	if state.RouteOrRaidType == 2 && state.Started {
 		return runtimeRaidState{}, false, false
 	}
-	if state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(*state, targetGroup, memberID) >= runtimeRaidGroupSize {
+	if targetGroup != 0 && state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(*state, targetGroup, memberID) >= runtimeRaidGroupSize {
 		return runtimeRaidState{}, false, false
 	}
 	if state.RouteOrRaidType == 2 {
@@ -982,10 +994,16 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	}
 	groupChanged := state.Members[index].GroupIndex != targetGroup
 	state.Members[index].GroupIndex = targetGroup
-	state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(*state, targetGroup, memberID)
-	state.Members[index].OrdinaryPartySolo = false
-	if !state.Started && state.CurrentLayout && state.RouteOrRaidType <= 1 {
-		state.Members[index].RecruitingPlacementExplicit = true
+	if targetGroup == 0 {
+		state.Members[index].SlotOrder = 0
+		state.Members[index].OrdinaryPartySolo = true
+		state.Members[index].RecruitingPlacementExplicit = false
+	} else {
+		state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(*state, targetGroup, memberID)
+		state.Members[index].OrdinaryPartySolo = false
+		if !state.Started && state.CurrentLayout && state.RouteOrRaidType <= 1 {
+			state.Members[index].RecruitingPlacementExplicit = true
+		}
 	}
 	runtimeRaidSortMembers(state.Members)
 	projectionChanged := false
@@ -1417,7 +1435,7 @@ func runtimeRaidMemberPlacementLimits(state runtimeRaidState) (byte, int) {
 	if state.RouteOrRaidType == 2 {
 		return 8, 1
 	}
-	return runtimeRaidMaxGroups, runtimeRaidGroupSize
+	return currentRaidGroupMaximum(state), runtimeRaidGroupSize
 }
 
 // planRuntimeRaidGroupSynchronization computes the complete live-member

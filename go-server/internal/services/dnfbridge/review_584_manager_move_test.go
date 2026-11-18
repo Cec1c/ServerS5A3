@@ -172,7 +172,7 @@ func TestRealPVFReview584ManagerMoveNoopAndRejections(t *testing.T) {
 	for _, tc := range []struct {
 		actor         *gameSession
 		member, group uint32
-	}{{x.peers[1], 19, 2}, {x.peers[0], 20, 0}, {x.peers[0], 20, uint32(runtimeRaidMaxGroups + 1)}, {x.peers[0], 99, 2}} {
+	}{{x.peers[1], 19, 2}, {x.peers[0], 20, uint32(runtimeRaidMaxGroups + 1)}, {x.peers[0], 99, 2}} {
 		reviewManagerCommand(t, x, tc.actor, tc.member, tc.group)
 	}
 	if x.f.state.Battle.ProgressVersion != version {

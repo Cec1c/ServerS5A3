@@ -122,6 +122,10 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDepartureMode(state aligned
 	// The return caller holds its own dungeon lock. Never acquire a peer's
 	// session lock: simultaneous returns would acquire these in opposite order.
 	peers := dungeonPartyInstanceMemberSessions(instance, 0)
+	// All records and owner contexts describe the same retained roster. Keep
+	// character reads within this synchronous publication; queued receivers
+	// enter this function again and allocate their own batch on their owner.
+	batch := newPartyFrameCharacterBatch(s)
 	for _, member := range members {
 		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !ok {
@@ -171,7 +175,7 @@ func (s *Service) sendMemberGiveupSurvivorRosterAfterDepartureMode(state aligned
 		}
 		complete := true
 		for _, owner := range owners {
-			sent, err := s.sendMemberGiveupSurvivorRosterInContext(receiver, state, departingID, owner, current)
+			sent, err := s.sendMemberGiveupSurvivorRosterInContext(receiver, state, departingID, owner, current, batch)
 			if err != nil || !sent {
 				errs = errors.Join(errs, err)
 				complete = false
@@ -229,21 +233,22 @@ func (s *Service) resetDungeonSingletonPartyDisplay(receiver *gameSession, state
 	return s.sendRetiredPartyPacket(receiver, 0x99, runtimePartyRealtimeInfoBody(alignedcmd.PartyState{}), &state, current, false)
 }
 
-func (s *Service) sendMemberGiveupSurvivorRosterInContext(receiver *gameSession, state alignedcmd.PartyState, departingID uint16, owner byte, current func() bool) (bool, error) {
+func (s *Service) sendMemberGiveupSurvivorRosterInContext(receiver *gameSession, state alignedcmd.PartyState, departingID uint16, owner byte, current func() bool, batches ...*partyFrameCharacterBatch) (bool, error) {
 	selection := currentPartyFrameOwnerSelection{Mode: currentPartyFrameOwnerExplicit, Owner: owner}
+	batch := currentPartyFrameCharacterBatch(s, batches)
 	if departingID != 0 {
 		// Every record can still own a survivor's party binding. Give the
 		// departed actor's record the same retained roster, not an empty roster:
 		// native kind2 would otherwise destroy all its former peers' models and
 		// tear down the local network before the following kind0 can rebind it.
-		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, receiver, state, "member_giveup_network_roster", nil, selection)
+		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, receiver, state, "member_giveup_network_roster", nil, selection, batch)
 		if err != nil || !sent {
 			return false, err
 		}
 		if !current() {
 			return false, nil
 		}
-		sent, err = s.sendCurrentPartyRecordProjectionInContext(receiver, receiver, state, "member_giveup_retained_record", nil, selection, departingID)
+		sent, err = s.sendCurrentPartyRecordProjectionInContext(receiver, receiver, state, "member_giveup_retained_record", nil, selection, departingID, batch)
 		if err != nil || !sent {
 			return false, err
 		}
@@ -254,7 +259,7 @@ func (s *Service) sendMemberGiveupSurvivorRosterInContext(receiver *gameSession,
 		if !found {
 			continue
 		}
-		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, actor, state, "member_giveup_survivor_dungeon_roster", nil, selection)
+		sent, err := s.sendCurrentPartyActorFrameProjectionInContext(receiver, actor, state, "member_giveup_survivor_dungeon_roster", nil, selection, batch)
 		if err != nil || !sent {
 			return false, err
 		}

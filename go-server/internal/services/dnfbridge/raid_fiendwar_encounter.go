@@ -2,10 +2,8 @@ package dnfbridge
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"longheng.io/server/internal/modules/dnf/dungeoncmd"
 	"time"
 )
 
@@ -171,6 +169,11 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 			return nil
 		}
 	}
+	body, err := s.currentFiendWarEncounterSelectBody(uint32(a.Dungeon))
+	if err != nil {
+		diagnostic.setReason("dungeon_difficulty_unavailable")
+		return err
+	}
 	// One battle-wide claim precedes every party replacement. Same-area and
 	// overlapping callers cannot replace this winner before reservation.
 	claim, err := s.claimCurrentFiendWarEncounter(state, p, source, area, admission)
@@ -213,8 +216,6 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 		diagnostic.setReason("party_snapshot_send_failed")
 		return err
 	}
-	body := make([]byte, dungeoncmd.SelectDungeonRequestSize)
-	binary.LittleEndian.PutUint32(body, uint32(a.Dungeon))
 	err = s.handleDungeonSelectUpperPlannedAdmitted(p, body, nil, true, nil)
 	p.dungeon.mu.Lock()
 	entered = p.dungeon.runtime != nil && p.dungeon.runtime.raidEntry != nil && p.dungeon.runtime.raidEntry.InstanceID == b.InstanceID

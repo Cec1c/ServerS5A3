@@ -79,6 +79,16 @@ func (s *Service) resyncMailboxAlarmAfterSceneReady(session *gameSession, source
 	if session == nil || session.selectedCharacterID == 0 {
 		return
 	}
+	// Dungeon room loading does not recreate the town mailbox indicator. The
+	// same unread count would trigger a fresh toast at every door. Actual mail
+	// deliveries keep their independent notification path; returning to town
+	// still reconciles durable state after its scene is ready.
+	session.dungeon.mu.Lock()
+	inDungeon := session.dungeon.runtime != nil && !session.dungeon.runtime.townReturnPending
+	session.dungeon.mu.Unlock()
+	if inDungeon {
+		return
+	}
 	session.finishLoadingMu.Lock()
 	needed := session.currentFinishLoadingStateSent && session.postFinishLoadingPlayerStateSent && !session.mailboxSceneAlarmSent
 	revision := session.finishLoadingRevision

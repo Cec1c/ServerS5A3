@@ -131,6 +131,7 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 			}
 			err := task.run()
 			if task.source != "game-session-shutdown" {
+				s.flushCurrentFiendWarClearLife(session)
 				s.drainPartyDeathVisuals(session)
 				s.captureLauncherContext(session, false)
 			}
@@ -156,6 +157,8 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 }
 
 func (s *Service) beginGameSessionClose(session *gameSession) {
+	resetPartyRoomMove(session, true)
+	resetCurrentRaidTableReturn(session, true)
 	resetCurrentRaidRefresh(session, true)
 	resetCurrentGuildPresenceRefresh(session, true)
 	session.stopGameTransport()
@@ -166,6 +169,8 @@ func (s *Service) beginGameSessionClose(session *gameSession) {
 }
 
 func (s *Service) stopGameSessionEvents(ctx context.Context, session *gameSession) error {
+	resetPartyRoomMove(session, true)
+	resetCurrentRaidTableReturn(session, true)
 	resetCurrentRaidRefresh(session, true)
 	resetCurrentGuildPresenceRefresh(session, true)
 	if session == nil || session.events == nil || session.events.loop == nil {
@@ -357,6 +362,8 @@ func advanceGameSessionCharacterGeneration(session *gameSession) uint64 {
 		return 0
 	}
 	resetCurrentGuildPresenceRefresh(session, false)
+	resetPartyRoomMove(session, false)
+	resetCurrentRaidTableReturn(session, false)
 	resetCurrentRaidRefresh(session, false)
 	session.characterGeneration++
 	if session.characterGeneration == 0 {

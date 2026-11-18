@@ -259,10 +259,10 @@ func (s *Service) handleCurrentAntonMovieCompletion(session *gameSession, op uin
 	return s.sendCurrentAntonRewardPackets(session, state, packets, true)
 }
 
-// The configured choice flag belongs to the reward pool. NOTI600's last
-// descriptor byte has a different meaning: the current client hides that item
-// and displays the reward-limit notice when it is set. These descriptors are
-// actual granted contents, so keep that byte clear, including special pools.
+// The configured premium choice flag belongs in NOTI600's first descriptor
+// byte: 0202FB56 stores it at ItemReward+44, and 0192B190 selects the premium
+// opening in all three team-raid UIs only when it equals one. The last byte
+// instead hides a limit-capped item (+41); actual granted contents keep it clear.
 func currentAntonPartyDisplayItems(plan currentAntonRewardPlan) []raid.RewardDisplayItem {
 	var items []raid.RewardDisplayItem
 	for _, reward := range plan.Rewards {
@@ -272,7 +272,7 @@ func currentAntonPartyDisplayItems(plan currentAntonRewardPlan) []raid.RewardDis
 				continue
 			}
 		}
-		items = append(items, raid.RewardDisplayItem{ObjectKind: 0, ItemID: reward.Definition.ItemID, Quantity: uint16(reward.Count)})
+		items = append(items, raid.RewardDisplayItem{ObjectKind: plan.Choice.Flags, ItemID: reward.Definition.ItemID, Quantity: uint16(reward.Count)})
 	}
 	return items
 }

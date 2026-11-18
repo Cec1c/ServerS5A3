@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -753,10 +754,20 @@ func (request currentTownSetUserAreaRequest) LooksLikeTownTransportSelection() b
 // 而客户端把它当私有房间——报障「其他玩家可以进入别人的赛丽亚房间」正是因为服务端
 // 原先只用 (TownID, AreaID) 做区域键。
 func townAreaInstanceForMapPath(mapPath string, characterID uint16) uint32 {
-	if characterID == 0 || !townMapPathLooksLikeSeria(mapPath) {
+	if characterID == 0 || !townMapPathIsOwnerPrivateRoom(mapPath) {
 		return 0
 	}
 	return uint32(characterID)
+}
+
+// Empire's lobby is personal even though it is reached through a dedicated
+// channel. Keep this privacy rule separate from Seria's portals and exit origin.
+func townMapPathIsOwnerPrivateRoom(mapPath string) bool {
+	if townMapPathLooksLikeSeria(mapPath) {
+		return true
+	}
+	path := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(mapPath), "\\", "/"))
+	return path == "town/collosseumofempire/collosseumofempire.map" || path == "map/town/collosseumofempire/collosseumofempire.map"
 }
 
 // 当前本机客户端（SHA256 80def469…）的 class1/op36 处理函数 0x1fd08d0：

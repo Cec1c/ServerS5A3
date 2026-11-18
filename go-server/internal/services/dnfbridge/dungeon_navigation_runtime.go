@@ -1752,6 +1752,7 @@ type runtimePartyDungeonMovePlan struct {
 	seed     uint32
 	instance *dungeonPartyInstance
 	room     *runtimeDungeonRoom
+	owners   map[uint16]partyRoomMoveTarget
 }
 
 func (s *Service) handleDungeonMoveMapPlanned(
@@ -1781,8 +1782,10 @@ func (s *Service) handleDungeonMoveMapPlanned(
 	if session == nil {
 		return nil
 	}
+	var followTargets map[uint16]partyRoomMoveTarget
 	if fanoutParty && partyPlan == nil {
-		if err := s.preflightRuntimePartyRoomOwners(session, request); err != nil {
+		followTargets, err = s.prepareRuntimePartyRoomMoveTargets(session, request)
+		if err != nil {
 			s.logEkernRejectedRequestDiagnostic(session, body, "move", "party_room_owner_preflight_rejected")
 			s.logGameEvent(session, "game-dungeon-move-blocked",
 				"next_x", request.NextX, "next_y", request.NextY,
@@ -1833,7 +1836,7 @@ func (s *Service) handleDungeonMoveMapPlanned(
 		return err
 	}
 	if fanoutParty && beforeKnown && afterKnown && before != after {
-		if err := s.moveRuntimePartyFollowers(session, body, runtimePartyDungeonMovePlan{target: after, seed: afterSeed, instance: committedInstance, room: committedRoom}); err != nil {
+		if err := s.moveRuntimePartyFollowers(session, body, runtimePartyDungeonMovePlan{target: after, seed: afterSeed, instance: committedInstance, room: committedRoom, owners: followTargets}); err != nil {
 			return err
 		}
 	}
@@ -1881,52 +1884,77 @@ func (s *Service) moveRuntimePartyFollowers(leader *gameSession, body []byte, pl
 	if state.PartyID <= 0 || state.UserID != leader.selectedCharacterID {
 		return nil
 	}
+	manager := s.runtimePartyManagerForService()
+	original, managed := manager.SnapshotByID(uint16(state.PartyID))
+	managed = managed && int(original.ID) == state.PartyID
+	// The leader already committed its room. A follower can confirm personal
+	// return before its queued follow event runs; that authoritative removal
+	// must not strand the remaining followers in the previous room. An absent
+	// runtime alone is not departure proof, including for legacy projections.
+	retired := func(id uint16) bool {
+		if !managed {
+			return false
+		}
+		live, exists := manager.SnapshotByID(original.ID)
+		if !exists {
+			return true
+		}
+		for _, member := range live.Members {
+			if member.UserID == id {
+				return false
+			}
+		}
+		return true
+	}
+	var followErrors error
 	for _, member := range runtimePartyMembers(state) {
-		if member.UserID == 0 || member.UserID == leader.selectedCharacterID {
+		if member.UserID == 0 || member.UserID == leader.selectedCharacterID || retired(member.UserID) {
 			continue
 		}
-		follower, ok := s.onlineGameSession(member.UserID)
+		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
+		follower := identity.session
 		if !ok || follower == leader {
-			return fmt.Errorf("party member %d has no resident game session during room transition", member.UserID)
+			if retired(member.UserID) {
+				continue
+			}
+			followErrors = errors.Join(followErrors, fmt.Errorf("party member %d has no resident game session during room transition", member.UserID))
+			continue
 		}
 		followerState := s.runtimePartyStateForSession(follower)
 		if followerState.PartyID != state.PartyID || followerState.UserID != state.UserID {
-			return fmt.Errorf("party member %d changed party state during room transition", member.UserID)
+			if retired(member.UserID) {
+				continue
+			}
+			followErrors = errors.Join(followErrors, fmt.Errorf("party member %d changed party state during room transition", member.UserID))
+			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		err := s.callGameSession(ctx, follower, "runtime-party-dungeon-room-transition", func() error {
-			// A member's own op45 may have committed this exact shared plan
-			// before the leader's queued follow request. Do not send another
-			// op29 or debit fatigue again. Coordinates alone are insufficient.
+		var target partyRoomMoveTarget
+		if plan.owners != nil {
+			var present bool
+			target, present = plan.owners[member.UserID]
+			if !present {
+				followErrors = errors.Join(followErrors, fmt.Errorf("%w: member %d was not in room preflight", errDungeonMoveRuntimeOwnerMismatch, member.UserID))
+				continue
+			}
+			if target.identity != identity {
+				continue // An old plan cannot adopt a replacement binding.
+			}
+		} else {
+			// Legacy/eventless and same-coordinate layered compatibility paths
+			// have no ordinary-room preflight snapshot. No dungeon lock is held
+			// by the caller while capturing this one recipient.
 			follower.dungeon.mu.Lock()
-			alreadyCommitted := runtimePartyMovePlanCommitted(follower.dungeon.runtime, plan)
+			target = snapshotPartyRoomMoveTargetLocked(identity)
 			follower.dungeon.mu.Unlock()
-			if alreadyCommitted {
-				return nil
+		}
+		if err := s.postPartyRoomMove(target, body, plan, retired); err != nil {
+			if retired(member.UserID) {
+				continue
 			}
-			if err := s.handleDungeonMoveMapPlanned(follower, append([]byte(nil), body...), &plan, false); err != nil {
-				return err
-			}
-			// A local refusal is intentionally silent for client requests. It
-			// must not masquerade as a successful internal party transition.
-			follower.dungeon.mu.Lock()
-			defer follower.dungeon.mu.Unlock()
-			runtime := follower.dungeon.runtime
-			if runtime == nil || runtime.Session == nil {
-				return errDungeonWorldMapUnavailable
-			}
-			scene, ok := runtime.Session.Scene()
-			if !ok || runtimeDungeonRoomKeyFromScene(scene) != plan.target || runtime.Seed != plan.seed {
-				return fmt.Errorf("%w: follower did not commit planned party room", errDungeonMoveRuntimeOwnerMismatch)
-			}
-			return nil
-		})
-		cancel()
-		if err != nil {
-			return fmt.Errorf("move runtime party member %d with leader: %w", member.UserID, err)
+			followErrors = errors.Join(followErrors, fmt.Errorf("move runtime party member %d with leader: %w", member.UserID, err))
 		}
 	}
-	return nil
+	return followErrors
 }
 
 // handleDungeonMoveRequestLocked runs with session.dungeon.mu held. Every op45
@@ -2073,6 +2101,10 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		return err
 	}
 	if err := s.sendGameUpperRawClass(session, currentDungeonStartNotification, startMapBody, 0); err != nil {
+		if partyPlan != nil && session.events != nil && session.events.loop != nil &&
+			session.gameTransportContext().Err() == nil && err != context.Canceled && err != context.DeadlineExceeded {
+			return &partyRoomMoveUnsentStartError{cause: err}
+		}
 		return err
 	}
 	// 深渊房间：每一条（首次进入的那一间）START_MAP 之后补 NOTI 679，位置与厂商一致

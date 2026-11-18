@@ -69,14 +69,7 @@ func (s *Service) queueCurrentRaidTablePartyReturn(owner *currentRaidTablePartyR
 		if expected == nil {
 			continue
 		}
-		deliver := func() error { return s.sendCurrentRaidTablePartyReturnOnOwner(identity, expected, owner) }
-		var err error
-		if member.events == nil || member.events.loop == nil {
-			err = deliver()
-		} else {
-			err = s.tryPostGameSessionCharacterEvent(member, "raid-table-party-return", identity.character, identity.generation, deliver)
-		}
-		if err != nil {
+		if err := s.requestCurrentRaidTableReturn(identity, expected, owner); err != nil {
 			s.logGameEvent(owner.leader.session, "game-raid-table-party-return-queue-failed", "member_char_id", identity.character, "error", err)
 		}
 	}

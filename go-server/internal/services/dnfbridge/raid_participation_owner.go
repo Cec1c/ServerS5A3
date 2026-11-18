@@ -162,7 +162,7 @@ func currentRaidParticipationPositions(b *runtimeRaidBattle, members []runtimeRa
 	if b == nil || b.TimedOut {
 		return positions, nil
 	}
-	if len(b.Participation) > runtimeRaidMaxGroups*runtimeRaidGroupSize {
+	if len(b.Participation) > currentRaidMemberMaximum(runtimeRaidState{RouteOrRaidType: b.Mode - 1}) {
 		return nil, fmt.Errorf("participation exceeds frozen raid member capacity")
 	}
 	liveGroups := map[uint16]byte{}

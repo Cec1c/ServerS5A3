@@ -264,11 +264,15 @@ func (s *Service) prepareCurrentTagTournamentEntry(p *gameSession, body []byte, 
 	prepared.skillState = skillState
 	// 全部地图的冷读取可能耗时，扣费前再核对两名队员的设置和拥有物。
 	nextStage("地图准备后的角色选项和技能资料复核")
-	latestOptions, err := s.prepareCurrentTagTournamentCharacterOptions(ctx, p, characters)
+	// 地图/怪物资源准备不属于仓储读取预算。此时原ctx可能已到期，
+	// 复核必须获得自己的有界读取时间，仍逐项比较原冻结快照。
+	recheckCtx, recheckCancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
+	defer recheckCancel()
+	latestOptions, err := s.prepareCurrentTagTournamentCharacterOptions(recheckCtx, p, characters)
 	if err != nil {
 		return refuse(err)
 	}
-	latestSkills, err := s.prepareCurrentTagTournamentSkillState(ctx, p, characters)
+	latestSkills, err := s.prepareCurrentTagTournamentSkillState(recheckCtx, p, characters)
 	if err != nil {
 		return refuse(err)
 	}

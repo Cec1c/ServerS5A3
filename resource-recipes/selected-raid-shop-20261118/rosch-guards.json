@@ -1,0 +1,56 @@
+{
+  "input": "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
+  "output": "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
+  "appendZeroBytes": 4096,
+  "edits": [
+    {
+      "offset": 169,
+      "before": "d0",
+      "after": "e0"
+    },
+    {
+      "offset": 176,
+      "before": "4a93",
+      "after": "379b"
+    },
+    {
+      "offset": 4065,
+      "before": "10",
+      "after": "20"
+    },
+    {
+      "offset": 4073,
+      "before": "10",
+      "after": "20"
+    },
+    {
+      "offset": 19177250,
+      "before": "8b48502b484c",
+      "after": "e9d930b00590"
+    },
+    {
+      "offset": 19177287,
+      "before": "8b704c8b4850",
+      "after": "e9f430b00590"
+    },
+    {
+      "offset": 19177460,
+      "before": "8b48502b484c",
+      "after": "e98730b00590"
+    }
+  ],
+  "guards": [
+    {
+      "offset": 112816128,
+      "bytes": "85c00f84ded04ffa8b48502b484ce915cf4ffa"
+    },
+    {
+      "offset": 112816192,
+      "bytes": "85c00f849ed04ffa8b704c8b4850e9face4ffa"
+    },
+    {
+      "offset": 112816256,
+      "bytes": "85c00f845ed04ffa8b48502b484ce967cf4ffa"
+    }
+  ]
+}

@@ -783,15 +783,16 @@ func (b *FiendWarBattle) BossReport(dungeon, kind, value int, now time.Time) err
 	state := b.Value(a.Kind + " state")
 	switch kind {
 	case 0:
-		// HUD心跳在入场/机制/等待时仍可刷新战况表，但只有共享破防窗口内、
-		// 本侧尚未报尾时才能降低权威HP。10是本侧已通关，不再接收心跳。
+		// The attribute game's local actor has its own HP. Only the shared
+		// body window owns total HP; the board must project that same total,
+		// including while a side waits or has already ended its window.
 		if state < 1 || state > 9 || value < 0 || value > 100 {
 			return fmt.Errorf("invalid fiendwar boss HP")
 		}
 		if b.BossDamageWindowOpen(dungeon) && !b.BossWindowDone[side] && value < b.Value(a.Kind+" hp") {
 			b.set(a.Kind+" hp", value)
 		}
-		b.set(a.Kind+" view hp", value)
+		b.set(a.Kind+" view hp", b.Value(a.Kind+" hp"))
 	case 1:
 		// **只认自己手上那颗**：客户端报的 value 就是它这一侧的 boss state。
 		// 打掉之后那颗球从共享池里永久消失，这一侧再从池子里补一颗；
@@ -813,6 +814,7 @@ func (b *FiendWarBattle) BossReport(dungeon, kind, value int, now time.Time) err
 			return fmt.Errorf("invalid fiendwar boss damage-window report")
 		}
 		b.set(a.Kind+" hp", min(value, b.Value(a.Kind+" hp")))
+		b.set(a.Kind+" view hp", b.Value(a.Kind+" hp"))
 		b.BossWindowDone[side] = true
 		if b.BossWindowDone[0] && b.BossWindowDone[1] {
 			topHP, botHP := b.Value("top boss hp"), b.Value("bot boss hp")

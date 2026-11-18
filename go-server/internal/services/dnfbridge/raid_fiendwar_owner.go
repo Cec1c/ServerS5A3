@@ -23,6 +23,9 @@ func currentRaidGroupMaximum(s runtimeRaidState) byte {
 	if s.RouteOrRaidType == 2 {
 		return 8
 	}
+	if s.RouteOrRaidType == 1 {
+		return 5
+	}
 	return runtimeRaidMaxGroups
 }
 func currentRaidGroupCapacity(s runtimeRaidState) int {
