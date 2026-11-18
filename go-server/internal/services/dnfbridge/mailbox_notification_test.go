@@ -224,6 +224,33 @@ func TestInitialTownSceneTailSendsMailboxAlarmOnce(t *testing.T) {
 	}
 }
 
+func TestMailboxDungeonRoomsDoNotReplayTownAlarm(t *testing.T) {
+	service, session := newDeferredTailResumeFixture(t)
+	conn := session.conn.(*bufferConn)
+	session.dungeon.runtime = &runtimeDungeonState{}
+	for range 4 {
+		session.setFinishLoadingGates(finishLoadingGates{})
+		session.setFinishLoadingGateState(true)
+		session.setFinishLoadingGatePostFinish(true)
+		service.resyncMailboxAlarmAfterSceneReady(session, "dungeon_room_ready")
+	}
+	if conn.write.Len() != 0 {
+		t.Fatal("dungeon room transitions replayed the mailbox alarm")
+	}
+	if err := service.sendMailboxAlarmForSession(session, 29, "actual_new_mail"); err != nil {
+		t.Fatal(err)
+	}
+	if conn.write.Len() == 0 {
+		t.Fatal("dungeon suppressed an actual mail-delivery notification")
+	}
+	conn.write.Reset()
+	session.dungeon.runtime.townReturnPending = true
+	service.resyncMailboxAlarmAfterSceneReady(session, "town_return_ready")
+	if conn.write.Len() == 0 || !session.mailboxSceneAlarmSent {
+		t.Fatal("town return did not restore mailbox state")
+	}
+}
+
 func TestMailboxSceneReadyResyncReadsCurrentCountAndRetries(t *testing.T) {
 	service, session := newDeferredTailResumeFixture(t)
 	repos, _ := service.repositoryGroup()

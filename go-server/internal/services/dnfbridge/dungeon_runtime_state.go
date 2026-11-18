@@ -80,6 +80,7 @@ type runtimeDungeonState struct {
 	lukeClosedEnergyReturn                   *currentLukeClosedEnergyReturnOwner
 	antonHatcheryTransfer                    *currentAntonHatcheryTransfer
 	deathStateSent                           bool
+	fiendWarClearLifeProjectionPending       bool
 	riftLoot                                 *currentRiftLootDefinition
 	fatigueRooms                             map[worldmap.RoomCoordinate]bool
 	luckyFatigueRooms                        map[worldmap.RoomCoordinate]int64

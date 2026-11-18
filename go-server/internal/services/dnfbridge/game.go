@@ -147,6 +147,8 @@ type gameSession struct {
 	characterGeneration                     uint64
 	raidProjection                          currentRaidProjectionOwner
 	raidRefresh                             currentRaidRefreshQueue
+	raidTableReturn                         currentRaidTableReturnQueue
+	partyRoomMove                           partyRoomMoveQueue
 	selectedCharacterID                     uint16
 	lukeSelectorProgressCharacterID         uint16
 	questManualClearIdentity                boundGameSessionCharacter

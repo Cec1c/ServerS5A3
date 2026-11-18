@@ -29,6 +29,10 @@ for _identity in (TAG_BUFF_FORMAL_SHA, WEDDING_FEMALE_SHA, TAG_BUFF_WEDDING_SHA)
     FEATURE_CLIENT_VARIANTS[_identity] = {**BLACKDIAMOND_FORMAL_FILES,
         'DNF.exe': {'sha256': _identity, 'bytes': BLACKDIAMOND_FORMAL_BYTES}}
 
+ROSCH_CLIENT_SHA = 'a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf'
+FEATURE_CLIENT_VARIANTS[ROSCH_CLIENT_SHA] = {**BLACKDIAMOND_FORMAL_FILES,
+    'DNF.exe': {'sha256': ROSCH_CLIENT_SHA, 'bytes': 112820224}}
+
 def checked_client_files(pair):
     """Bounded EXE/NPK plus exact reviewed plugin pair; GM assets stay separate."""
     import re

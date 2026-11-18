@@ -87,6 +87,7 @@ func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) e
 	var partyDeathRuntime *runtimeDungeonState
 	var raidLifeProjections []runtimeRaidState
 	defer func() {
+		s.flushCurrentFiendWarClearLife(session)
 		for _, state := range raidLifeProjections {
 			s.queueCurrentRaidDungeonProgress(state)
 		}
@@ -118,6 +119,11 @@ func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) e
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	characterID, readyReason := currentDungeonDeathRuntimeOwner(runtime, session)
+	if readyReason == "dungeon_run_not_active" && s.currentFiendWarCompletedLifeOwner(session, runtime) {
+		err := s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, true)
+		session.dungeon.mu.Unlock()
+		return err
+	}
 	if readyReason == "dungeon_run_not_active" && currentDungeonCompletedLifeOwner(runtime, session) {
 		// Combat completion does not prove the client actor survived every
 		// outstanding attack. Accept its death in this retained ordinary

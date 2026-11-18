@@ -1063,7 +1063,7 @@ func (s *Service) townPrivateRoomPeerProjectionBlocked(receiver *gameSession, ac
 		return false
 	}
 	area, found := s.townArea(int64(local.TownID), int64(local.AreaID))
-	return found && townMapPathLooksLikeSeria(area.MapPath)
+	return found && townMapPathIsOwnerPrivateRoom(area.MapPath)
 }
 
 // refreshTownPartyActorsAfterJoin restores the ordinary town actor in both

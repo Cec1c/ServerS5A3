@@ -87,22 +87,44 @@ func (s *Service) sendInitialDungeonActorPlacements(session *gameSession, runtim
 	}
 	activate := func() error {
 		return s.withGameWire(session, func() error {
-			if !membership() || !s.boundGameSessionCharacterCurrent(identity) {
+			if !s.boundGameSessionCharacterCurrent(identity) {
 				return fmt.Errorf("initial party placement became stale")
 			}
-			for _, guard := range roomGuards {
-				if !guard() {
+			// Preparation can finish before a peer confirms its personal return.
+			// That committed departure shrinks membership without changing the
+			// survivors' prepared actors or slots. Resolve the retained subset
+			// after taking the wire; never revive the departed slot or accept a
+			// new member, generation, slot assignment or room from this plan.
+			live, present := s.runtimePartyManagerForService().SnapshotByUser(identity.character, identity.generation)
+			if !present || live.ID != snapshot.ID || len(live.Members) == 0 ||
+				(!membership() && len(live.Members) >= len(snapshot.Members)) {
+				return fmt.Errorf("initial party placement became stale")
+			}
+			liveSlots := make([]byte, 0, len(live.Members))
+			for _, member := range live.Members {
+				prepared := -1
+				for i, peer := range peers {
+					if member.UserID == peer.character && member.SessionGeneration == peer.generation && member.Slot == slots[i] {
+						prepared = i
+						break
+					}
+				}
+				if prepared < 0 {
+					return fmt.Errorf("initial party placement became stale")
+				}
+				if !roomGuards[prepared]() {
 					return fmt.Errorf("initial party placement room changed")
 				}
+				liveSlots = append(liveSlots, member.Slot)
 			}
-			for _, slot := range slots {
+			for _, slot := range liveSlots {
 				if err := s.sendGameUpperRawClassCodecLocked(session, uint16(dnfenum.CmdPacketRequestBlacklist), []byte{slot, 0}, 0, true); err != nil {
 					return err
 				}
 			}
 			s.logGameEvent(session, "game-party-initial-slot-placement",
 				"char_id", identity.character, "party_id", snapshot.ID,
-				"slots", slots, "slot_count", len(slots), "map_id", scene.Map.Map.ID,
+				"slots", liveSlots, "slot_count", len(liveSlots), "map_id", scene.Map.Map.ID,
 				"source", source, "peer_profiles_before_placement", true)
 			return nil
 		})
