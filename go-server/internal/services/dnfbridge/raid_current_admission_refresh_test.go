@@ -76,8 +76,9 @@ func TestRealPVFCurrentApprovalRefreshesActualMaterialsAfterRoster(t *testing.T)
 		t.Fatal(err)
 	}
 	ps := splitAllGameServerUpperPackets(t, mc.write.Bytes())
-	if len(ps) != 4 || ps[2].Header.MsgID != 591 || ps[3].Header.MsgID != 598 || !bytes.Equal(ps[3].Body, body) {
-		t.Fatal("member query omitted current inventory refresh")
+	profiles, appearances := currentRaidProfileAndAppearanceFrameCounts(t, mc.write.Bytes())
+	if profiles != 0 || appearances != 0 || len(ps) != 3 || ps[0].Header.MsgID != 1359 || ps[1].Header.MsgID != 591 || ps[2].Header.MsgID != 598 || !bytes.Equal(ps[2].Body, body) {
+		t.Fatal("unchanged member query repeated profiles or omitted current inventory refresh")
 	}
 }
 

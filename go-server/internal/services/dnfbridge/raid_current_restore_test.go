@@ -42,6 +42,7 @@ func TestCurrentRaidRetainedMemberQueryRestoresOnlyItsOwnClient(t *testing.T) {
 			// its predecessor is no longer authorized to restore anything.
 			conn := &bufferConn{}
 			fresh := &gameSession{conn: conn, accountID: old.accountID, selectedCharacterID: old.selectedCharacterID, channel: old.channel, loginPacketSeen: true, accountFromToken: true}
+			fresh.connectionTownActorOwnerChannel = byte(fresh.channel.ID)
 			s.unbindGameSession(old)
 			s.bindGameSessionCharacter(fresh, fresh.selectedCharacterID)
 			req := []byte{selector, 0, 0, 0, 0}
@@ -55,7 +56,17 @@ func TestCurrentRaidRetainedMemberQueryRestoresOnlyItsOwnClient(t *testing.T) {
 				if err := s.handleOnlineRequestRaidInfo(fresh, req); err != nil {
 					t.Fatal(err)
 				}
-				raw := consumeCurrentRaidProfiles(t, conn.write.Bytes(), state)
+				raw := conn.write.Bytes()
+				profiles, appearances := currentRaidProfileAndAppearanceFrameCounts(t, raw)
+				if repeat == 0 {
+					if profiles != 1 || appearances != len(state.Members)-1 {
+						t.Fatalf("fresh connection profiles/appearances=%d/%d want=1/%d", profiles, appearances, len(state.Members)-1)
+					}
+					raw = consumeCurrentRaidProfiles(t, raw, state)
+					raw, _ = consumeCurrentRaidAppearanceFrames(t, raw)
+				} else if profiles != 0 || appearances != 0 {
+					t.Fatalf("reopened connection repeated profiles/appearances=%d/%d", profiles, appearances)
+				}
 				ack, rest := splitGameServerUpperPacket(t, raw)
 				roster, rest := splitGameServerUpperPacket(t, rest)
 				if len(rest) != 0 || ack.Header.MsgID != 1359 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, wantInfo) || roster.Header.MsgID != 591 || roster.Header.Classification != 0 || !bytes.Equal(roster.Body, wantRoster) {
@@ -68,6 +79,25 @@ func TestCurrentRaidRetainedMemberQueryRestoresOnlyItsOwnClient(t *testing.T) {
 						}
 					}
 				}
+			}
+			// Appearance changes remain independently resendable even though the
+			// unchanged profile table is suppressed.
+			invalidateCurrentCrossSceneAppearance(peer)
+			conn.write.Reset()
+			if err := s.handleOnlineRequestRaidInfo(fresh, req); err != nil {
+				t.Fatal(err)
+			}
+			profiles, appearances := currentRaidProfileAndAppearanceFrameCounts(t, conn.write.Bytes())
+			if profiles != 0 || appearances != 1 {
+				t.Fatalf("appearance revision profiles/appearances=%d/%d want=0/1", profiles, appearances)
+			}
+			conn.write.Reset()
+			if err := s.handleOnlineRequestRaidInfo(fresh, req); err != nil {
+				t.Fatal(err)
+			}
+			profiles, appearances = currentRaidProfileAndAppearanceFrameCounts(t, conn.write.Bytes())
+			if profiles != 0 || appearances != 0 {
+				t.Fatalf("replayed appearance revision profiles/appearances=%d/%d", profiles, appearances)
 			}
 			after, _ := s.runtimeRaidForMember(fresh.selectedCharacterID)
 			if !reflect.DeepEqual(state, after) || pc.write.Len() != 0 || selectedCharacterID(peer) == 0 {

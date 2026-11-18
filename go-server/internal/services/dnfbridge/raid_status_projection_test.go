@@ -10,7 +10,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 )
 
-func TestRaidCompactProfilesReadRosterOncePerBroadcast(t *testing.T) {
+func TestRaidCompactProfilesReuseBoundedAuthoritativeIdentityCache(t *testing.T) {
 	s, _, _, _, _, state := prepareApprovedCurrentRaid(t)
 	loads := wrapCurrentCrossSceneProfileBatchCharacterLoads(t, s, nil)
 	batch := newCurrentRaidProfileBatch(s, context.Background())
@@ -29,15 +29,31 @@ func TestRaidCompactProfilesReadRosterOncePerBroadcast(t *testing.T) {
 			t.Fatal("repeated per-receiver repository reads", loads)
 		}
 	}
-	// A later refresh must reload authoritative fields, with no cross-refresh
-	// caching of names, levels, job or owner context.
+	// A later refresh with the same admitted identity snapshot reuses the
+	// bounded repository memo instead of rebuilding the complete profile table.
 	_, err = s.currentRuntimeRaidProfileBody(state, newCurrentRaidProfileBatch(s, context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, member := range state.Members {
-		if loads[strconv.Itoa(int(member.CharID))] != 2 {
-			t.Fatal("later broadcast reused stale repository rows", loads)
+		if loads[strconv.Itoa(int(member.CharID))] != 1 {
+			t.Fatal("unchanged refresh bypassed the bounded identity cache", loads)
+		}
+	}
+	// A changed admitted row invalidates only that member; unrelated profiles
+	// remain usable while the repository value is reloaded authoritatively.
+	changed := state.Members[0]
+	state.Members[0].Level++
+	_, err = s.currentRuntimeRaidProfileBody(state, newCurrentRaidProfileBatch(s, context.Background()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loads[strconv.Itoa(int(changed.CharID))] != 2 {
+		t.Fatal("changed identity did not refresh its authoritative row", loads)
+	}
+	for _, member := range state.Members[1:] {
+		if loads[strconv.Itoa(int(member.CharID))] != 1 {
+			t.Fatal("one changed identity reloaded unrelated members", loads)
 		}
 	}
 }

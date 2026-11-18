@@ -11,7 +11,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/raid"
 )
 
-func TestRaidJoinSharedReadsProfilesAndAdmissionUseOneOwnerRead(t *testing.T) {
+func TestRaidJoinSharedReadsReuseProfileMemoWhileAdmissionRefreshes(t *testing.T) {
 	f := newRaidEntryCostInventoryRefreshFixture(t)
 	for _, id := range []string{"19", "20"} {
 		character, _, err := f.repos.Character.Load(context.Background(), id)
@@ -28,12 +28,12 @@ func TestRaidJoinSharedReadsProfilesAndAdmissionUseOneOwnerRead(t *testing.T) {
 		f.leaderConn.write.Reset()
 		f.peerConn.write.Reset()
 		f.setMaterial(t, f.leader.selectedCharacterID, int64(round-1))
-		if err := f.service.broadcastRuntimeRaidProjectionWithAppearance(f.state, true, 0, false); err != nil {
+		if err := f.service.broadcastRuntimeRaidProjectionWithAppearance(f.state, true, 0, false, false); err != nil {
 			t.Fatal(err)
 		}
 		for _, id := range []string{"19", "20"} {
 			if loads[id] != round {
-				t.Fatalf("broadcast %d reread owner %s: %d", round, id, loads[id])
+				t.Fatalf("broadcast %d added a profile read to admission for %s: %d", round, id, loads[id])
 			}
 		}
 		for _, conn := range []*bufferConn{f.leaderConn, f.peerConn} {

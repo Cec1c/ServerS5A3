@@ -112,6 +112,7 @@ func TestRaidPreparationInfoReadFailureIsRetryableWithoutPartialProfiles(t *test
 			request := make([]byte, 5)
 			request[0] = 2
 			binary.LittleEndian.PutUint32(request[1:], state.RaidKey)
+			peer.raidProfileView.clear()
 			sequence := peer.upperSeq
 			if err := s.handleOnlineRequestRaidInfo(peer, request); err != nil {
 				t.Fatalf("read failure escaped into command-loop disconnect: %v", err)

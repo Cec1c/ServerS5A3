@@ -14,12 +14,14 @@ import (
 // failed cosmetic projection must not undo committed membership or disconnect
 // the actor whose wear operation already succeeded. The next roster or wear
 // refresh gets a new batch and retries; failures remain visible in normal logs.
-func (s *Service) sendCurrentCrossSceneProfileRefresh(batch *currentCrossSceneProfileBatch, viewer, actor *gameSession, owner byte, reason string) {
-	if err := batch.send(viewer, actor, owner); err != nil {
+func (s *Service) sendCurrentCrossSceneProfileRefresh(batch *currentCrossSceneProfileBatch, viewer, actor *gameSession, owner byte, reason string) bool {
+	delivered, err := batch.sendTracked(viewer, actor, owner)
+	if err != nil {
 		s.logGameEvent(viewer, "game-peer-userinfo-profile-refresh-failed",
 			"source_char_id", selectedCharacterID(viewer), "target_char_id", selectedCharacterID(actor),
 			"owner_context", owner, "reason", reason, "error_kind", currentCrossSceneProfileErrorKind(err))
 	}
+	return delivered
 }
 
 // Keep normal logs actionable without copying database or transport errors,
@@ -86,7 +88,8 @@ func (s *Service) sendCurrentRaidCrossSceneProfiles(batch *currentCrossSceneProf
 	s.sendCurrentRaidCrossSceneProfilesForActors(batch, viewer, state, nil)
 }
 
-func (s *Service) sendCurrentRaidCrossSceneProfilesForActors(batch *currentCrossSceneProfileBatch, viewer *gameSession, state runtimeRaidState, actors map[uint16]bool) {
+func (s *Service) sendCurrentRaidCrossSceneProfilesForActors(batch *currentCrossSceneProfileBatch, viewer *gameSession, state runtimeRaidState, actors map[uint16]bool) map[uint16]bool {
+	sent := make(map[uint16]bool)
 	for _, member := range state.Members {
 		if actors != nil && !actors[member.CharID] {
 			continue
@@ -95,8 +98,11 @@ func (s *Service) sendCurrentRaidCrossSceneProfilesForActors(batch *currentCross
 		if !ok || !s.currentCrossSceneRaidPair(state, viewer, actor) {
 			continue
 		}
-		s.sendCurrentCrossSceneProfileRefresh(batch, viewer, actor, byte(state.RaidKey>>16), "raid_roster")
+		if s.sendCurrentCrossSceneProfileRefresh(batch, viewer, actor, byte(state.RaidKey>>16), "raid_roster") {
+			sent[member.CharID] = true
+		}
 	}
+	return sent
 }
 
 func (s *Service) broadcastCurrentCrossSceneAppearance(actor *gameSession) {

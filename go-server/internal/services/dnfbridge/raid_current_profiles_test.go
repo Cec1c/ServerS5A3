@@ -13,21 +13,100 @@ import (
 
 func consumeCurrentRaidProfiles(t *testing.T, raw []byte, state runtimeRaidState) []byte {
 	t.Helper()
+	ids := make([]uint16, 0, len(state.Members))
+	for _, member := range state.Members {
+		ids = append(ids, member.CharID)
+	}
+	return consumeCurrentRaidProfilesForIDs(t, raw, state, ids...)
+}
+
+func consumeCurrentRaidProfilesForIDs(t *testing.T, raw []byte, state runtimeRaidState, ids ...uint16) []byte {
+	t.Helper()
 	p, rest := splitGameServerUpperPacket(t, raw)
-	if p.Header.Classification != 0 || p.Header.MsgID != 752 || len(p.Body) != 4+57*len(state.Members) || binary.LittleEndian.Uint32(p.Body) != uint32(len(state.Members)) {
+	if p.Header.Classification != 0 || p.Header.MsgID != 752 || len(p.Body) != 4+57*len(ids) || binary.LittleEndian.Uint32(p.Body) != uint32(len(ids)) {
 		t.Fatal("native character cache must precede raid roster")
 	}
-	for i, member := range state.Members {
+	wanted := make(map[uint16]bool, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	for i := range ids {
 		row := p.Body[4+i*57 : 4+(i+1)*57]
-		if binary.LittleEndian.Uint16(row) != member.CharID || row[3] != byte(state.RaidKey>>16) || row[8] != byte(state.RaidKey>>24) {
+		if !wanted[binary.LittleEndian.Uint16(row)] || row[3] != byte(state.RaidKey>>16) || row[8] != byte(state.RaidKey>>24) {
 			t.Fatal("profile identity differs from authorized roster")
 		}
 	}
 	return rest
 }
 
+func currentRaidProfileAndAppearanceFrameCounts(t *testing.T, raw []byte) (int, int) {
+	t.Helper()
+	profiles, appearances := 0, 0
+	for _, frame := range splitUpperFrames(t, raw) {
+		if frame.msgID == raid.CurrentRaidProfilesMsgID {
+			profiles++
+		}
+		if frame.msgID == 2 && len(frame.body) > 0 && frame.body[0] == 8 {
+			appearances++
+		}
+	}
+	return profiles, appearances
+}
+
+func consumeCurrentRaidAppearanceFrames(t *testing.T, raw []byte) ([]byte, int) {
+	t.Helper()
+	count := 0
+	for len(raw) != 0 {
+		frame, rest := splitGameServerUpperPacket(t, raw)
+		if frame.Header.MsgID != 2 || len(frame.Body) == 0 || frame.Body[0] != 8 {
+			return raw, count
+		}
+		raw = rest
+		count++
+	}
+	return raw, count
+}
+
+func TestCurrentRaidJoinProfileAndAppearanceDeliveryIsIncremental(t *testing.T) {
+	s, leader, member, lc, mc, state := prepareCurrentRaidInvitationTest(t)
+	leader.connectionTownActorOwnerChannel = byte(leader.channel.ID)
+	member.connectionTownActorOwnerChannel = byte(member.channel.ID)
+	if err := s.handleGameCommand(leader, 1, 10, currentRaidInviteFixture(member.selectedCharacterID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleGameCommand(member, 1, 11, currentRaidApprovalFixture(leader.selectedCharacterID)); err != nil {
+		t.Fatal(err)
+	}
+	leaderProfiles, leaderAppearances := currentRaidProfileAndAppearanceFrameCounts(t, lc.write.Bytes())
+	memberProfiles, memberAppearances := currentRaidProfileAndAppearanceFrameCounts(t, mc.write.Bytes())
+	if leaderProfiles != 1 || leaderAppearances != 1 || memberProfiles != 1 || memberAppearances != 1 {
+		t.Fatalf("join profile/appearance counts leader=%d/%d member=%d/%d", leaderProfiles, leaderAppearances, memberProfiles, memberAppearances)
+	}
+	leaderRest := lc.write.Bytes()
+	leaderMetadata, leaderRest := splitGameServerUpperPacket(t, leaderRest)
+	leaderRest = consumeCurrentRaidProfilesForIDs(t, leaderRest, state, member.selectedCharacterID)
+	leaderRest, _ = consumeCurrentRaidAppearanceFrames(t, leaderRest)
+	if _, rest := splitRaidRefreshPacket(t, leaderRest, state.RaidKey); len(rest) != 0 || leaderMetadata.Header.MsgID != 591 {
+		t.Fatal("primed leader did not receive metadata, one-row profile, appearance and roster")
+	}
+
+	// Reopening from the same connection is already primed; it must send only
+	// the current ACK/roster/admission tail, without rebuilding category1 data.
+	lc.write.Reset()
+	request := []byte{2, 0, 0, 0, 0}
+	binary.LittleEndian.PutUint32(request[1:], state.RaidKey)
+	if err := s.handleOnlineRequestRaidInfo(leader, request); err != nil {
+		t.Fatal(err)
+	}
+	profiles, appearances := currentRaidProfileAndAppearanceFrameCounts(t, lc.write.Bytes())
+	if profiles != 0 || appearances != 0 {
+		t.Fatalf("primed reopen repeated profiles/appearances=%d/%d", profiles, appearances)
+	}
+}
+
 func TestCurrentRaidProfilesUseRepositoryRatherThanCachedDisplayFields(t *testing.T) {
 	s, leader, member, lc, _, state := prepareApprovedCurrentRaid(t)
+	leader.raidProfileView.clear()
 	g, _ := s.repositoryGroup()
 	want := make([]raid.CurrentProfileRecord, 0, 2)
 	for i, m := range state.Members {
@@ -68,6 +147,7 @@ func TestCurrentRaidProfilesNeverFabricateUnavailableProperties(t *testing.T) {
 	for _, kind := range []string{"missing", "level", "job", "name"} {
 		t.Run(kind, func(t *testing.T) {
 			s, leader, _, lc, _, state := prepareApprovedCurrentRaid(t)
+			leader.raidProfileView.clear()
 			g, _ := s.repositoryGroup()
 			for i, m := range state.Members {
 				if kind == "missing" {

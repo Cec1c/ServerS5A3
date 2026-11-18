@@ -75,3 +75,44 @@ func TestRecruitingRaidExplicitPlacementSurvivesLiveSoloProjection(t *testing.T)
 	f.leaveOrdinaryParty(t, f.member)
 	assertStarted(true)
 }
+
+func TestJoinedRaidMemberCanBeRepositionedBeforeStartWithoutTownRebind(t *testing.T) {
+	s, leader, member, lc, mc, state := prepareCurrentRaidInvitationTest(t)
+	if err := s.handleGameCommand(leader, 1, 10, currentRaidInviteFixture(member.selectedCharacterID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleGameCommand(member, 1, 11, currentRaidApprovalFixture(leader.selectedCharacterID)); err != nil {
+		t.Fatal(err)
+	}
+	live, ok := s.runtimeRaidForMember(member.selectedCharacterID)
+	if !ok || live.RaidKey != state.RaidKey || live.Started || live.Battle != nil {
+		t.Fatal("join did not preserve a pre-start raid")
+	}
+	// Management authority comes from the raid leader and current identity,
+	// not from both players sharing a town area.
+	s.onlinePlayers = nil
+	lc.write.Reset()
+	mc.write.Reset()
+	// No town transition or reconnect occurs here. The just-admitted member
+	// must be movable by the same leader immediately.
+	if err := s.handleGameCommand(
+		leader,
+		1,
+		uint16(dnfenum.CmdPacketRaidManagerWork),
+		buildRaidManagerWorkRequestForBridgeTest(0, uint32(member.selectedCharacterID), 2),
+	); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.runtimeRaidForMember(member.selectedCharacterID)
+	row, found := runtimeRaidMemberForTest(after, member.selectedCharacterID)
+	if !found || row.GroupIndex != 2 || !row.RecruitingPlacementExplicit || row.OrdinaryPartySolo || after.Started || after.Battle != nil {
+		t.Fatalf("pre-start manager placement=%+v started=%t battle=%t", row, after.Started, after.Battle != nil)
+	}
+	for _, conn := range []*bufferConn{lc, mc} {
+		members, rest := splitRaidRefreshPacket(t, conn.write.Bytes(), state.RaidKey)
+		if len(rest) != 0 {
+			t.Fatal("manager placement emitted an unexpected second packet")
+		}
+		assertRaidRefreshMember(t, members, member.selectedCharacterID, 2, row.SlotOrder)
+	}
+}

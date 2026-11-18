@@ -146,6 +146,7 @@ type gameSession struct {
 	events                                  *gameSessionEvents
 	characterGeneration                     uint64
 	raidProjection                          currentRaidProjectionOwner
+	raidProfileView                         currentRaidProfileSendView
 	raidRefresh                             currentRaidRefreshQueue
 	raidTableReturn                         currentRaidTableReturnQueue
 	partyRoomMove                           partyRoomMoveQueue
