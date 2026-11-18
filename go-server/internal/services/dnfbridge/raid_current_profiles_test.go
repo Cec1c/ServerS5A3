@@ -88,7 +88,17 @@ func TestCurrentRaidJoinProfileAndAppearanceDeliveryIsIncremental(t *testing.T) 
 	leaderMetadata, leaderRest := splitGameServerUpperPacket(t, leaderRest)
 	leaderRest = consumeCurrentRaidProfilesForIDs(t, leaderRest, state, member.selectedCharacterID)
 	leaderRest, _ = consumeCurrentRaidAppearanceFrames(t, leaderRest)
-	if _, rest := splitRaidRefreshPacket(t, leaderRest, state.RaidKey); len(rest) != 0 || leaderMetadata.Header.MsgID != 591 {
+	live, found := s.runtimeRaidForMember(member.selectedCharacterID)
+	if !found || len(live.Members) != 2 {
+		t.Fatal("missing joined raid")
+	}
+	wantRoster, err := s.buildRuntimeRaidRosterBody(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster, rest := splitGameServerUpperPacket(t, leaderRest)
+	if len(rest) != 0 || leaderMetadata.Header.MsgID != 591 || roster.Header.MsgID != 591 ||
+		roster.Header.Classification != 0 || !bytes.Equal(roster.Body, wantRoster) {
 		t.Fatal("primed leader did not receive metadata, one-row profile, appearance and roster")
 	}
 
@@ -103,6 +113,15 @@ func TestCurrentRaidJoinProfileAndAppearanceDeliveryIsIncremental(t *testing.T) 
 	profiles, appearances := currentRaidProfileAndAppearanceFrameCounts(t, lc.write.Bytes())
 	if profiles != 0 || appearances != 0 {
 		t.Fatalf("primed reopen repeated profiles/appearances=%d/%d", profiles, appearances)
+	}
+	lc.write.Reset()
+	invalidateCurrentCrossSceneAppearance(member)
+	if err := s.handleOnlineRequestRaidInfo(leader, request); err != nil {
+		t.Fatal(err)
+	}
+	profiles, appearances = currentRaidProfileAndAppearanceFrameCounts(t, lc.write.Bytes())
+	if profiles != 0 || appearances != 1 {
+		t.Fatalf("changed member appearance sent profiles/appearances=%d/%d", profiles, appearances)
 	}
 }
 
