@@ -266,6 +266,7 @@ func TestOfficialFriendlyAPCDeathInPVFTutorialRejectsUnproven(t *testing.T) {
 				runtime.Room.extendedActors[0].State = runtimeDungeonMonsterDefeated
 			case "unknown-target":
 				binary.LittleEndian.PutUint32(body, 60000)
+				binary.LittleEndian.PutUint16(body[33:], 60001) // no matching room NPC
 			case "apc-target":
 				binary.LittleEndian.PutUint32(body, apc)
 			case "planned-target":
@@ -319,6 +320,7 @@ func TestOfficialFriendlyAPCDeathRejectsUnprovenRequests(t *testing.T) {
 				rt.Room.extendedActors[0].State = runtimeDungeonMonsterDefeated
 			case "unknown-target":
 				binary.LittleEndian.PutUint32(body, 60000)
+				binary.LittleEndian.PutUint16(body[33:], 60001) // no matching room NPC
 			case "apc-target":
 				binary.LittleEndian.PutUint32(body, apc)
 			case "planned-target":

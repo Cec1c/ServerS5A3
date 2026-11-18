@@ -1,10 +1,10 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	platformpvf "longheng.io/server/internal/platform/pvf"
@@ -97,10 +97,8 @@ func TestCoopNPCLocalSpawnGetsOnlyDeathNotification(t *testing.T) {
 	}
 }
 
-// This audit binds the regression to the exact current PVF definitions already
-// identified for the reported Bhan/Paris cooperative NPCs. The room itself is
-// synthetic; this proves resource identity and the owner/target authorization
-// path, not a full main-quest playthrough.
+// Use real cooperative NPC definitions in an isolated ordinary room. Only
+// retiring the two spawn kinds gains a new source of authority.
 func TestRealPVFCoopNPCOwnedSummonContribution(t *testing.T) {
 	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
 	if path == "" {
@@ -114,29 +112,41 @@ func TestRealPVFCoopNPCOwnedSummonContribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []int64{2001, 2012, 6514, 6516, 6517} {
-		t.Run(fmt.Sprint(id), func(t *testing.T) {
+	for _, tc := range []struct {
+		id   int64
+		mode string
+	}{
+		{810, "ordinary"}, {811, "ordinary"}, {2001, "ordinary"}, {2007, "ordinary"},
+		{2012, "ordinary"}, {2013, "ordinary"}, {2014, "ordinary"}, {6514, "ordinary"},
+		{6516, "ordinary"}, {6517, "ordinary"}, {11529, "ordinary"},
+		{2013, "tutorial"}, {11529, "raid"},
+	} {
+		id := tc.id
+		t.Run(fmt.Sprintf("%d/%s", id, tc.mode), func(t *testing.T) {
 			actor, found, err := catalog.Find(id)
 			if err != nil || !found {
 				t.Fatalf("current PVF cooperative NPC %d missing: %v", id, err)
 			}
-			if !strings.Contains(strings.ToLower(actor.Path), "bhan") &&
-				!strings.Contains(strings.ToLower(actor.Path), "paris") {
-				t.Fatalf("unexpected cooperative NPC definition: %s", actor.Path)
-			}
 			source := bridgeDungeonPVF(false)
+			if tc.mode == "tutorial" {
+				source["dungeon/test.dgn"] += "[tutorial dungeon]\n1\n"
+			}
 			source["map/dungeon/test/start.map"] += fmt.Sprintf(
 				"[ai character]\n%d 30 20 0 `[character]` `[normal]` 0 0\n",
 				id,
 			)
 			source["map/dungeon/test/start.map"] += "[special passive object]\n777 30 20 0 1 `[monster]` 3001 20 0 0 0\n"
 			rt := prepareSyntheticDungeonRuntimeForEntryTest(t, source, catalog)
+			if tc.mode == "raid" {
+				rt.raidEntry = &currentRaidDungeonEntry{}
+			}
 			if _, err := rt.Room.AnnounceAllActors(rt.Session); err != nil {
 				t.Fatal(err)
 			}
 			s := &Service{options: options{
-				currentClientVersion: "official-24.9",
-				gameUpperBodyCodec:   gameUpperBodyCodecPlain,
+				currentClientVersion:  "official-24.9",
+				dungeonDeathRoomProof: dungeonDeathRoomProofRoomProven,
+				gameUpperBodyCodec:    gameUpperBodyCodecPlain,
 			}}
 			conn := &bufferConn{}
 			session := &gameSession{conn: conn, selectedCharacterID: 99, dungeon: dungeonSessionState{runtime: rt}}
@@ -154,6 +164,25 @@ func TestRealPVFCoopNPCOwnedSummonContribution(t *testing.T) {
 			if npc == 0 || child == 0 {
 				t.Fatal("missing map actors")
 			}
+			// A positive NPC contribution can identify the local attack even
+			// after the fallback budget for untracked client hits is exhausted.
+			rt.storyNPCNotificationRoom = rt.Room
+			rt.storyNPCNotificationCount = currentDungeonPuppetNotificationOnlyLimit
+			for _, owner := range []uint32{61001, uint32(^uint16(0))} {
+				const localChild = uint32(61004)
+				if err := s.handleDungeonMonsterDeath(session, coopNPCContributionBody(t, localChild, owner, npc, 0x111)); err != nil {
+					t.Fatal(err)
+				}
+				want, err := buildCurrentDungeonDeathNotificationBody(localChild, currentDungeonDeathResponseMonster)
+				packets := splitAllGameServerUpperPackets(t, conn.write.Bytes())
+				if err != nil || len(packets) != 1 || packets[0].Header.MsgID != 38 || !bytes.Equal(packets[0].Body, want) {
+					t.Fatal("expected only the client-local spawn's zero-drop removal")
+				}
+				if _, settled := rt.Room.DefeatedDeathTarget(localChild); settled {
+					t.Fatal("client-local spawn was settled as a server kill")
+				}
+				conn.write.Reset()
+			}
 			if err := s.handleDungeonMonsterDeath(session, coopNPCContributionBody(t, child, uint32(^uint16(0)), npc, 0x111)); err != nil {
 				t.Fatal(err)
 			}
@@ -162,6 +191,12 @@ func TestRealPVFCoopNPCOwnedSummonContribution(t *testing.T) {
 			}
 			if _, alive := rt.Room.AnnouncedMonster(target); !alive {
 				t.Fatal("map blocker was consumed")
+			}
+			if scene, ok := rt.Session.Scene(); !ok || scene.Cleared || (rt.DropOwner != nil && len(rt.DropOwner.byObjectKey) != 0) {
+				t.Fatal("spawn retirement cleared the room or registered loot")
+			}
+			if tc.mode != "ordinary" {
+				return
 			}
 			conn.write.Reset()
 			const summon = uint32(61003)
@@ -178,6 +213,25 @@ func TestRealPVFCoopNPCOwnedSummonContribution(t *testing.T) {
 				t.Fatalf("current PVF NPC %d owned summon produced no op38 for target=%d", id, target)
 			}
 			t.Logf("NPC id=%d name=%q path=%q target=%d summon=%d", id, actor.Name, actor.Path, target, summon)
+		})
+	}
+}
+
+func TestCoopNPCSpawnRetirementRequiresFriendlyRoomActor(t *testing.T) {
+	for _, faction := range []string{"[monster]", "[neutral]", ""} {
+		t.Run(faction, func(t *testing.T) {
+			s, p, conn, ordinary, npc := prepareFriendlyAPCDeathTest(t)
+			room := p.dungeon.runtime.Room
+			room.extendedActors[0].AICharacter.Faction = faction
+			if err := s.handleDungeonMonsterDeath(p, coopNPCContributionBody(t, 61003, 61001, npc, 0x111)); err != nil {
+				t.Fatal(err)
+			}
+			if conn.write.Len() != 0 {
+				t.Fatal("unproven faction authorized a local death notification")
+			}
+			if _, ok := room.AnnouncedMonster(ordinary); !ok {
+				t.Fatal("ordinary monster changed")
+			}
 		})
 	}
 }

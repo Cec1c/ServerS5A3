@@ -131,7 +131,7 @@ func (s *Service) currentDungeonFriendlyOwnerDeath(
 	}
 	// A client-local hit can carry its server-announced story APC as a
 	// contributor, or its parent can retire before the hit arrives.
-	if storyNPCDeathSource(runtime.Room, scene, request, false) {
+	if storyNPCDeathSource(runtime.Room, scene, request, storyNPCOrdinaryHostile) {
 		return true
 	}
 	for _, visit := range runtime.Rooms {
