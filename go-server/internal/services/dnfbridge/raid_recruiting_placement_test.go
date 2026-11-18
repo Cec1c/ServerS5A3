@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"encoding/binary"
 	"reflect"
 	"testing"
@@ -108,11 +109,17 @@ func TestJoinedRaidMemberCanBeRepositionedBeforeStartWithoutTownRebind(t *testin
 	if !found || row.GroupIndex != 2 || !row.RecruitingPlacementExplicit || row.OrdinaryPartySolo || after.Started || after.Battle != nil {
 		t.Fatalf("pre-start manager placement=%+v started=%t battle=%t", row, after.Started, after.Battle != nil)
 	}
+	wantRoster, err := s.buildRuntimeRaidRosterBody(after)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, conn := range []*bufferConn{lc, mc} {
-		members, rest := splitRaidRefreshPacket(t, conn.write.Bytes(), state.RaidKey)
+		packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 		if len(rest) != 0 {
 			t.Fatal("manager placement emitted an unexpected second packet")
 		}
-		assertRaidRefreshMember(t, members, member.selectedCharacterID, 2, row.SlotOrder)
+		if packet.Header.Classification != 0 || packet.Header.MsgID != 591 || !bytes.Equal(packet.Body, wantRoster) {
+			t.Fatalf("manager placement roster differs: class=%d msg=%d body=%x want=%x", packet.Header.Classification, packet.Header.MsgID, packet.Body, wantRoster)
+		}
 	}
 }

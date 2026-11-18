@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/raid"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -18,9 +19,10 @@ type currentCrossSceneProfileBatch struct {
 	peers   map[uint16]*currentCrossSceneProfilePeer
 	bodies  map[currentCrossSceneProfileKey]currentCrossSceneProfileBody
 	sent    map[currentCrossSceneProfileDelivery]bool
-	// One raid broadcast owns one immutable roster snapshot. Reuse its compact
-	// repository-derived rows across receivers, just like its typed actor bodies.
-	raidProfiles map[uint32][]byte
+	// One raid broadcast owns one immutable roster snapshot. Cache only rows
+	// actually requested by receivers so a join delta reads the new member, not
+	// the complete raid table; a new broadcast starts with an empty memo.
+	raidProfileRows map[uint32]map[uint16]raid.CurrentProfileRecord
 	// Raid rosters share a preparation budget across recipients. Once a frame
 	// is admitted, give its write a full bounded window instead of truncating
 	// the stream when the remaining preparation time runs out.
@@ -68,9 +70,10 @@ func newCurrentCrossSceneProfileBatch(s *Service, ctx context.Context) *currentC
 	ctx, _ = withEquipMode0RepositoryMemo(ctx)
 	return &currentCrossSceneProfileBatch{
 		service: s, ctx: ctx, route: s.currentSceneActorRoute(),
-		peers:  make(map[uint16]*currentCrossSceneProfilePeer),
-		bodies: make(map[currentCrossSceneProfileKey]currentCrossSceneProfileBody),
-		sent:   make(map[currentCrossSceneProfileDelivery]bool),
+		peers:           make(map[uint16]*currentCrossSceneProfilePeer),
+		bodies:          make(map[currentCrossSceneProfileKey]currentCrossSceneProfileBody),
+		sent:            make(map[currentCrossSceneProfileDelivery]bool),
+		raidProfileRows: make(map[uint32]map[uint16]raid.CurrentProfileRecord),
 	}
 }
 

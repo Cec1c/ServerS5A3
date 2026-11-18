@@ -6,18 +6,9 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	"longheng.io/server/internal/modules/dnf/raid"
 )
-
-const currentRaidProfileCacheLifetime = 30 * time.Second
-
-type currentRaidProfileCacheEntry struct {
-	signature string
-	record    raid.CurrentProfileRecord
-	expires   time.Time
-}
 
 // currentRaidProfileSendView is connection-local. A replacement connection
 // starts empty and therefore receives the complete profile set once. Within
@@ -184,67 +175,13 @@ func (v *currentRaidProfileSendView) clear() {
 	v.appearances = nil
 }
 
-func (s *Service) cachedCurrentRaidProfileRecord(
-	state runtimeRaidState,
-	member runtimeRaidMemberState,
-	now time.Time,
-) (raid.CurrentProfileRecord, bool) {
-	if s == nil || member.CharID == 0 {
-		return raid.CurrentProfileRecord{}, false
-	}
-	signature := currentRaidProfileMemberSignature(state, member)
-	s.currentRaidProfileMu.Lock()
-	entry, found := s.currentRaidProfiles[member.CharID]
-	if found && !now.Before(entry.expires) {
-		delete(s.currentRaidProfiles, member.CharID)
-		found = false
-	}
-	s.currentRaidProfileMu.Unlock()
-	if !found || entry.signature != signature {
-		return raid.CurrentProfileRecord{}, false
-	}
-	return entry.record, true
-}
-
-func (s *Service) cacheCurrentRaidProfileRecord(
-	state runtimeRaidState,
-	member runtimeRaidMemberState,
-	record raid.CurrentProfileRecord,
-	now time.Time,
-) {
-	if s == nil || member.CharID == 0 {
-		return
-	}
-	s.currentRaidProfileMu.Lock()
-	if s.currentRaidProfiles == nil {
-		s.currentRaidProfiles = make(map[uint16]currentRaidProfileCacheEntry, len(state.Members))
-	}
-	for id, entry := range s.currentRaidProfiles {
-		if !now.Before(entry.expires) {
-			delete(s.currentRaidProfiles, id)
-		}
-	}
-	s.currentRaidProfiles[member.CharID] = currentRaidProfileCacheEntry{
-		signature: currentRaidProfileMemberSignature(state, member),
-		record:    record,
-		expires:   now.Add(currentRaidProfileCacheLifetime),
-	}
-	s.currentRaidProfileMu.Unlock()
-}
-
 // Raid UI actors live in the client's category1 cache, not its town actor
 // manager. Supply that cache before any roster lookup, using real repository
 // properties and the authorized directory object's advertised namespace.
 func (s *Service) sendCurrentRuntimeRaidProfiles(session *gameSession, state runtimeRaidState) error {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	return s.sendCurrentRuntimeRaidProfilesIncrementalWithBatch(session, state, newCurrentRaidProfileBatch(s, ctx))
-}
-
-func (s *Service) sendCurrentRuntimeRaidProfilesIncremental(session *gameSession, state runtimeRaidState) error {
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
-	return s.sendCurrentRuntimeRaidProfilesIncrementalWithBatch(session, state, newCurrentRaidProfileBatch(s, ctx))
+	return s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session, state, newCurrentRaidProfileBatch(s, ctx), nil)
 }
 
 func newCurrentRaidProfileBatch(s *Service, ctx context.Context) *currentCrossSceneProfileBatch {
@@ -272,11 +209,19 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatchForActors(session *game
 	if !s.currentRaidInfoContextVisible(session, state) {
 		return nil
 	}
+	appearanceSignatures := s.currentRaidProfileAppearanceSignatures(state)
+	// Full delivery is also the first observation for a newly bound connection.
+	// Initialize the same per-connection view used by incremental delivery before
+	// marking successful rows, otherwise the first reopen payload cannot be
+	// suppressed until another incremental send happens.
+	session.raidProfileView.plan(
+		state, session.selectedCharacterID, session.characterGeneration, s.accountIDForSession(session),
+		session.sceneBootstrapActorGeneration, appearanceSignatures, actors,
+	)
 	body, err := s.currentRuntimeRaidProfileBody(state, batch)
 	if err != nil {
 		return raidProfilePreparationError(err)
 	}
-	appearanceSignatures := s.currentRaidProfileAppearanceSignatures(state)
 	if len(body) > 0 && visible() {
 		s.logGameEvent(session, "game-current-raid-profiles-sent", "raid_key", state.RaidKey, "profile_count", (len(body)-4)/57, "member_count", len(state.Members), "delivery", "full")
 		if err := s.sendGameUpperRawClassCodec(session, raid.CurrentRaidProfilesMsgID, body, 0, true); err != nil {
@@ -295,10 +240,6 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatchForActors(session *game
 		)
 	}
 	return nil
-}
-
-func (s *Service) sendCurrentRuntimeRaidProfilesIncrementalWithBatch(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch) error {
-	return s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session, state, batch, nil)
 }
 
 func (s *Service) sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session *gameSession, state runtimeRaidState, batch *currentCrossSceneProfileBatch, actors map[uint16]bool) error {
@@ -357,46 +298,31 @@ func (s *Service) currentRuntimeRaidProfileBodyForMembers(
 	batch *currentCrossSceneProfileBatch,
 	members map[uint16]string,
 ) ([]byte, error) {
-	body, err := s.currentRuntimeRaidProfileBodyAll(state, batch)
-	if err != nil || len(body) == 0 || members == nil {
-		return body, err
-	}
-	count := int(binary.LittleEndian.Uint32(body[:4]))
-	if len(body) != 4+57*count {
-		return nil, fmt.Errorf("raid compact profile body has invalid count")
-	}
-	selected := make([]int, 0, len(members))
-	for index := 0; index < count; index++ {
-		key := binary.LittleEndian.Uint16(body[4+57*index:])
-		if _, wanted := members[key]; wanted {
-			selected = append(selected, index)
-		}
-	}
-	if len(selected) == 0 {
+	if members != nil && len(members) == 0 {
 		return nil, nil
 	}
-	filtered := make([]byte, 4+57*len(selected))
-	binary.LittleEndian.PutUint32(filtered, uint32(len(selected)))
-	for output, index := range selected {
-		copy(filtered[4+57*output:4+57*(output+1)], body[4+57*index:4+57*(index+1)])
+	if batch.raidProfileRows == nil {
+		batch.raidProfileRows = make(map[uint32]map[uint16]raid.CurrentProfileRecord)
 	}
-	return filtered, nil
-}
-
-func (s *Service) currentRuntimeRaidProfileBodyAll(state runtimeRaidState, batch *currentCrossSceneProfileBatch) ([]byte, error) {
-	if body, found := batch.raidProfiles[state.RaidKey]; found {
-		return body, nil
+	rowsByMember := batch.raidProfileRows[state.RaidKey]
+	if rowsByMember == nil {
+		rowsByMember = make(map[uint16]raid.CurrentProfileRecord)
+		batch.raidProfileRows[state.RaidKey] = rowsByMember
 	}
 	repos, available := s.repositoryGroupFor(batch.ctx)
 	rows := make([]raid.CurrentProfileRecord, 0, len(state.Members))
 	ctx, cancel := context.WithTimeout(batch.ctx, createWriteTimeout)
 	defer cancel()
-	now := time.Now()
 	for _, member := range state.Members {
 		if member.CharID == 0 {
 			continue
 		}
-		if row, cached := s.cachedCurrentRaidProfileRecord(state, member, now); cached {
+		if members != nil {
+			if _, wanted := members[member.CharID]; !wanted {
+				continue
+			}
+		}
+		if row, cached := rowsByMember[member.CharID]; cached {
 			rows = append(rows, row)
 			continue
 		}
@@ -419,7 +345,7 @@ func (s *Service) currentRuntimeRaidProfileBodyAll(state runtimeRaidState, batch
 		if _, err := raid.BuildCurrentRaidProfilesBody([]raid.CurrentProfileRecord{row}); err != nil {
 			continue
 		}
-		s.cacheCurrentRaidProfileRecord(state, member, row, now)
+		rowsByMember[member.CharID] = row
 		rows = append(rows, row)
 	}
 	if len(rows) == 0 {
@@ -428,13 +354,6 @@ func (s *Service) currentRuntimeRaidProfileBodyAll(state runtimeRaidState, batch
 	body, err := raid.BuildCurrentRaidProfilesBody(rows)
 	if err != nil {
 		return nil, err
-	}
-	// Partial reads remain retryable for the next receiver/broadcast.
-	if len(rows) == len(state.Members) {
-		if batch.raidProfiles == nil {
-			batch.raidProfiles = make(map[uint32][]byte)
-		}
-		batch.raidProfiles[state.RaidKey] = body
 	}
 	return body, nil
 }

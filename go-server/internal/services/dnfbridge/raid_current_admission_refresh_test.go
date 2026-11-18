@@ -49,12 +49,36 @@ func TestRealPVFCurrentApprovalRefreshesActualMaterialsAfterRoster(t *testing.T)
 	}
 	state, _ := s.runtimeRaidForMember(member.selectedCharacterID)
 	var body []byte
-	for _, conn := range []*bufferConn{lc, mc} {
+	for index, conn := range []*bufferConn{lc, mc} {
 		ps := splitAllGameServerUpperPackets(t, conn.write.Bytes())
-		if len(ps) != 4 || ps[1].Header.MsgID != 752 || ps[2].Header.MsgID != 591 || ps[3].Header.MsgID != 598 || ps[3].Header.Classification != 0 {
+		wantProfiles := 1
+		wantFrames := 5
+		if index == 1 {
+			wantProfiles = 2
+			wantFrames = 4
+		}
+		if len(ps) != wantFrames {
+			t.Fatalf("approval frame count recipient%d=%d want=%d packets=%+v", index, len(ps), wantFrames, ps)
+		}
+		entry := ps[len(ps)-1]
+		profileIndex := 2
+		rosterIndex := 3
+		if index == 1 {
+			profileIndex, rosterIndex = 1, 2
+		}
+		metadataIndex := 0
+		if index == 0 {
+			if ps[0].Header.MsgID != 11 {
+				t.Fatalf("leader approval ACK missing: %+v", ps[0])
+			}
+			metadataIndex = 1
+		}
+		if ps[metadataIndex].Header.MsgID != 591 || binary.LittleEndian.Uint32(ps[metadataIndex].Body[4:8]) != 2 ||
+			ps[profileIndex].Header.MsgID != 752 || binary.LittleEndian.Uint32(ps[profileIndex].Body[:4]) != uint32(wantProfiles) ||
+			ps[rosterIndex].Header.MsgID != 591 || entry.Header.MsgID != 598 || entry.Header.Classification != 0 {
 			t.Fatalf("approval ordering=%+v", ps)
 		}
-		body = ps[3].Body
+		body = entry.Body
 		if len(body) != 14 || binary.LittleEndian.Uint32(body) != 2 || binary.LittleEndian.Uint16(body[4:]) != leader.selectedCharacterID || body[6] != 1 || binary.LittleEndian.Uint16(body[7:]) != 1 || binary.LittleEndian.Uint16(body[9:]) != member.selectedCharacterID || body[11] != 0 || binary.LittleEndian.Uint16(body[12:]) != 0 {
 			t.Fatalf("materials do not match actual repository: %x", body)
 		}

@@ -74,6 +74,8 @@ func TestCurrentRaidJoinProfileAndAppearanceDeliveryIsIncremental(t *testing.T) 
 	if err := s.handleGameCommand(leader, 1, 10, currentRaidInviteFixture(member.selectedCharacterID)); err != nil {
 		t.Fatal(err)
 	}
+	lc.write.Reset()
+	mc.write.Reset()
 	if err := s.handleGameCommand(member, 1, 11, currentRaidApprovalFixture(leader.selectedCharacterID)); err != nil {
 		t.Fatal(err)
 	}

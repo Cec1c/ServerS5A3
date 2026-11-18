@@ -143,8 +143,6 @@ type Service struct {
 	raidWeeklyWorkRunning     bool
 	antonRewardFlows          map[string]*currentAntonRewardFlow
 	antonRewardWorkRunning    bool
-	currentRaidProfileMu      sync.Mutex
-	currentRaidProfiles       map[uint16]currentRaidProfileCacheEntry
 	nextRaidSeq               uint32
 	packetLog                 *packetLogger
 	packetLogDisabled         atomic.Bool
