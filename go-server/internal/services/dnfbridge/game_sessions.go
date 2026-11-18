@@ -16,6 +16,9 @@ type boundGameSessionCharacter struct {
 
 func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) {
 	if session != nil {
+		session.peerBuffInspectMu.Lock()
+		session.peerBuffInspectCursor = peerBuffInspectionCursor{}
+		session.peerBuffInspectMu.Unlock()
 		session.clearTownDisplayPeers()
 		session.townMu.Lock()
 		resetCurrentTownEnterSelectSceneLocked(session)
