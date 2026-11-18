@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	repo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/secretshop"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -32,7 +33,9 @@ func realSecretShopFixture(t *testing.T) (*blackDiamondShopFixture, *runtimeDung
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.service.secretShops.once.Do(func() { f.service.secretShops.catalog = catalog })
+	f.service.secretShops.mu.Lock()
+	f.service.secretShops.catalog = catalog
+	f.service.secretShops.mu.Unlock()
 	f.service.dungeonChoice = func(int) (int, error) { return 0, nil }
 	return f, r, catalog
 }
@@ -70,6 +73,222 @@ func TestRealSecretShopBlackDiamondFourRowsAndDoubleStock(t *testing.T) {
 	}
 	if len(shopPackets(t, f.service, f.connection, 279)) != 1 {
 		t.Fatal("appearance replay rerolled/resent")
+	}
+}
+
+func TestRealSecretShopPositiveWeightLevelFallbackAndDungeonOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		dungeonID uint32
+	}{
+		{name: "level_fallback", dungeonID: 50},
+		{name: "dungeon_override", dungeonID: 7155},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, r, catalog := realSecretShopFixture(t)
+			r.Dungeon.ID = int64(tc.dungeonID)
+			r.Dungeon.Metadata.BasisLevel = worldmap.OptionalInt{Value: 89, Set: true}
+			r.entryCharacterLevel = 89
+
+			weights, err := catalog.WeightPairs(tc.dungeonID, 89, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			offset := 0
+			weight1003 := 0
+			total := 0
+			for _, v := range weights {
+				if v.NPCID == 1003 {
+					weight1003 = int(v.Weight)
+					break
+				}
+				offset += int(v.Weight)
+			}
+			for _, v := range weights {
+				total += int(v.Weight)
+			}
+			if weight1003 != 500 || total != 10000 {
+				t.Fatalf("dungeon %d weight 1003=%d total=%d, want 500/10000", tc.dungeonID, weight1003, total)
+			}
+			f.service.dungeonChoice = func(limit int) (int, error) {
+				if offset >= limit {
+					t.Fatalf("1003 offset %d outside roll bound %d", offset, limit)
+				}
+				v := offset
+				offset = 0
+				return v, nil
+			}
+			f.connection.write.Reset()
+			if err = f.service.completeCurrentDungeonBossDieCheckLocked(f.session, r, "secret_shop_positive_probe"); err != nil {
+				t.Fatal(err)
+			}
+			if r.secretShop == nil || r.secretShop.Encounter.NPCID != 1003 || len(r.secretShop.Rows) != 2 {
+				t.Fatalf("positive offer dungeon=%d: %+v", tc.dungeonID, r.secretShop)
+			}
+			if r.secretShop.Encounter.Members[19] {
+				t.Fatal("fixture unexpectedly used black-diamond enhancement")
+			}
+			npcs := shopPackets(t, f.service, f.connection, 279)
+			shelves := shopPackets(t, f.service, f.connection, 280)
+			if len(npcs) != 1 || binary.LittleEndian.Uint32(npcs[0]) != 1003 || len(shelves) != 1 || binary.LittleEndian.Uint32(shelves[0]) != 2 {
+				t.Fatalf("positive packets dungeon=%d npc=%x shelves=%x", tc.dungeonID, npcs, shelves)
+			}
+		})
+	}
+}
+
+type secretShopFailOnceSource struct {
+	dnfpvf.Source
+	failed bool
+}
+
+func (s *secretShopFailOnceSource) ReadText(relativePath string) (string, error) {
+	if !s.failed && relativePath == secretshop.PVFPath {
+		s.failed = true
+		return "", errors.New("transient secret-shop read")
+	}
+	return s.Source.ReadText(relativePath)
+}
+
+func TestCurrentSecretShopCatalogRetriesTransientRead(t *testing.T) {
+	f, _, _ := realSecretShopFixture(t)
+	source := &secretShopFailOnceSource{Source: f.shop.items.source}
+	f.service.dungeonMonsterTable = &pvfDungeonMonsterCatalog{source: source}
+	f.service.secretShops.mu.Lock()
+	f.service.secretShops.catalog = nil
+	f.service.secretShops.mu.Unlock()
+	if _, err := f.service.currentSecretShopCatalog(); err == nil {
+		t.Fatal("transient catalog read was not surfaced")
+	}
+	catalog, err := f.service.currentSecretShopCatalog()
+	if err != nil || catalog == nil || !source.failed {
+		t.Fatalf("catalog retry failed: catalog=%t err=%v", catalog != nil, err)
+	}
+}
+
+func TestRealSecretShopCandidateFailureRetriesFrozenEncounter(t *testing.T) {
+	f, r, catalog := realSecretShopFixture(t)
+	r.Dungeon.ID = 7155
+	r.Dungeon.Metadata.BasisLevel = worldmap.OptionalInt{Value: 89, Set: true}
+	r.entryCharacterLevel = 89
+	weights, err := catalog.WeightPairs(7155, 89, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offset := 0
+	for _, v := range weights {
+		if v.NPCID == 1003 {
+			break
+		}
+		offset += int(v.Weight)
+	}
+	calls := 0
+	rolledNPC := 0
+	f.service.dungeonChoice = func(limit int) (int, error) {
+		calls++
+		if limit == 10000 {
+			rolledNPC++
+			if rolledNPC > 1 {
+				t.Fatal("retry rerolled the frozen NPC encounter")
+			}
+			return offset, nil
+		}
+		if calls == 2 {
+			return limit, nil // Simulate one transient candidate-read failure.
+		}
+		return 0, nil
+	}
+	scene, _ := r.Session.Scene()
+	f.connection.write.Reset()
+	if err = f.service.offerCurrentSecretShopLocked(f.session, r, scene); err == nil {
+		t.Fatal("candidate failure was not surfaced for retry")
+	}
+	if r.secretShopChecked || r.secretShopEncounter == nil || r.secretShopEncounter.NPCID != 1003 {
+		t.Fatalf("failed build consumed the encounter: checked=%t encounter=%+v", r.secretShopChecked, r.secretShopEncounter)
+	}
+	frozen := r.secretShopEncounter
+	op46 := make([]byte, currentDungeonPlayResultBaseSize)
+	if err = f.service.handleDungeonSetPlayResult(f.session, op46); err != nil {
+		t.Fatal(err)
+	}
+	if r.secretShopEncounter != frozen || r.secretShop == nil || len(r.secretShop.Rows) != 2 {
+		t.Fatalf("retry did not complete the frozen encounter: encounter=%p shop=%+v", frozen, r.secretShop)
+	}
+	if npcs, shelves := shopPackets(t, f.service, f.connection, 279), shopPackets(t, f.service, f.connection, 280); len(npcs) != 1 || len(shelves) != 1 {
+		t.Fatalf("retry packets npc=%x shelves=%x", npcs, shelves)
+	}
+}
+
+type secretShopTransientCharacterRepository struct {
+	repo.CharacterRepository
+	fail bool
+}
+
+func (r *secretShopTransientCharacterRepository) Load(ctx context.Context, id string) (repo.CharacterRecord, bool, error) {
+	if r.fail {
+		r.fail = false
+		return repo.CharacterRecord{}, false, errors.New("transient character read")
+	}
+	return r.CharacterRepository.Load(ctx, id)
+}
+
+func TestRealSecretShopTransientStockRestoreRetriesFrozenQuoteAndOpen(t *testing.T) {
+	f, r, catalog := realSecretShopFixture(t)
+	r.Dungeon.ID = 7155
+	r.Dungeon.Metadata.BasisLevel = worldmap.OptionalInt{Value: 89, Set: true}
+	r.entryCharacterLevel = 89
+	weights, err := catalog.WeightPairs(7155, 89, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offset := 0
+	for _, v := range weights {
+		if v.NPCID == 1003 {
+			break
+		}
+		offset += int(v.Weight)
+	}
+	character := &secretShopTransientCharacterRepository{CharacterRepository: f.repositories.Character}
+	rolled := 0
+	f.service.dungeonChoice = func(limit int) (int, error) {
+		if limit == 10000 {
+			character.fail = true
+			rolled++
+			if rolled > 1 {
+				t.Fatal("stock retry rerolled the NPC encounter")
+			}
+			return offset, nil
+		}
+		return 0, nil
+	}
+	f.repositories.Character = character
+	f.service.repositoryProvider = func() (repo.Group, bool) { return f.repositories, true }
+	scene, _ := r.Session.Scene()
+	f.connection.write.Reset()
+	if err = f.service.offerCurrentSecretShopLocked(f.session, r, scene); err == nil {
+		t.Fatal("stock restore failure was not surfaced")
+	}
+	if !r.secretShopChecked || r.secretShop == nil || r.secretShop.Sent || r.secretShop.Encounter.NPCID != 1003 {
+		t.Fatalf("built quote was not retained for retry: %+v", r.secretShop)
+	}
+	frozen := r.secretShop
+	op46 := make([]byte, currentDungeonPlayResultBaseSize)
+	if err = f.service.handleDungeonSetPlayResult(f.session, op46); err != nil {
+		t.Fatal(err)
+	}
+	if r.secretShop != frozen || rolled != 1 {
+		t.Fatal("stock retry replaced the frozen quote")
+	}
+	for i := 0; i < 2; i++ {
+		if err = f.service.handleCurrentSecretShop(f.session, gameplayRequest{Opcode: 297, Body: []byte{1}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !frozen.Open {
+		t.Fatal("repeated open did not remain open")
+	}
+	if npcs, shelves := shopPackets(t, f.service, f.connection, 279), shopPackets(t, f.service, f.connection, 280); len(npcs) != 1 || len(shelves) != 1 {
+		t.Fatalf("retry/open packets npc=%x shelves=%x", npcs, shelves)
 	}
 }
 

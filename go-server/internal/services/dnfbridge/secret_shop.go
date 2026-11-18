@@ -18,9 +18,8 @@ import (
 // and 22-byte rows. CMD296 buys by item ID and quantity; CMD297 opens/closes.
 // The switch must only be enabled with the native shelf-vector repair.
 type currentSecretShopCatalogState struct {
-	once    sync.Once
+	mu      sync.Mutex
 	catalog *secretshop.Catalog
-	err     error
 }
 type currentSecretShopEncounter struct {
 	NPCID    uint32
@@ -48,15 +47,21 @@ func (s *Service) blackDiamondSecretShopEnabled() bool {
 }
 
 func (s *Service) currentSecretShopCatalog() (*secretshop.Catalog, error) {
-	s.secretShops.once.Do(func() {
-		items, err := s.dungeonMonsterCatalog()
-		if err != nil {
-			s.secretShops.err = err
-			return
-		}
-		s.secretShops.catalog, s.secretShops.err = secretshop.Load(items.source)
-	})
-	return s.secretShops.catalog, s.secretShops.err
+	s.secretShops.mu.Lock()
+	defer s.secretShops.mu.Unlock()
+	if s.secretShops.catalog != nil {
+		return s.secretShops.catalog, nil
+	}
+	items, err := s.dungeonMonsterCatalog()
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := secretshop.Load(items.source)
+	if err != nil {
+		return nil, err
+	}
+	s.secretShops.catalog = catalog
+	return catalog, nil
 }
 
 func currentSecretShopEligible(runtime *runtimeDungeonState) bool {
@@ -76,10 +81,11 @@ func (s *Service) secretShopRoll(limit uint32) (uint32, error) {
 
 // Caller owns only this actor's dungeon lock. Repository reads precede the
 // party-instance lock; peer work is posted to its bounded actor queue.
-func (s *Service) offerCurrentSecretShopLocked(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene) error {
+func (s *Service) offerCurrentSecretShopLocked(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene) (offerErr error) {
 	if !s.blackDiamondSecretShopEnabled() || session == nil || session.dungeon.runtime != runtime || !currentSecretShopEligible(runtime) || !dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) {
 		return nil
 	}
+	defer func() { runtime.secretShopRetryPending = offerErr != nil }()
 	if runtime.secretShopChecked {
 		return s.sendCurrentSecretShopLocked(session, runtime)
 	}
@@ -110,11 +116,13 @@ func (s *Service) offerCurrentSecretShopLocked(session *gameSession, runtime *ru
 			count++
 		}
 	}
-	var encounter *currentSecretShopEncounter
+	encounter := runtime.secretShopEncounter
 	var recipients []*gameSession
 	if instance != nil {
 		instance.mu.Lock()
-		encounter = instance.secretShopEncounter
+		if encounter == nil {
+			encounter = instance.secretShopEncounter
+		}
 	}
 	if encounter == nil {
 		level := int(runtime.Dungeon.Metadata.BasisLevel.Value)
@@ -148,16 +156,15 @@ func (s *Service) offerCurrentSecretShopLocked(session *gameSession, runtime *ru
 	if instance != nil {
 		instance.mu.Unlock()
 	}
-	runtime.secretShopChecked = true
+	runtime.secretShopEncounter = encounter
 	black, present := encounter.Members[session.selectedCharacterID]
 	if present && encounter.NPCID != secretshop.DefaultNPCID {
-		shop, buildErr := s.frozenCurrentSecretShop(catalog, encounter, runtime, scene, black, session.selectedCharacterID)
-		if buildErr != nil {
-			return buildErr
-		}
-		runtime.secretShop = shop
+		runtime.secretShop, err = s.frozenCurrentSecretShop(catalog, encounter, runtime, scene, black, session.selectedCharacterID)
 	}
-	selfErr := s.sendCurrentSecretShopLocked(session, runtime)
+	if err == nil {
+		runtime.secretShopChecked = true
+		err = s.sendCurrentSecretShopLocked(session, runtime)
+	}
 	for _, peer := range recipients {
 		identity, bound := s.boundGameSessionCharacterSnapshot(peer)
 		if !bound {
@@ -180,7 +187,19 @@ func (s *Service) offerCurrentSecretShopLocked(session *gameSession, runtime *ru
 			s.logGameEvent(peer, "secret-shop-peer-deferred", "error", postErr)
 		}
 	}
-	return selfErr
+	return err
+}
+
+// A settlement request is a natural retry point for a frozen encounter that
+// could not build or send during the clear packet. It never rolls a new NPC.
+func (s *Service) retryPendingCurrentSecretShopLocked(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene) {
+	if !runtime.secretShopRetryPending {
+		return
+	}
+	if err := s.offerCurrentSecretShopLocked(session, runtime, scene); err != nil {
+		s.logGameEvent(session, "secret-shop-settlement-retry-deferred", "dungeon_id", runtime.Dungeon.ID, "error", err)
+	}
+	runtime.secretShopRetryPending = false
 }
 
 // A party encounter can survive one member's transport/runtime replacement.
