@@ -272,6 +272,24 @@ func TestGuildFingerprintDisposableMySQL(t *testing.T) {
 	if err := EnsureGuildSnapshotFingerprint(ctx, db, schema); err != nil {
 		t.Fatal("installer lock leaked", err)
 	}
+	// A different live owner must still exclude the installer after the handoff wait.
+	holder, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	var acquired int
+	if err := holder.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lockName).Scan(&acquired); err != nil || acquired != 1 {
+		t.Fatal("fixture could not take installer lock", acquired, err)
+	}
+	blocked := EnsureGuildSnapshotFingerprint(ctx, db, schema)
+	var released int
+	if err := holder.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", lockName).Scan(&released); err != nil || released != 1 {
+		t.Fatal("installer displaced live owner", released, err)
+	}
+	if !errors.Is(blocked, ErrGuildFingerprintSchema) {
+		t.Fatal("concurrent installer must report a busy schema", blocked)
+	}
 	// Ordinary SELECT-only credentials retain the legacy reader without
 	// requiring a TRIGGER grant or access to the optional sidecar.
 	user := fmt.Sprintf("gf_reader_%d", time.Now().UnixNano())
