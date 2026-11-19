@@ -336,7 +336,7 @@ func logCurrentSentinelDeathShape(
 	runtime *runtimeDungeonState,
 	request dungeoncmd.DieMonsterRequest,
 ) {
-	if s == nil || session == nil {
+	if s == nil || session == nil || !s.verboseDiagnosticsEnabled() {
 		return
 	}
 	playerKey := currentSceneActorObjectKey(session.selectedCharacterID)

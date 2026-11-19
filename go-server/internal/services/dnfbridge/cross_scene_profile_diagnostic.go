@@ -6,6 +6,9 @@ func (s *Service) logCrossSceneProfileDiagnostic(kind string, fields ...any) {
 	if !isCrossSceneProfileDiagnostic(kind) {
 		return
 	}
+	if !s.verboseDiagnosticsEnabled() && !isAbnormalRaidPeerDiagnostic(kind, fields) {
+		return
+	}
 	args := []any{"kind", kind}
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)

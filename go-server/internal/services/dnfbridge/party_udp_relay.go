@@ -412,12 +412,14 @@ type currentPartyUDPRelay struct {
 
 	logWarn func(string, ...any)
 
-	// viaPort 是 DNFBRIDGE_PARTY_UDP_RELAY_VIA_PORT 的归一化结果（**0 = off = 现行为**）。
-	//
-	// >0 时中继换一种拓扑：op11 通告给两端的不再是**各自的腿口**，而是这个**共享端口**
-	// （现场取 2312 = 客户端唯一持续保活的那个 UDP 端口），P2P 载荷也从这个端口收发。
-	// 现场依据与边界见 party_udp_relay_via_port.go。
+	// viaPort >0 = 用共享端口替代定向腿口（见 currentPartyUDPRelay.viaPort）。
 	viaPort int
+
+	socketBufferBytes       int
+	lastEffectiveRcvbuf     atomic.Int64
+	lastEffectiveSndbuf     atomic.Int64
+	loggedSocketBufferClamp atomic.Bool
+	loggedSocketBufferIssue atomic.Bool
 }
 
 // currentPartyUDPRelaySettings 是 currentPartyUDPRelay 的全部构造参数。
@@ -445,7 +447,8 @@ type currentPartyUDPRelaySettings struct {
 	prepareStalledPeer     func(uint16, currentPartyUDPRelayBinding) *partyUDPRelayRecoveryPlan
 	logWarn                func(string, ...any)
 	// viaPort >0 = 用共享端口替代定向腿口（见 currentPartyUDPRelay.viaPort）。
-	viaPort int
+	viaPort           int
+	socketBufferBytes int
 }
 
 func newCurrentPartyUDPRelay(enabled bool, advertiseIP string, portStart, portCount int, logWarn func(string, ...any)) (*currentPartyUDPRelay, error) {
@@ -512,6 +515,7 @@ func newCurrentPartyUDPRelayWithSettings(settings currentPartyUDPRelaySettings) 
 		onSilentPeer:           settings.onSilentPeer,
 		prepareStalledPeer:     settings.prepareStalledPeer,
 		viaPort:                settings.viaPort,
+		socketBufferBytes:      settings.socketBufferBytes,
 		logWarn:                logWarn,
 		done:                   make(chan struct{}),
 	}
@@ -829,6 +833,7 @@ func (r *currentPartyUDPRelay) newLegLockedPass(key currentPartyUDPRelayLegKey, 
 		if err != nil {
 			continue
 		}
+		r.applySocketBuffer(conn, port, "relay_leg")
 		r.usedPorts[port] = struct{}{}
 		if r.portOwners == nil {
 			r.portOwners = make(map[int]currentPartyUDPRelayLegKey)

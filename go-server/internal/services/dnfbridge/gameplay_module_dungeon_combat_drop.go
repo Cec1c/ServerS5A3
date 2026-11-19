@@ -70,12 +70,13 @@ func legacyDungeonDiscardGameplayHandler(
 	); handled || err != nil {
 		return err
 	}
-	service.logInfo("dnfbridge unhandled latest game command",
-		"cmd", byte(dnfenum.GameCmdCommand),
-		"type", request.Opcode,
-		"runtime_cmd_name", dnfenum.CmdPacketName(request.Opcode),
-		"runtime_cmd_known", dnfenum.IsKnownCmdPacket(request.Opcode),
-		"body_len", len(request.Body))
+	service.logUnhandledGameCommand(
+		byte(dnfenum.GameCmdCommand),
+		request.Opcode,
+		len(request.Body),
+		func() string { return dnfenum.CmdPacketName(request.Opcode) },
+		func() bool { return dnfenum.IsKnownCmdPacket(request.Opcode) },
+	)
 	return nil
 }
 
@@ -85,11 +86,13 @@ func upperDungeonDiscardGameplayHandler(
 	request gameplayRequest,
 ) error {
 	if request.Classification != dnfproto.DefaultChannelClassification {
-		service.logInfo("dnfbridge unhandled latest upper packet",
-			"msg_id", request.Opcode,
-			"runtime_cmd_name", "",
-			"runtime_cmd_known", false,
-			"body_len", len(request.Body))
+		service.logUnhandledUpperPacket(
+			request.Classification,
+			request.Opcode,
+			len(request.Body),
+			func() string { return "" },
+			func() bool { return false },
+		)
 		return nil
 	}
 	if handled, err := service.handleCurrentDungeonDiscard(session, request.Body); handled || err != nil {
@@ -114,10 +117,12 @@ func upperDungeonDiscardGameplayHandler(
 			"reason", "unlisted_upper_command_routed_to_server_aligned_owner")
 		return nil
 	}
-	service.logInfo("dnfbridge unhandled latest upper packet",
-		"msg_id", request.Opcode,
-		"runtime_cmd_name", dnfenum.CmdPacketName(request.Opcode),
-		"runtime_cmd_known", dnfenum.IsKnownCmdPacket(request.Opcode),
-		"body_len", len(request.Body))
+	service.logUnhandledUpperPacket(
+		request.Classification,
+		request.Opcode,
+		len(request.Body),
+		func() string { return dnfenum.CmdPacketName(request.Opcode) },
+		func() bool { return dnfenum.IsKnownCmdPacket(request.Opcode) },
+	)
 	return nil
 }

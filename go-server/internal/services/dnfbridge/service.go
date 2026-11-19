@@ -146,6 +146,8 @@ type Service struct {
 	nextRaidSeq               uint32
 	packetLog                 *packetLogger
 	packetLogDisabled         atomic.Bool
+	unhandledOpcodeSeen       sync.Map
+	unhandledOpcodeCount      atomic.Int32
 	partyUDPRelay             *currentPartyUDPRelay
 	// partyUDPRelayRemote 是 remote 档（厂商架构）的控制通道客户端：
 	// 注册到独立进程 a21-relay 换取端口矩阵，本进程不 bind 任何中继 UDP 端口。
@@ -601,6 +603,18 @@ func (s *Service) Start(ctx context.Context) error {
 			"value", raw,
 			"fallback", cloneAvatarAppearanceOn)
 	}
+	if s.options.verboseDiagnosticsEnvBad {
+		s.logInfo("dnfbridge verbose diagnostics mode invalid; using default",
+			"env", verboseDiagnosticsEnv,
+			"value", s.options.verboseDiagnosticsEnvRaw,
+			"fallback", "off")
+	}
+	if s.options.partyUDPSocketBufferEnvBad {
+		s.logInfo("dnfbridge party UDP socket buffer invalid; using default",
+			"env", partyUDPSocketBufferBytesEnv,
+			"value", s.options.partyUDPSocketBufferEnvRaw,
+			"fallback", defaultPartyUDPSocketBufferBytes)
+	}
 	s.logInfo("dnfbridge started",
 		"channel_listen", s.options.channelListen,
 		"channel_info", s.options.channelInfoFile,
@@ -859,7 +873,9 @@ func (s *Service) Start(ctx context.Context) error {
 		// 透传移动方 op35 上报的值（修复档，观者看到的移动速度与移动方本机一致）；
 		// legacy/0/off/false/no = 逐字节回到恒写 currentTownInitialMovementRate。
 		// 证据与厂商对照见 initial_town_location_notifications.go。
-		"town_peer_motion_state", currentTownPeerMotionStateMode())
+		"town_peer_motion_state", currentTownPeerMotionStateMode(),
+		"verbose_diagnostics", s.verboseDiagnosticsEnabled(),
+		"party_udp_socket_buffer_bytes", s.options.partyUDPSocketBufferBytes)
 	s.startLocalLoginTokens()
 	return nil
 }
