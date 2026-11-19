@@ -309,5 +309,108 @@ func TestGuildFingerprintDisposableMySQL(t *testing.T) {
 	if ok, err := GuildSnapshotFingerprintReady(ctx, adapter, uninstalledRead); err != nil || ok {
 		t.Fatal("uninstalled read shard trusted", ok, err)
 	}
-	t.Log("legacy inserts/updates/upserts/replaces/deletes, RR, rollback, partial install, wrong definition and concurrent backfill passed")
+	// Verify TRUNCATE of values table with an injected orphan sidecar row never exposes the stale fingerprint.
+	exec("TRUNCATE TABLE " + spec.values)
+	exec("INSERT INTO "+spec.table+" (scope, fingerprint) VALUES (?, ?) ON DUPLICATE KEY UPDATE fingerprint=VALUES(fingerprint)", r.GuildRegistryScope, strings.Repeat("a", 64))
+	check()
+	if orphanDigest, orphanFound := read(fast); !orphanFound || orphanDigest != "" {
+		t.Fatalf("orphan sidecar leaked after TRUNCATE: digest=%q found=%t", orphanDigest, orphanFound)
+	}
+	// Verify M4-a off-page avoidance: 120 KiB LONGTEXT payload in dnf_setting_values
+	// must record pages_accessed=1 on the values table under ANALYZE FORMAT=JSON.
+	bigValue := strings.Repeat("G", 120*1024)
+	exec("INSERT INTO "+spec.values+" (scope, entry_key, entry_value) VALUES (?, 'guild:big', ?)", r.GuildRegistryScope, bigValue)
+	var analyzeJSON string
+	analyzeSQL := "ANALYZE FORMAT=JSON SELECT EXISTS(SELECT 1 FROM " + spec.values + " WHERE scope = ? LIMIT 1), f.fingerprint " +
+		"FROM (SELECT 1) AS one LEFT JOIN " + spec.table + " f ON f.scope = ?"
+	if err := db.QueryRowContext(ctx, analyzeSQL, r.GuildRegistryScope, r.GuildRegistryScope).Scan(&analyzeJSON); err != nil {
+		t.Fatalf("analyze two-phase fingerprint query: %v", err)
+	}
+	if strings.Contains(analyzeJSON, `"pages_accessed": 0`) || strings.Contains(analyzeJSON, `"pages_accessed": 1`) {
+		t.Logf("two-phase guild fingerprint ANALYZE verified single-page/index probe without LONGTEXT overflow scan")
+	} else {
+		t.Fatalf("unexpected off-page scan in two-phase guild fingerprint ANALYZE: %s", analyzeJSON)
+	}
+	t.Log("legacy inserts/updates/upserts/replaces/deletes, RR, rollback, partial install, wrong definition, orphan TRUNCATE guard and concurrent backfill passed")
+}
+
+func TestWeddingFieldsReadZeroTmpTablesDisposableMySQL(t *testing.T) {
+	if os.Getenv("DNF_RUNTIME_DISPOSABLE_DB") != "1" {
+		t.Fatal("requires disposable database")
+	}
+	cfg, err := driver.ParseDSN(os.Getenv("DNFBRIDGE_PLAYER_TEST_DSN"))
+	if err != nil || cfg.Net != "tcp" || cfg.DBName != "" {
+		t.Fatal("requires isolated DSN")
+	}
+	host, _, err := net.SplitHostPort(cfg.Addr)
+	if err != nil || host != "127.0.0.1" {
+		t.Fatal("requires loopback")
+	}
+	cfg.ParseTime = true
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	name := fmt.Sprintf("wedding_split_%d", time.Now().UnixNano())
+	defer db.Exec("DROP DATABASE IF EXISTS `" + name + "`")
+	plan := r.DatabasePlan{ReadDatabases: []string{name}, WriteDatabases: []string{name}}
+	if err := EnsureMySQLSchema(ctx, db, SchemaOptions{AutoCreate: true, CreateDatabases: true, DatabasePlan: plan}); err != nil {
+		t.Fatal(err)
+	}
+	group, err := NewMySQLGroupFromDB(db, MySQLGroupOptions{DatabasePlan: plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats := make(map[string]int64, 80)
+	for i := 0; i < 75; i++ {
+		stats[fmt.Sprintf("stat_%03d", i)] = int64(i + 1)
+	}
+	if err := group.Character.Save(ctx, r.CharacterRecord{
+		CharacterID: "2634",
+		AccountID:   "dnf:wedding",
+		Name:        "bride",
+		Job:         "1",
+		Level:       86,
+		Stats:       stats,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO `"+name+"`.`dnf_character_stats` (character_id, stat_key, stat_value) VALUES (?, ?, ?), (?, ?, ?) "+
+			"ON DUPLICATE KEY UPDATE stat_value=VALUES(stat_value)",
+		"2634", "wedding_v1_partner_id", 8888,
+		"2634", "wedding_v1_ring_level", 3,
+	); err != nil {
+		t.Fatal(err)
+	}
+	reader, ok := group.Character.(r.CharacterWeddingReader)
+	if !ok {
+		t.Fatal("CharacterRepository does not implement CharacterWeddingReader")
+	}
+	readTmpTables := func() int64 {
+		var varName string
+		var val int64
+		if err := db.QueryRowContext(ctx, "SHOW SESSION STATUS LIKE 'Created_tmp_tables'").Scan(&varName, &val); err != nil {
+			t.Fatal(err)
+		}
+		return val
+	}
+	beforeTmp := readTmpTables()
+	for i := 0; i < 20; i++ {
+		snap, found, err := reader.LoadCharacterWedding(ctx, "2634")
+		if err != nil || !found || snap.AccountID != "dnf:wedding" ||
+			snap.Stats["wedding_v1_partner_id"] != 8888 || snap.Stats["wedding_v1_ring_level"] != 3 || len(snap.Stats) != 2 {
+			t.Fatalf("LoadCharacterWedding mismatch: found=%v err=%v snap=%+v", found, err, snap)
+		}
+	}
+	afterTmp := readTmpTables()
+	if afterTmp != beforeTmp {
+		t.Fatalf("LoadCharacterWedding created %d temporary tables across 20 reads, want 0", afterTmp-beforeTmp)
+	}
 }

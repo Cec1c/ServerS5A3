@@ -63,3 +63,51 @@ func TestMySQLWeddingNamespaceExcludedFromStatsDelta(t *testing.T) {
 		t.Fatalf("delta overwrote wedding namespace: %+v", db.execs)
 	}
 }
+
+func TestLoadCharacterWeddingSplitQueriesPreserveSemanticsAndLocks(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("missing-character-stops-after-pk-lookup", func(t *testing.T) {
+		db := &fakeSQLDB{}
+		store := &mysqlCharStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: db, readDBs: []string{"dnf_local"}, writeDBs: []string{"dnf_local"}, tablePrefix: "dnf"}}}
+		snap, found, err := store.LoadCharacterWedding(ctx, "404")
+		if err != nil || found || snap.CharacterID != "" {
+			t.Fatalf("expected missing character, got snap=%+v found=%t err=%v", snap, found, err)
+		}
+		if len(db.execs) != 1 || strings.Contains(db.execs[0].Query, "LEFT JOIN") {
+			t.Fatalf("unexpected queries: %+v", db.execs)
+		}
+	})
+
+	t.Run("character-without-wedding-stats-returns-found-empty-map", func(t *testing.T) {
+		db := &fakeSQLDB{
+			rows: []fakeSQLRow{{values: []any{"101", "dnf:1"}}},
+		}
+		store := &mysqlCharStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: db, readDBs: []string{"dnf_local"}, writeDBs: []string{"dnf_local"}, tablePrefix: "dnf", lockReads: true}}}
+		snap, found, err := store.LoadCharacterWedding(ctx, "101")
+		if err != nil || !found || snap.CharacterID != "101" || snap.AccountID != "dnf:1" || snap.Stats == nil || len(snap.Stats) != 0 {
+			t.Fatalf("unexpected empty-stats snapshot: %+v found=%t err=%v", snap, found, err)
+		}
+		if len(db.execs) != 2 {
+			t.Fatalf("expected 2 queries, got %d: %+v", len(db.execs), db.execs)
+		}
+		for i, call := range db.execs {
+			if strings.Contains(call.Query, "LEFT JOIN") || !strings.HasSuffix(call.Query, " FOR UPDATE") {
+				t.Fatalf("query %d lost split or lock semantics: %s", i, call.Query)
+			}
+		}
+	})
+
+	t.Run("character-with-wedding-stats-loads-namespace", func(t *testing.T) {
+		db := &fakeSQLDB{
+			rows:    []fakeSQLRow{{values: []any{"101", "dnf:1"}}},
+			rowsets: []fakeSQLRows{{rows: []fakeSQLRow{{values: []any{"wedding_v1_partner", int64(202)}}, {values: []any{"wedding_v1_love_points", int64(520)}}}}},
+		}
+		store := &mysqlCharStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: db, readDBs: []string{"dnf_local"}, writeDBs: []string{"dnf_local"}, tablePrefix: "dnf"}}}
+		snap, found, err := store.LoadCharacterWedding(ctx, "101")
+		want := map[string]int64{"wedding_v1_partner": 202, "wedding_v1_love_points": 520}
+		if err != nil || !found || snap.CharacterID != "101" || snap.AccountID != "dnf:1" || !reflect.DeepEqual(snap.Stats, want) {
+			t.Fatalf("unexpected snapshot: %+v found=%t err=%v", snap, found, err)
+		}
+	})
+}

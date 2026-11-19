@@ -309,9 +309,11 @@ func (s *Service) sendCurrentGuildRosterDisplay(ctx context.Context, bound bound
 	if g != nil {
 		members = len(g.Members)
 	}
-	s.logInfo("dnfbridge guild roster response", "conn_id", session.connID,
-		"char_id", session.selectedCharacterID, "opcode", opcode,
-		"members", members, "online", len(online), "full", full, "cursor", cursor)
+	if s.verboseDiagnosticsEnabled() {
+		s.logInfo("dnfbridge guild roster response", "conn_id", session.connID,
+			"char_id", session.selectedCharacterID, "opcode", opcode,
+			"members", members, "online", len(online), "full", full, "cursor", cursor)
+	}
 	buildStart := s.performanceStart()
 	body := buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID()))
 	s.performanceEnd(perfGuildProjectionBuild, buildStart, nil)

@@ -64,6 +64,12 @@ func (s *mysqlSettingsStore) GuildSnapshotNamespace() *r.GuildSnapshotNamespace 
 }
 
 func (s *mysqlSettingsStore) LoadGuildSnapshotRevision(ctx context.Context) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
 	table, err := s.router.readTable(mysqlSettingsTable, r.GuildRegistryScope)
 	if err != nil {
 		return "", false, err
@@ -72,27 +78,98 @@ func (s *mysqlSettingsStore) LoadGuildSnapshotRevision(ctx context.Context) (str
 	if err != nil {
 		return "", false, err
 	}
-	var digest sql.NullString
 	// Fingerprinting the exact source also observes GM/legacy writers and
 	// equal timestamps. Only the fixed-size digest crosses the SQL connection.
-	query := "SELECT SHA2(v.entry_value, 256) FROM " + table + " s LEFT JOIN " + values + " v ON v.scope=s.scope AND v.entry_key='state' WHERE s.scope = ?"
-	if s.router.storedGuildFingerprint {
-		fingerprints, tableErr := s.router.readTable(guildFingerprintTable, r.GuildRegistryScope)
-		if tableErr != nil {
-			return "", false, tableErr
-		}
-		// Source deletion/TRUNCATE cannot expose an orphan sidecar. Missing
-		// sidecar facts use the exact source rather than an empty registry.
-		query = "SELECT COALESCE(f.fingerprint,CAST(SHA2(v.entry_value, 256) AS BINARY)) FROM " + table + " s LEFT JOIN " + values + " v ON v.scope=s.scope AND v.entry_key='state' LEFT JOIN " + fingerprints + " f ON f.scope=v.scope WHERE s.scope = ?"
+	sourceQuery := "SELECT SHA2(v.entry_value, 256) FROM " + table + " s LEFT JOIN " + values + " v ON v.scope=s.scope AND v.entry_key='state' WHERE s.scope = ?"
+	if !s.router.storedGuildFingerprint {
+		return scanGuildSnapshotSourceDigest(ctx, s.router.db, sourceQuery)
 	}
-	err = s.router.db.QueryRowContext(ctx, query, r.GuildRegistryScope).Scan(&digest)
-	if err != nil && s.router.storedGuildFingerprint {
+	fingerprints, tableErr := s.router.readTable(guildFingerprintTable, r.GuildRegistryScope)
+	if tableErr != nil {
+		return "", false, tableErr
+	}
+
+	execDB := s.router.db
+	var readTx *observedSQLTransaction
+	if _, inTx := execDB.(sqlTransactionDB); !inTx {
+		if beginner, ok := execDB.(sqlTxBeginner); ok {
+			tx, txErr := beginObservedSQLTransaction(ctx, beginner, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+			if txErr != nil {
+				return "", false, txErr
+			}
+			readTx = tx
+			defer readTx.Rollback()
+			execDB = newSQLTransactionDB(readTx.Tx, s.router.db)
+		}
+	}
+
+	// Stage 1 checks source key existence via the primary key index without
+	// touching off-page LONGTEXT chains on dnf_setting_values, while guarding
+	// against orphan sidecar rows after a source DELETE/TRUNCATE.
+	fastQuery := "SELECT EXISTS(SELECT 1 FROM " + values + " e WHERE e.scope=s.scope AND e.entry_key='state'), f.fingerprint FROM " + table + " s LEFT JOIN " + fingerprints + " f ON f.scope=s.scope WHERE s.scope = ?"
+	var hasValue bool
+	var fp sql.NullString
+	err = execDB.QueryRowContext(ctx, fastQuery, r.GuildRegistryScope).Scan(&hasValue, &fp)
+	if err != nil {
 		if guildFingerprintOptionalSchemaError(err) {
-			fallback := *s
-			fallback.router.storedGuildFingerprint = false
-			return fallback.LoadGuildSnapshotRevision(ctx)
+			digest, found, fbErr := scanGuildSnapshotSourceDigest(ctx, execDB, sourceQuery)
+			if fbErr != nil {
+				return "", false, fbErr
+			}
+			if readTx != nil {
+				if commitErr := readTx.Commit(); commitErr != nil {
+					return "", false, commitErr
+				}
+			}
+			return digest, found, nil
+		}
+		if err == sql.ErrNoRows {
+			if readTx != nil {
+				if commitErr := readTx.Commit(); commitErr != nil {
+					return "", false, commitErr
+				}
+			}
+			return "", false, nil
+		}
+		return "", false, err
+	}
+
+	var result string
+	switch {
+	case !hasValue:
+		// Settings scope row exists without a 'state' value row: match the
+		// legacy NULL digest semantics and never expose an orphan fingerprint.
+		result = ""
+	case fp.Valid:
+		result = fp.String
+	default:
+		// Stage 2 shares the same REPEATABLE READ snapshot when a sidecar row
+		// has not been populated yet.
+		var found bool
+		result, found, err = scanGuildSnapshotSourceDigest(ctx, execDB, sourceQuery)
+		if err != nil {
+			return "", false, err
+		}
+		if !found {
+			if readTx != nil {
+				if commitErr := readTx.Commit(); commitErr != nil {
+					return "", false, commitErr
+				}
+			}
+			return "", false, nil
 		}
 	}
+	if readTx != nil {
+		if commitErr := readTx.Commit(); commitErr != nil {
+			return "", false, commitErr
+		}
+	}
+	return result, true, nil
+}
+
+func scanGuildSnapshotSourceDigest(ctx context.Context, db SQLDB, query string) (string, bool, error) {
+	var digest sql.NullString
+	err := db.QueryRowContext(ctx, query, r.GuildRegistryScope).Scan(&digest)
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}

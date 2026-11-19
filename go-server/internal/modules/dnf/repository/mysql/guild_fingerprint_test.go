@@ -57,10 +57,13 @@ func TestGuildFingerprintFastReadAndMissingSchemaFallback(t *testing.T) {
 		wantQueries int
 	}{{"stored", nil, 1}, {"missing-table", &driver.MySQLError{Number: 1146}, 2}, {"missing-column", &driver.MySQLError{Number: 1054}, 2}, {"no-derived-table-grant", &driver.MySQLError{Number: 1142}, 2}, {"incompatible-derived-collation", &driver.MySQLError{Number: 1267}, 2}, {"real-failure", errors.New("read failed"), 1}} {
 		t.Run(test.name, func(t *testing.T) {
-			database := &fakeSQLDB{rows: []fakeSQLRow{{values: []any{"digest"}}}}
+			var rows []fakeSQLRow
 			if test.err != nil {
-				database.rows = append([]fakeSQLRow{{err: test.err}}, database.rows...)
+				rows = []fakeSQLRow{{err: test.err}, {values: []any{"digest"}}}
+			} else {
+				rows = []fakeSQLRow{{values: []any{true, "digest"}}}
 			}
+			database := &fakeSQLDB{rows: rows}
 			store := &mysqlSettingsStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: database, readDBs: []string{"guild_a"}, writeDBs: []string{"guild_a"}, tablePrefix: "dnf", storedGuildFingerprint: true}}}
 			digest, found, err := store.LoadGuildSnapshotRevision(context.Background())
 			if test.name == "real-failure" {
@@ -70,14 +73,43 @@ func TestGuildFingerprintFastReadAndMissingSchemaFallback(t *testing.T) {
 			} else if err != nil || !found || digest != "digest" {
 				t.Fatal(digest, found, err)
 			}
-			if len(database.execs) != test.wantQueries || !strings.Contains(database.execs[0].Query, "COALESCE(f.fingerprint,CAST(SHA2(v.entry_value, 256) AS BINARY))") {
+			if len(database.execs) != test.wantQueries || !strings.Contains(database.execs[0].Query, "SELECT EXISTS(SELECT 1 FROM") || strings.Contains(database.execs[0].Query, "entry_value") {
 				t.Fatal(database.execs)
 			}
-			if test.wantQueries == 2 && strings.Contains(database.execs[1].Query, "guild_registry_fingerprints") {
-				t.Fatal("fallback still requires sidecar")
+			if test.wantQueries == 2 && (strings.Contains(database.execs[1].Query, "guild_registry_fingerprints") || !strings.Contains(database.execs[1].Query, "SHA2(v.entry_value, 256)")) {
+				t.Fatal("fallback query invalid:", database.execs[1].Query)
 			}
 		})
 	}
+}
+
+func TestGuildFingerprintTwoPhaseOrphanGuardAndMissingSidecarFallback(t *testing.T) {
+	t.Run("orphan-sidecar-ignored-when-source-missing", func(t *testing.T) {
+		database := &fakeSQLDB{rows: []fakeSQLRow{{values: []any{false, "stale-orphan-digest"}}}}
+		store := &mysqlSettingsStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: database, readDBs: []string{"guild_a"}, writeDBs: []string{"guild_a"}, tablePrefix: "dnf", storedGuildFingerprint: true}}}
+		digest, found, err := store.LoadGuildSnapshotRevision(context.Background())
+		if err != nil || !found || digest != "" {
+			t.Fatalf("got digest=%q found=%t err=%v", digest, found, err)
+		}
+		if len(database.execs) != 1 {
+			t.Fatalf("expected 1 query, got %d", len(database.execs))
+		}
+	})
+
+	t.Run("missing-sidecar-computes-source-sha2", func(t *testing.T) {
+		database := &fakeSQLDB{rows: []fakeSQLRow{
+			{values: []any{true, nil}},
+			{values: []any{"computed-from-source"}},
+		}}
+		store := &mysqlSettingsStore{mysqlStoreBase: mysqlStoreBase{router: mysqlRouter{db: database, readDBs: []string{"guild_a"}, writeDBs: []string{"guild_a"}, tablePrefix: "dnf", storedGuildFingerprint: true}}}
+		digest, found, err := store.LoadGuildSnapshotRevision(context.Background())
+		if err != nil || !found || digest != "computed-from-source" {
+			t.Fatalf("got digest=%q found=%t err=%v", digest, found, err)
+		}
+		if len(database.execs) != 2 || !strings.Contains(database.execs[1].Query, "SHA2(v.entry_value, 256)") {
+			t.Fatalf("unexpected queries: %+v", database.execs)
+		}
+	})
 }
 
 func TestGuildFingerprintOptionalMetadataFallback(t *testing.T) {

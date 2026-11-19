@@ -551,11 +551,13 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 				return nil
 			}
 		}
-		s.logInfo("dnfbridge unhandled latest upper packet",
-			"msg_id", packet.Header.MsgID,
-			"runtime_cmd_name", runtimeName,
-			"runtime_cmd_known", runtimeKnown,
-			"body_len", len(packet.Body))
+		s.logUnhandledUpperPacket(
+			packet.Header.Classification,
+			packet.Header.MsgID,
+			len(packet.Body),
+			func() string { return runtimeName },
+			func() bool { return runtimeKnown },
+		)
 		return nil
 	}
 }

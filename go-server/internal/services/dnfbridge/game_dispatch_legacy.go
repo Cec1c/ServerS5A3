@@ -458,12 +458,13 @@ func (s *Service) handleGameLegacyFallbackCommand(session *gameSession, cmd byte
 	if handled, err := s.handleAlignedGameCommand(session, cmd, typ, body); handled || err != nil {
 		return err
 	}
-	s.logInfo("dnfbridge unhandled latest game command",
-		"cmd", cmd,
-		"type", typ,
-		"runtime_cmd_name", runtimeCmdPacketName(cmd, typ),
-		"runtime_cmd_known", runtimeCmdPacketKnown(cmd, typ),
-		"body_len", len(body))
+	s.logUnhandledGameCommand(
+		cmd,
+		typ,
+		len(body),
+		func() string { return runtimeCmdPacketName(cmd, typ) },
+		func() bool { return runtimeCmdPacketKnown(cmd, typ) },
+	)
 	return nil
 }
 
