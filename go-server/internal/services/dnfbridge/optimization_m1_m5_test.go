@@ -82,10 +82,12 @@ func TestVerboseDiagnosticsQuietModeSuppressesNoiseAndKeepsAnomalies(t *testing.
 	quiet.logRaidPeerDiagnostic("game-party-entry-rejected", "conn_id", "c1", "party_id", 7, "reason", "busy")
 	quiet.logRaidPeerDiagnostic("game-party-dungeon-loading-released", "conn_id", "c1", "party_id", 7, "error", errors.New("PRIVATE_ERR"))
 	quiet.logCrossSceneProfileDiagnostic("game-peer-userinfo-profile-refresh-failed", "conn_id", "c1", "error_kind", "repo_timeout")
+	quiet.logRaidPeerDiagnostic(fiendWarPartyAdmissionDiagnosticKind, "reason", "existing_party_ack_write_failed")
 	out := logs.String()
 	for _, want := range []string{
 		"game-party-entry-rejected",
 		"game-party-dungeon-loading-released",
+		"existing_party_ack_write_failed",
 		`"call_ok":false`,
 		"game-peer-userinfo-profile-refresh-failed",
 	} {

@@ -183,11 +183,13 @@ func (s *Service) writeGameSessionObserved(p *gameSession, data []byte, stage in
 		// frame or expired write can no longer safely reuse this stream.
 		// Do not call arbitrary error Unwrap/Timeout methods here: preserve
 		// even typed-nil provider errors for the caller's diagnostic owner.
-		if p.dproto != nil || n > 0 || err == io.ErrShortWrite || ctx.Err() != nil || !time.Now().Before(deadline) {
+		// Capture the cause before retiring the socket cancels its own budget.
+		budgetErr := ctx.Err()
+		if p.dproto != nil || n > 0 || err == io.ErrShortWrite || budgetErr != nil || !time.Now().Before(deadline) {
 			p.closeGameTransport()
 		}
-		if ctx.Err() != nil {
-			err = errors.Join(err, ctx.Err())
+		if budgetErr != nil {
+			err = errors.Join(err, budgetErr)
 		}
 	}
 	return n, err

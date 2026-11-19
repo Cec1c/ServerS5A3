@@ -184,9 +184,8 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithPolicy(ctx context.Conte
 			// A timeout may have written a prefix and advanced DPROTO. Reusing
 			// that stream would corrupt subsequent frames; close only this peer.
 			viewer.closeGameTransport()
-			if writeCtx.Err() != nil {
-				return false, writeCtx.Err()
-			}
+			// The writer captured the budget at failure. Teardown itself also
+			// cancels writeCtx and cannot establish the cause of this error.
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return false, context.DeadlineExceeded
 			}

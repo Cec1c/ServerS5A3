@@ -6,8 +6,7 @@ import (
 )
 
 const (
-	// verboseDiagnosticsEnv 控制是否输出高频逐包/逐怪诊断日志（默认 off = 抑制 88% 生产噪音，
-	// 仅保留慢构造、拒绝/错误及每种未知 opcode 的首次采样；置 on/true/1 恢复全量明细）。
+	// The production default suppresses routine diagnostics while retaining slow and failed events.
 	verboseDiagnosticsEnv                  = "DNFBRIDGE_VERBOSE_DIAGNOSTICS"
 	townLoadingSlowConstructionThresholdUs = 20000
 	maxSampledUnhandledOpcodes             = 256
@@ -125,6 +124,14 @@ func isAbnormalRaidPeerDiagnostic(kind string, fields []any) bool {
 		"party-udp-relay-silent-peer-kick",
 		"party-udp-relay-silent-peer-kick-failed":
 		return true
+	}
+	if kind == fiendWarPartyAdmissionDiagnosticKind {
+		for i := 0; i+1 < len(fields); i += 2 {
+			if key, ok := fields[i].(string); ok && key == "reason" {
+				reason, _ := fields[i+1].(string)
+				return fiendWarPartyAdmissionFailure(reason)
+			}
+		}
 	}
 	if isPartyDungeonLoadingDiagnosticKind(kind) {
 		for i := 0; i+1 < len(fields); i += 2 {
