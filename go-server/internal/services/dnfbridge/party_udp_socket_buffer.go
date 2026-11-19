@@ -26,6 +26,11 @@ type partyUDPSocketBufferState struct {
 	ReadbackErr    error
 }
 
+func (state partyUDPSocketBufferState) clamped() bool {
+	expected := socketBufferAccountingFactor * state.RequestedBytes
+	return state.EffectiveRead < expected || state.EffectiveWrite < expected
+}
+
 func readPartyUDPSocketBufferBytes() (bytes int, raw string, invalid bool) {
 	raw = strings.TrimSpace(os.Getenv(partyUDPSocketBufferBytesEnv))
 	if raw == "" {
@@ -67,16 +72,17 @@ func (r *currentPartyUDPRelay) applySocketBuffer(conn *net.UDPConn, port int, ro
 		r.lastEffectiveSndbuf.Store(int64(state.EffectiveWrite))
 	}
 	if r.socketBufferBytes > 0 {
-		if state.SetReadErr != nil || state.SetWriteErr != nil {
+		if state.SetReadErr != nil || state.SetWriteErr != nil || state.ReadbackErr != nil {
 			if r.loggedSocketBufferIssue.CompareAndSwap(false, true) && r.logWarn != nil {
-				r.logWarn("party UDP relay socket buffer set failed",
+				r.logWarn("party UDP relay socket buffer configuration failed",
 					"role", role,
 					"port", port,
 					"requested_bytes", r.socketBufferBytes,
 					"read_error", state.SetReadErr,
-					"write_error", state.SetWriteErr)
+					"write_error", state.SetWriteErr,
+					"readback_error", state.ReadbackErr)
 			}
-		} else if state.ReadbackErr == nil && state.EffectiveRead > 0 && state.EffectiveRead < r.socketBufferBytes {
+		} else if state.clamped() {
 			// Linux clamps SO_RCVBUF to 2*rmem_max without failing setsockopt;
 			// surface a single bounded warning when the host cap still truncates it.
 			if r.loggedSocketBufferClamp.CompareAndSwap(false, true) && r.logWarn != nil {

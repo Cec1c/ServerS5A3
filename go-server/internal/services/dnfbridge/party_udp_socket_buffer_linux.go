@@ -7,6 +7,8 @@ import (
 	"syscall"
 )
 
+const socketBufferAccountingFactor = 2
+
 func readUDPSocketBufferSizes(conn *net.UDPConn) (rcvbuf, sndbuf int, err error) {
 	raw, err := conn.SyscallConn()
 	if err != nil {

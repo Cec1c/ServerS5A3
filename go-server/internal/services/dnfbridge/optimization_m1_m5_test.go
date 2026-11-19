@@ -263,3 +263,17 @@ func TestPartyUDPSocketBufferDualPathAndReadback(t *testing.T) {
 		t.Fatalf("socket buffer warnings must be bounded to at most 1 per issue, got %v", warnings)
 	}
 }
+
+func TestPartyUDPSocketBufferClampChecksBothDirections(t *testing.T) {
+	const request = 1 << 20
+	full := request * socketBufferAccountingFactor
+	for _, tc := range []struct {
+		read, write int
+		clamped     bool
+	}{{full, full, false}, {full - 1, full, true}, {full, full - 1, true}} {
+		state := partyUDPSocketBufferState{RequestedBytes: request, EffectiveRead: tc.read, EffectiveWrite: tc.write}
+		if got := state.clamped(); got != tc.clamped {
+			t.Fatalf("read=%d write=%d clamped=%v, want %v", tc.read, tc.write, got, tc.clamped)
+		}
+	}
+}
