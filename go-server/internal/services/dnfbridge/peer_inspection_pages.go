@@ -4,12 +4,31 @@ import (
 	"context"
 	"encoding/binary"
 	"strconv"
+
+	"longheng.io/server/internal/modules/dnf/buffswap"
 )
 
 // The official client's 00994D80 emits CMD1497/u16 target. Its success
 // callback 01FC0E10 reads the target followed by the native Buff block and
 // opens window F2. The legacy enum's OutsideGameReward label is not this ABI.
 const currentPeerBuffInspectCommand uint16 = 1497
+
+type peerBuffInspectionCursor struct {
+	viewerCharacter  uint16
+	viewerGeneration uint64
+	targetCharacter  uint16
+	targetGeneration uint64
+	skill            uint16
+}
+
+func peerBuffInspectionSkillIndex(skills []buffswap.OwnedRegisteredSkill, skill uint16) int {
+	for index, registration := range skills {
+		if registration.Skill == skill {
+			return index
+		}
+	}
+	return -1
+}
 
 func (s *Service) currentPeerInspectionPageAllowed(ctx context.Context, viewer, actor boundGameSessionCharacter) bool {
 	if viewer.character == 0 || actor.character == 0 || viewer.character == actor.character ||
@@ -43,21 +62,71 @@ func (s *Service) handleCurrentPeerInspectionPage(session *gameSession, body []b
 	}
 	targetID := strconv.Itoa(int(actor.character))
 	if buff {
+		session.peerBuffInspectMu.Lock()
+		defer session.peerBuffInspectMu.Unlock()
+
 		r := csharpLegacyUserInfoReader{ctx: ctx, service: s, session: actor.session, characterID: targetID}
 		end := r.beginNativeBuffOwnedSerialization()
 		defer end()
-		state, rows, err := r.nativeBuffSwapUserInfoRows()
+		projection, err := r.loadNativeBuffOwnedProjection()
 		if err != nil {
 			s.logGameEvent(session, "game-peer-buff-inspect-unavailable", "target_char_id", actor.character, "reason", err)
 			return nil
 		}
+		state := projection.State
+		items := projection.Items
+		pageCount := len(projection.RegisteredSkills)
+		pageIndex := -1
+		if pageCount != 0 {
+			// The native 1497 response stays single-skill. A repeated click by
+			// the same viewer for the same target reopens F2 on the next stable
+			// registration row; the cursor commits only after a successful write.
+			cursor := session.peerBuffInspectCursor
+			if cursor.viewerCharacter == viewer.character &&
+				cursor.viewerGeneration == viewer.generation &&
+				cursor.targetCharacter == actor.character &&
+				cursor.targetGeneration == actor.generation {
+				if prior := peerBuffInspectionSkillIndex(projection.RegisteredSkills, cursor.skill); prior >= 0 {
+					pageIndex = (prior + 1) % pageCount
+				}
+			}
+			if pageIndex < 0 {
+				pageIndex = peerBuffInspectionSkillIndex(projection.RegisteredSkills, state.Skill)
+				if pageIndex < 0 {
+					pageIndex = 0
+				}
+			}
+			registration := projection.RegisteredSkills[pageIndex]
+			state.Skill = registration.Skill
+			items = registration.Items
+		}
+		rows := r.nativeBuffSwapProjectionRows(projection, items)
 		var w packetWriter
 		w.writeUint16(actor.character)
 		writeNativeBuffSwapRows(&w, state, rows)
 		if !s.currentPeerInspectionPageAllowed(ctx, viewer, actor) {
 			return nil
 		}
-		return s.sendGameUpperSuccess(session, currentPeerBuffInspectCommand, w.bytes())
+		if err := s.sendGameUpperSuccess(session, currentPeerBuffInspectCommand, w.bytes()); err != nil {
+			return err
+		}
+		if pageCount != 0 {
+			session.peerBuffInspectCursor = peerBuffInspectionCursor{
+				viewerCharacter:  viewer.character,
+				viewerGeneration: viewer.generation,
+				targetCharacter:  actor.character,
+				targetGeneration: actor.generation,
+				skill:            state.Skill,
+			}
+		}
+		s.logGameEvent(session, "game-peer-buff-inspect-page",
+			"source_char_id", viewer.character,
+			"target_char_id", actor.character,
+			"skill", state.Skill,
+			"page_index", pageIndex,
+			"page_count", pageCount,
+			"rows", len(rows))
+		return nil
 	}
 	repos, ok := s.repositoryGroupFor(ctx)
 	if !ok || repos.Inventory == nil {

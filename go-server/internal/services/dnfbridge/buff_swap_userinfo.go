@@ -98,10 +98,14 @@ func (r *csharpLegacyUserInfoReader) nativeBuffSwapUserInfoRows() (buffswap.Stat
 	if err != nil {
 		return buffswap.State{}, nil, err
 	}
+	return projection.State, r.nativeBuffSwapProjectionRows(projection, projection.Items), nil
+}
+
+func (r *csharpLegacyUserInfoReader) nativeBuffSwapProjectionRows(projection buffswap.OwnedProjection, items map[byte]buffswap.OwnedProjectedItem) []nativeBuffSwapItemRow {
 	state := projection.State
 	var rows []nativeBuffSwapItemRow
 	for slot := byte(0); slot < buffswap.SlotCount; slot++ {
-		item, exists := projection.Items[slot]
+		item, exists := items[slot]
 		if !exists {
 			continue
 		}
@@ -138,5 +142,5 @@ func (r *csharpLegacyUserInfoReader) nativeBuffSwapUserInfoRows() (buffswap.Stat
 		}
 		rows = append(rows, nativeBuffSwapItemRow{slot, b, entry, rawBlocks})
 	}
-	return state, rows, nil
+	return rows
 }

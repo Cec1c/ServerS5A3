@@ -3,6 +3,7 @@ package buffswap
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -15,11 +16,62 @@ const SourceLegacyUID = "legacy_uid"
 type OwnedProjection struct {
 	Owner                repo.CharacterRecord
 	State                State
+	RegisteredSkills     []OwnedRegisteredSkill
 	Found                bool
 	Omitted              int
 	Items                map[byte]OwnedProjectedItem
 	PetMetadata          repo.PetRecord
 	PetMetadataAvailable bool
+}
+
+type OwnedRegisteredSkill struct {
+	Skill   uint16
+	Items   map[byte]OwnedProjectedItem
+	Omitted int
+}
+
+func projectedRegisteredSkillIDs(state State) []uint16 {
+	set := make(map[uint16]struct{}, len(state.SkillSlots)+len(state.SelectedSkills)+1)
+	if state.Skill != 0 {
+		set[state.Skill] = struct{}{}
+	}
+	for skill, slots := range state.SkillSlots {
+		if skill != 0 && len(slots) > 0 {
+			set[skill] = struct{}{}
+		}
+	}
+	for _, skill := range state.SelectedSkills {
+		if skill != 0 {
+			set[skill] = struct{}{}
+		}
+	}
+	result := make([]uint16, 0, len(set))
+	for skill := range set {
+		result = append(result, skill)
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left] < result[right] })
+	return result
+}
+
+func hasProjectedItemBindings(state State) bool {
+	if len(state.Slots) > 0 {
+		return true
+	}
+	for _, slots := range state.SkillSlots {
+		if len(slots) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func emptyRegisteredSkills(state State) []OwnedRegisteredSkill {
+	ids := projectedRegisteredSkillIDs(state)
+	result := make([]OwnedRegisteredSkill, 0, len(ids))
+	for _, skill := range ids {
+		result = append(result, OwnedRegisteredSkill{Skill: skill, Items: map[byte]OwnedProjectedItem{}})
+	}
+	return result
 }
 
 type OwnedProjectedItem struct {
@@ -264,12 +316,14 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 				result.State = State{WireProfile: CurrentWireProfile}
 				return nil
 			}
+			itemBindingsPresent := hasProjectedItemBindings(state)
 			if groupView {
 				ensureSkillSlots(&state)
 				ensureSelectedSkills(&state)
 				selectedSkill, selected := state.SelectedSkills[selectedGroup]
 				if !selected {
 					result.State = State{WireProfile: state.WireProfile, Slots: map[byte]Binding{}}
+					result.RegisteredSkills = emptyRegisteredSkills(state)
 					return nil
 				}
 				state = State{
@@ -285,9 +339,11 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 				// legacy active Skill/Slots view.
 				options.MigrateCurrentInstances = false
 			}
-			// Skill-only/cleared states need no item container/Legacy/Pet dependency.
-			if len(state.Slots) == 0 {
+			// States without any active or registered item binding need no item
+			// container/Legacy/Pet dependency. Inactive skill groups still count.
+			if !itemBindingsPresent {
 				result.State = state
+				result.RegisteredSkills = emptyRegisteredSkills(state)
 				return nil
 			}
 			if !writable && options.MigrateCurrentInstances && state.WireProfile == CurrentWireProfile {
@@ -309,6 +365,19 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 					break
 				}
 			}
+			if options.legacyLists == nil {
+				for _, slots := range state.SkillSlots {
+					for _, binding := range slots {
+						if binding.SourceKind == SourceLegacyUID {
+							options.legacyLists = []byte{0, 1, 7}
+							break
+						}
+					}
+					if options.legacyLists != nil {
+						break
+					}
+				}
+			}
 			view, err := readOwnedSources(ctx, tx, characterID, options)
 			if err != nil {
 				return err
@@ -318,10 +387,20 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 					return err
 				}
 			}
+			if !groupView && state.Skill != 0 && state.SkillSlots != nil {
+				state.SkillSlots[state.Skill] = cloneBindingMap(state.Slots)
+			}
 			projection, err := resolveOwnedProjection(ctx, tx, characterID, state, view)
+			if err != nil {
+				return err
+			}
+			projection.RegisteredSkills, err = resolveRegisteredSkills(ctx, tx, characterID, state, view)
+			if err != nil {
+				return err
+			}
 			projection.Owner = result.Owner
 			result = projection
-			return err
+			return nil
 		})
 	}
 	if err := load(false); err != nil {
@@ -332,6 +411,27 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 		if err := load(true); err != nil {
 			return OwnedProjection{}, err
 		}
+	}
+	return result, nil
+}
+
+func resolveRegisteredSkills(ctx context.Context, tx repo.Group, characterID string, state State, view ownedSourceSnapshot) ([]OwnedRegisteredSkill, error) {
+	ids := projectedRegisteredSkillIDs(state)
+	result := make([]OwnedRegisteredSkill, 0, len(ids))
+	for _, skill := range ids {
+		slots, found := state.SkillSlots[skill]
+		if !found && skill == state.Skill {
+			slots = state.Slots
+		}
+		projection, err := resolveOwnedProjection(ctx, tx, characterID, State{
+			WireProfile: state.WireProfile,
+			Skill:       skill,
+			Slots:       slots,
+		}, view)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, OwnedRegisteredSkill{Skill: skill, Items: projection.Items, Omitted: projection.Omitted})
 	}
 	return result, nil
 }

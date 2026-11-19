@@ -151,14 +151,19 @@ func TestCurrentRaidInvitationActualDispatch(t *testing.T) {
 	ack, rest = splitGameServerUpperPacket(t, bc.write.Bytes())
 	wantAck := append([]byte{1}, party.BuildResponsePeerAckPayload(a.selectedCharacterID, 10)...)
 	metadata, rest := splitGameServerUpperPacket(t, rest)
+	recipientProfiles, _ := currentRaidProfileAndAppearanceFrameCounts(t, rest)
 	rest = consumeCurrentRaidProfiles(t, rest, after)
+	rest, _ = consumeCurrentRaidAppearanceFrames(t, rest)
 	roster, rest := splitGameServerUpperPacket(t, rest)
-	leaderRest := consumeCurrentRaidProfiles(t, ac.write.Bytes(), after)
+	leaderMetadata, leaderRest := splitGameServerUpperPacket(t, ac.write.Bytes())
+	leaderProfiles, _ := currentRaidProfileAndAppearanceFrameCounts(t, leaderRest)
+	leaderRest = consumeCurrentRaidProfilesForIDs(t, leaderRest, after, b.selectedCharacterID)
+	leaderRest, _ = consumeCurrentRaidAppearanceFrames(t, leaderRest)
 	leaderRoster, leaderRest := splitGameServerUpperPacket(t, leaderRest)
 	wantMetadata, _ := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(after), 2)
 	wantRoster, _ := s.buildRuntimeRaidRosterBody(after)
-	if ack.Header.MsgID != 11 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, wantAck) || metadata.Header.MsgID != 591 || !bytes.Equal(metadata.Body, wantMetadata) || !bytes.Equal(roster.Body, wantRoster) || !bytes.Equal(leaderRoster.Body, wantRoster) || len(rest) != 0 || len(leaderRest) != 0 || len(s.currentRaidInvitations) != 0 || len(s.currentRaidApplications) != 0 {
-		t.Fatal("acceptance did not emit exact committed metadata/rosters")
+	if recipientProfiles != 1 || leaderProfiles != 1 || ack.Header.MsgID != 11 || ack.Header.Classification != 1 || !bytes.Equal(ack.Body, wantAck) || metadata.Header.MsgID != 591 || !bytes.Equal(metadata.Body, wantMetadata) || leaderMetadata.Header.MsgID != 591 || len(leaderMetadata.Body) < 12 || binary.LittleEndian.Uint32(leaderMetadata.Body[4:8]) != 2 || !bytes.Equal(leaderMetadata.Body, wantMetadata) || !bytes.Equal(roster.Body, wantRoster) || !bytes.Equal(leaderRoster.Body, wantRoster) || len(rest) != 0 || len(leaderRest) != 0 || len(s.currentRaidInvitations) != 0 || len(s.currentRaidApplications) != 0 {
+		t.Fatal("acceptance did not emit leader metadata and committed metadata/rosters")
 	}
 	ac.write.Reset()
 	bc.write.Reset()

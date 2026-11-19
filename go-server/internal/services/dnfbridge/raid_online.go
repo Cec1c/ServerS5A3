@@ -382,7 +382,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 		profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 		defer cancelProfiles()
 		profiles := newCurrentRaidProfileBatch(s, profileCtx)
-		if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, profiles, nil); err != nil {
+		if err := s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session, state, profiles, nil); err != nil {
 			return s.currentRaidProfileRequestError(session, err)
 		}
 		if err := s.sendGameUpperRawClassCodec(session, uint16(dnfenum.CmdPacketRequestRaidInfo), reply, 1, true); err != nil {
@@ -473,6 +473,7 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 // ACK665 clears the receiver's own raid UI even when it requested another UID.
 func (s *Service) finishOnlineRaidDeparture(session *gameSession, typ uint16, state runtimeRaidState, disbanded, wasAntonWaiting, forcedExit bool) error {
 	sourceID := selectedCharacterID(session)
+	session.raidProfileView.clear()
 	var errs []error
 	var partyExit runtimePartyRaidExitProjection
 	if s.options.currentClientVersion == "official-24.9" {
@@ -520,17 +521,37 @@ func (s *Service) finishOnlineRaidDeparture(session *gameSession, typ uint16, st
 	// The waiting UI compares metadata.Leader against the local UID; the
 	// roster's leader flag alone cannot enable the successor's controls.
 	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout {
-		for _, member := range state.Members {
-			peer, online := s.onlineGameSession(member.CharID)
-			if !online || !s.currentRaidAdmissionVisible(peer, state) {
-				continue
+		if state.Started {
+			for _, member := range state.Members {
+				peer, online := s.onlineGameSession(member.CharID)
+				if !online || !s.currentRaidAdmissionVisible(peer, state) {
+					continue
+				}
+				if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
+					s.failRuntimeRaidRecipient(peer, "leave_metadata", err)
+				}
 			}
-			if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
-				s.failRuntimeRaidRecipient(peer, "leave_metadata", err)
+		} else if leader, online := s.onlineGameSession(state.LeaderID); online && s.currentRaidAdmissionVisible(leader, state) {
+			if err := s.sendRuntimeRaidMetadata(leader, state, 2); err != nil {
+				s.failRuntimeRaidRecipient(leader, "leave_metadata", err)
 			}
 		}
 	}
-	if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
+	if s.options.currentClientVersion == "official-24.9" {
+		for _, member := range state.Members {
+			if viewer, online := s.onlineGameSession(member.CharID); online {
+				viewer.raidProfileView.forget(state, sourceID)
+			}
+		}
+	}
+	// During recruiting the profile cache is unchanged by removing one identity:
+	// one leader metadata refresh and one roster update suffice. Keep the
+	// established complete post-start refresh so battle rules remain unchanged.
+	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout && !state.Started {
+		if err := s.broadcastRuntimeRaidRoster(state); err != nil {
+			errs = append(errs, err)
+		}
+	} else if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
 		errs = append(errs, err)
 	}
 	if state.Battle != nil {
@@ -1028,7 +1049,7 @@ func (s *Service) broadcastRuntimeRaidStartRefresh(state runtimeRaidState) error
 	// All members were admitted before start. Refresh category1 properties,
 	// placement and committed ticket counts, not every peer's full appearance.
 	// Ordinary-party formation retains its own required actor priming below.
-	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, 0, false)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, 0, false, false)
 }
 
 func (s *Service) broadcastRuntimeRaidRoster(state runtimeRaidState) error {
@@ -1036,18 +1057,24 @@ func (s *Service) broadcastRuntimeRaidRoster(state runtimeRaidState) error {
 }
 
 func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, includeProfiles bool) error {
-	return s.broadcastRuntimeRaidProjectionForJoin(state, includeProfiles, 0)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, 0, true, false)
 }
 
 func (s *Service) broadcastRuntimeRaidJoinRefresh(state runtimeRaidState, joined uint16) error {
-	return s.broadcastRuntimeRaidProjectionForJoin(state, true, joined)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, joined, true, true)
 }
 
 func (s *Service) broadcastRuntimeRaidProjectionForJoin(state runtimeRaidState, includeProfiles bool, joined uint16) error {
-	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, joined, true)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, joined, true, false)
 }
 
-func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaidState, includeProfiles bool, joined uint16, includeAppearance bool) error {
+func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(
+	state runtimeRaidState,
+	includeProfiles bool,
+	joined uint16,
+	includeAppearance bool,
+	refreshLeaderMetadata bool,
+) error {
 	body, err := s.buildRuntimeRaidRosterBody(state)
 	if err != nil {
 		return err
@@ -1055,13 +1082,23 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaid
 	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancelProfiles()
 	profiles := newCurrentRaidProfileBatch(s, profileCtx)
-	// Ownership already read for the profiles belongs to this same broadcast.
-	// Inventory remains a fresh committed read; never retain either across calls.
+	// Profile identity uses its bounded admitted-member memo. Inventory remains
+	// a fresh committed read scoped to this broadcast.
 	admission := &currentRaidAdmissionBatch{ctx: profiles.ctx}
 	for _, member := range state.Members {
 		session, ok := s.onlineGameSession(member.CharID)
 		if !ok {
 			continue
+		}
+		if refreshLeaderMetadata && member.CharID == state.LeaderID && member.CharID != joined &&
+			s.currentRaidAdmissionVisible(session, state) {
+			// Joining used to refresh only the new member's mode2 metadata.
+			// The leader then retained the previous cached roster object until
+			// a town round trip. Refresh that small capability projection here.
+			if err := s.sendRuntimeRaidMetadata(session, state, 2); err != nil {
+				s.failRuntimeRaidRecipient(session, "join_leader_metadata", err)
+				continue
+			}
 		}
 		if includeProfiles {
 			var actors map[uint16]bool
@@ -1070,7 +1107,11 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaid
 			} else if joined != 0 && member.CharID != joined {
 				actors = map[uint16]bool{joined: true}
 			}
-			if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, profiles, actors); err != nil {
+			sendProfiles := s.sendCurrentRuntimeRaidProfilesWithBatchForActors
+			if joined != 0 {
+				sendProfiles = s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors
+			}
+			if err := sendProfiles(session, state, profiles, actors); err != nil {
 				s.failRuntimeRaidRecipient(session, "profiles", err)
 				continue
 			}
@@ -1161,7 +1202,7 @@ func (s *Service) initialRuntimeRaidMembersLocked(session *gameSession, sourceID
 func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byte) runtimeRaidMemberState {
 	member := runtimeRaidMemberState{
 		CharID:     charID,
-		Name:       s.runtimeRaidCharacterName(charID),
+		Name:       csharpSelectCharacterName(charID),
 		GroupIndex: group,
 		SlotOrder:  slot,
 		UserState:  1,
@@ -1179,18 +1220,6 @@ func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byt
 		}
 	}
 	return member
-}
-
-func (s *Service) runtimeRaidCharacterName(charID uint16) string {
-	repos, ok := s.repositoryGroup()
-	if ok && repos.Character != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		defer cancel()
-		if record, found, err := repos.Character.Load(ctx, strconv.Itoa(int(charID))); err == nil && found && record.Name != "" {
-			return record.Name
-		}
-	}
-	return csharpSelectCharacterName(charID)
 }
 
 func (s *Service) sendRaidCommandFailure(session *gameSession, typ uint16) error {

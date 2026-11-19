@@ -129,11 +129,17 @@ type runtimeDungeonState struct {
 	// （厂商 `DungeonRun.HellPartyRoomInfo.Waves`，在准入那一刻按 `Dungeon.cs:1151-1194`
 	// 装配一次，之后所有投影复用）。只有两个波次开关里至少一个是修复档时才非空；
 	// 两个都 legacy ⇒ 恒为空 ⇒ 逐字节、逐随机序列等于改动前。见 dungeon_hell_party_wave.go。
-	HellPartyWaves          []dungeonHellPartyWave
-	HellPartyDifficulty     byte
-	HellPartyStarted        bool
-	epicShop                *currentEpicShop
-	secretShop              *currentSecretShop
+	HellPartyWaves      []dungeonHellPartyWave
+	HellPartyDifficulty byte
+	HellPartyStarted    bool
+	epicShop            *currentEpicShop
+	secretShop          *currentSecretShop
+	// The NPC roll is frozen as soon as it succeeds; a failed PVF/candidate
+	// build must not consume the run or choose a different merchant.
+	secretShopEncounter *currentSecretShopEncounter
+	// One natural op46 settlement request may retry the frozen shop when the
+	// original completion write failed before 279/280.
+	secretShopRetryPending  bool
 	secretShopChecked       bool
 	epicShopChecked         bool
 	hellEntryItemsCommitted bool
@@ -158,6 +164,8 @@ type runtimeDungeonState struct {
 	bossDieCheckRelatedActorObjectKey    uint16
 	bossDieCheckTargetObjectKey          uint16
 	bossDieCheckResponseSent             bool
+	storyNPCNotificationRoom             *runtimeDungeonRoom
+	storyNPCNotificationCount            int
 	ordinaryFinalRoomClearAccepted       bool
 	tutorialFinalRoomClearPending        bool
 	tutorialFinalRoomClearAccepted       bool

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"longheng.io/server/internal/modules/dnf/raid"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -18,9 +19,10 @@ type currentCrossSceneProfileBatch struct {
 	peers   map[uint16]*currentCrossSceneProfilePeer
 	bodies  map[currentCrossSceneProfileKey]currentCrossSceneProfileBody
 	sent    map[currentCrossSceneProfileDelivery]bool
-	// One raid broadcast owns one immutable roster snapshot. Reuse its compact
-	// repository-derived rows across receivers, just like its typed actor bodies.
-	raidProfiles map[uint32][]byte
+	// One raid broadcast owns one immutable roster snapshot. Cache only rows
+	// actually requested by receivers so a join delta reads the new member, not
+	// the complete raid table; a new broadcast starts with an empty memo.
+	raidProfileRows map[uint32]map[uint16]raid.CurrentProfileRecord
 	// Raid rosters share a preparation budget across recipients. Once a frame
 	// is admitted, give its write a full bounded window instead of truncating
 	// the stream when the remaining preparation time runs out.
@@ -68,9 +70,10 @@ func newCurrentCrossSceneProfileBatch(s *Service, ctx context.Context) *currentC
 	ctx, _ = withEquipMode0RepositoryMemo(ctx)
 	return &currentCrossSceneProfileBatch{
 		service: s, ctx: ctx, route: s.currentSceneActorRoute(),
-		peers:  make(map[uint16]*currentCrossSceneProfilePeer),
-		bodies: make(map[currentCrossSceneProfileKey]currentCrossSceneProfileBody),
-		sent:   make(map[currentCrossSceneProfileDelivery]bool),
+		peers:           make(map[uint16]*currentCrossSceneProfilePeer),
+		bodies:          make(map[currentCrossSceneProfileKey]currentCrossSceneProfileBody),
+		sent:            make(map[currentCrossSceneProfileDelivery]bool),
+		raidProfileRows: make(map[uint32]map[uint16]raid.CurrentProfileRecord),
 	}
 }
 
@@ -118,38 +121,49 @@ func (b *currentCrossSceneProfileBatch) peer(session *gameSession) (*currentCros
 }
 
 func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner byte) error {
+	_, err := b.sendTracked(viewer, actor, owner)
+	return err
+}
+
+func (b *currentCrossSceneProfileBatch) sendTracked(viewer, actor *gameSession, owner byte) (bool, error) {
 	s := b.service
 	viewerID, actorID := selectedCharacterID(viewer), selectedCharacterID(actor)
 	if owner == 0 || owner != currentConnectionTownActorOwnerContext(viewer) ||
 		b.route != s.currentSceneActorRoute() ||
 		!s.currentCrossSceneProfileMembership(viewer, actor, viewerID, actorID) {
-		return nil
+		return false, nil
 	}
 	if err := b.ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	v, err := b.peer(viewer)
-	if err != nil || v == nil {
-		return err
+	if err != nil {
+		return false, err
+	}
+	if v == nil {
+		return false, nil
 	}
 	a, err := b.peer(actor)
-	if err != nil || a == nil || v.channel != a.channel {
-		return err
+	if err != nil {
+		return false, err
+	}
+	if a == nil || v.channel != a.channel {
+		return false, nil
 	}
 	key := currentCrossSceneProfileKey{actor: actorID, owner: owner}
 	delivery := currentCrossSceneProfileDelivery{viewer: viewerID, currentCrossSceneProfileKey: key}
 	if b.sent[delivery] {
-		return nil
+		return true, nil
 	}
 	body, ready := b.bodies[key]
 	if !ready {
 		body.revision = currentCrossSceneAppearanceRevision(actor)
 		if a.character.Name == "" {
-			return nil
+			return false, nil
 		}
 		mode0, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(b.ctx, actor, actorID, a.character.Name, a.character, true, owner)
 		if err != nil {
-			return err
+			return false, err
 		}
 		var legacyRepo dnfrepo.LegacyUserInfoRepository
 		if repos, ok := s.repositoryGroupFor(b.ctx); ok {
@@ -162,7 +176,7 @@ func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner b
 		mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(detailCtx, actor, legacyRepo, a.character, true, actorID, owner)
 		body.data, err = buildCurrentCrossSceneUserInfoBody(mode0, mode3)
 		if err != nil {
-			return err
+			return false, err
 		}
 		b.bodies[key] = body
 	}
@@ -173,11 +187,11 @@ func (b *currentCrossSceneProfileBatch) send(viewer, actor *gameSession, owner b
 			s.currentCrossSceneProfileMembership(viewer, actor, viewerID, actorID)
 	}, b.completeAdmittedWrite)
 	if err != nil || !delivered {
-		return err
+		return false, err
 	}
 	b.sent[delivery] = true
 	s.logGameEvent(viewer, "game-peer-userinfo-profile-refresh-sent",
 		"source_char_id", viewerID, "target_char_id", actorID,
 		"owner_context", owner, "body_len", len(body.data))
-	return nil
+	return true, nil
 }

@@ -110,12 +110,34 @@ func reviewOwnedSerializationText(t *testing.T, body []byte) string {
 
 func reviewOwnedSerializationAssertText(t *testing.T, body []byte, newer bool) {
 	t.Helper()
-	name, level := "scope-old", "基础 Lv10"
+	name := "scope-old"
+	want := []string{
+		"可查看 Buff 技能 1 个",
+		"技能 38 · 基础 Lv10（当前）",
+		"已登记 1 件装备",
+	}
 	if newer {
-		name, level = "scope-new", "基础 Lv11"
+		name = "scope-new"
+		want = []string{
+			"可查看 Buff 技能 2 个",
+			"技能 38 · 基础 Lv10",
+			"技能 39 · 基础 Lv11（当前）",
+			"已登记 1 件装备",
+		}
 	}
 	text := reviewOwnedSerializationText(t, body)
-	if !strings.Contains(text, name+" 的 Buff 登记") || !strings.Contains(text, level) || !strings.Contains(text, "已登记 1 件装备") {
+	if !strings.Contains(text, name+" 的 Buff 登记") {
+		t.Fatalf("snapshot text owner disagrees: %q", text)
+	}
+	for _, fragment := range want {
+		if !strings.Contains(text, fragment) {
+			t.Fatalf("snapshot text missing %q: %q", fragment, text)
+		}
+	}
+	if !newer && strings.Contains(text, "技能 39") {
+		t.Fatalf("snapshot text observed post-snapshot mutation: %q", text)
+	}
+	if newer && strings.Contains(text, "技能 38 · 基础 Lv10（当前）") {
 		t.Fatalf("snapshot text disagrees: %q", text)
 	}
 }
@@ -152,7 +174,7 @@ func reviewOwnedSerializationAssert(t *testing.T, kind string, body []byte, newe
 	case "skill":
 		want := []byte{255, 1, 38, 0, 10, 1, 38, 0, 10}
 		if newer {
-			want = []byte{255, 1, 39, 0, 11, 1, 39, 0, 11}
+			want = []byte{255, 2, 38, 0, 10, 39, 0, 11, 2, 38, 0, 10, 39, 0, 11}
 		}
 		if !bytes.Equal(body, want) {
 			t.Fatalf("snapshot skill disagrees: got=%x want=%x", body, want)
@@ -181,25 +203,27 @@ func TestReviewBuffOwnedSerializationCarrierSnapshotConsistent(t *testing.T) {
 	detail[0] = 3
 	body := s.buildNativePeerBuffCarrier(context.Background(), session, 1, detail)
 	offset := currentMode1CreateRowsOffset + 4
-	if !mutated || u.calls != 1 || len(body) < offset+126+8+9 {
+	skillPageLength := 9
+	if !mutated || u.calls != 1 || len(body) < offset+126+8+skillPageLength {
 		t.Fatalf("carrier did not share one snapshot: mutated=%v reads=%d bytes=%d", mutated, u.calls, len(body))
 	}
 	reviewOwnedSerializationAssertItem(t, body[offset:offset+126], false)
-	reviewOwnedSerializationAssert(t, "skill", body[offset+126+8:offset+126+8+9], false)
+	reviewOwnedSerializationAssert(t, "skill", body[offset+126+8:offset+126+8+skillPageLength], false)
 	reviewOwnedSerializationAssertText(t, body, false)
 	state, found, err := buffswap.Load(context.Background(), base, "1", s.accountIDForSession(session))
 	if err != nil || !found || state.Skill != 39 || state.Slots[12].Index != 55 {
 		t.Fatal("mid-serialization mutation did not actually persist in fixture", state, found, err)
 	}
 	body = s.buildNativePeerBuffCarrier(context.Background(), session, 1, detail)
-	if len(body) < offset+126+8+9 {
+	skillPageLength = 15
+	if len(body) < offset+126+8+skillPageLength {
 		t.Fatalf("next carrier truncated: %d", len(body))
 	}
 	if u.calls != 2 {
 		t.Fatalf("next carrier reused previous snapshot: reads=%d", u.calls)
 	}
 	reviewOwnedSerializationAssertItem(t, body[offset:offset+126], true)
-	reviewOwnedSerializationAssert(t, "skill", body[offset+126+8:offset+126+8+9], true)
+	reviewOwnedSerializationAssert(t, "skill", body[offset+126+8:offset+126+8+skillPageLength], true)
 	reviewOwnedSerializationAssertText(t, body, true)
 }
 

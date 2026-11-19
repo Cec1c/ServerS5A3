@@ -605,6 +605,7 @@ func (r *currentPartyUDPRelay) startProbeListeners(ports []int) {
 			continue
 		}
 		actual := conn.LocalAddr().(*net.UDPAddr).Port
+		r.applySocketBuffer(conn, actual, "probe_listener")
 		listeners.reservedPorts[actual] = struct{}{}
 		listeners.conns[actual] = conn
 		listeners.bound = append(listeners.bound, actual)
@@ -617,6 +618,9 @@ func (r *currentPartyUDPRelay) startProbeListeners(ports []int) {
 		r.log("party UDP relay native probe listener bound",
 			"ports", formatPartyUDPRelayPorts(bound),
 			"bind", r.bindAddressString(),
+			"requested_socket_buffer_bytes", r.socketBufferBytes,
+			"effective_rcvbuf_bytes", r.lastEffectiveRcvbuf.Load(),
+			"effective_sndbuf_bytes", r.lastEffectiveSndbuf.Load(),
 			"meaning", "any_datagram_arriving_here_before_a_party_exists_is_a_client_side_native_probe_and_tells_us_the_real_nat_endpoint")
 	}
 	if len(failed) > 0 {

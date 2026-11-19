@@ -125,7 +125,9 @@ func installGuildFingerprint(ctx context.Context, db *sql.DB, s guildFingerprint
 	lockHash := sha256.Sum256([]byte(s.database + "/" + s.prefix))
 	lockName := fmt.Sprintf("guild-fingerprint-%x", lockHash[:16])
 	var locked sql.NullInt64
-	if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lockName).Scan(&locked); err != nil {
+	// A cancelled DDL connection can retain its lock briefly while MariaDB
+	// processes the disconnect. Allow a bounded handoff before any schema work.
+	if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?,1)", lockName).Scan(&locked); err != nil {
 		return err
 	}
 	if !locked.Valid || locked.Int64 != 1 {

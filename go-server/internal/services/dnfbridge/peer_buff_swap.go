@@ -3,38 +3,59 @@ package dnfbridge
 import (
 	"context"
 	"strconv"
+
+	"longheng.io/server/internal/modules/dnf/buffswap"
 )
 
 type nativePeerBuffInspectKey struct{}
 
 // Inspection needs all learned levels, including weapon masteries. The
-// separate Buff carrier still serializes only its selected registration.
+// separate Buff carrier filters those levels down to registered Buff skills.
 type nativePeerProfileSkillsKey struct{}
 
-// Only the selected Buff skill is needed to render its learned base level.
-// Do not include the target's other learned skills or account metadata.
+// peerBuffRegisteredSkillEntries projects every persisted Buff selection and
+// equipment skill tree, while excluding unrelated learned weapon masteries and
+// other target metadata. peerSkillPageEntries is already deterministic.
+func peerBuffRegisteredSkillEntries(registered []buffswap.OwnedRegisteredSkill, learned []peerSkillPageEntry) []peerSkillPageEntry {
+	if len(registered) == 0 || len(learned) == 0 {
+		return nil
+	}
+	set := make(map[uint16]struct{}, len(registered))
+	for _, registration := range registered {
+		if registration.Skill != 0 {
+			set[registration.Skill] = struct{}{}
+		}
+	}
+	entries := make([]peerSkillPageEntry, 0, len(registered))
+	for _, entry := range learned {
+		if _, ok := set[entry.SkillID]; ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// The Buff manager exposes every registered skill so an inspector can switch
+// between the target's Buff trees. The adjacent item rows remain the active
+// skill's registration only.
 func (r *csharpLegacyUserInfoReader) writeNativePeerBuffSkillPage(w *packetWriter) {
 	end := r.beginNativeBuffOwnedSerialization()
 	defer end()
 	var entries []peerSkillPageEntry
 	if projection, err := r.loadNativeBuffOwnedProjection(); err == nil {
-		state := projection.State
-		if state.Skill != 0 {
-			for _, entry := range peerSkillPageEntries(r.loadPeerSkillPageSkills(r.characterID)) {
-				if entry.SkillID == state.Skill {
-					entries = append(entries, entry)
-					break
-				}
-			}
-		}
+		entries = peerBuffRegisteredSkillEntries(
+			projection.RegisteredSkills,
+			peerSkillPageEntries(r.loadPeerSkillPageSkills(r.characterID)),
+		)
 	}
 	writePeerSkillPageBlockEntries(w, peerSkillPageSelectedResourceGroup, entries)
 }
 
 // The native client has no actor-addressed standalone Buff notification.
-// Use the required mode1 envelope but carry only registrations and selected
-// Buff skill. Reuse the exact public actor stat prefix already sent in mode3;
-// no account/honor/other bag rows, worn equipment, pet or adventure data.
+// Use the required mode1 envelope but carry the selected registrations and
+// every registered Buff skill. Reuse the exact public actor stat prefix already
+// sent in mode3; no account/honor/other bag rows, worn equipment, pet or
+// adventure data.
 // Mode3 follows immediately to restore the public worn-actor create state.
 func (s *Service) buildNativePeerBuffCarrier(ctx context.Context, target *gameSession, targetID uint16, detail []byte) []byte {
 	const mode3PublicStateStart = 15

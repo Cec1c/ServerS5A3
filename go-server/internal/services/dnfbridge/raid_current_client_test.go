@@ -66,8 +66,11 @@ func TestCurrentRaidActualDispatchCreatesQueriesAndModifiesVerifiedLayout(t *tes
 		if err := s.handleGameUpper(a, frame); err != nil {
 			t.Fatal(err)
 		}
-		raw := consumeCurrentRaidProfiles(t, ac.write.Bytes(), state)
-		ack, rest = splitGameServerUpperPacket(t, raw)
+		reopenProfiles, reopenAppearances := currentRaidProfileAndAppearanceFrameCounts(t, ac.write.Bytes())
+		if reopenProfiles != 0 || reopenAppearances != 0 {
+			t.Fatalf("unchanged table reopen repeated profiles/appearances=%d/%d", reopenProfiles, reopenAppearances)
+		}
+		ack, rest = splitGameServerUpperPacket(t, ac.write.Bytes())
 		roster, rest = splitGameServerUpperPacket(t, rest)
 		wantInfo, _ := raid.BuildCurrentInfoReplyBody(currentRuntimeRaidMetadata(raidAllSoloWireFixture(state)), 2)
 		if len(rest) != 0 || ack.Header.Classification != 1 || ack.Header.MsgID != 1359 || !bytes.Equal(ack.Body, wantInfo) || roster.Header.Classification != 0 || roster.Header.MsgID != 591 || !bytes.Equal(roster.Body, wantRoster) || len(s.raids) != 1 {

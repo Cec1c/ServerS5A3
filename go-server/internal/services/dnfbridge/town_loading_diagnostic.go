@@ -7,6 +7,9 @@ func (s *Service) logTownLoadingDiagnostic(kind string, fields ...any) {
 	if !isTownLoadingDiagnostic(kind) {
 		return
 	}
+	if !s.verboseDiagnosticsEnabled() && !hasSlowTownConstructionField(fields) {
+		return
+	}
 	args := []any{"kind", kind}
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)

@@ -35,8 +35,21 @@ func (s *Service) fiendWarPartySessionHasRuntime(session *gameSession) bool {
 	return session.dungeon.runtime != nil
 }
 
+func fiendWarPartyAdmissionFailure(reason string) bool {
+	switch reason {
+	case "existing_party_ack_write_failed", "existing_party_peer_actor_write_failed", "rejection_ack_write_failed",
+		"accept_ack_write_failed", "peer_offline", "no_shared_encounter_party", "shared_party_not_ready_or_scene_mismatch":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Service) logFiendWarPartyAdmission(phase string, session *gameSession, peerID uint16, peer *gameSession, mode byte, reason string, extra ...any) {
 	if s == nil || session == nil {
+		return
+	}
+	if s.packetLog == nil && !s.verboseDiagnosticsEnabled() && !fiendWarPartyAdmissionFailure(reason) {
 		return
 	}
 	fields := []any{"phase", phase, "mode", mode, "reason", reason}

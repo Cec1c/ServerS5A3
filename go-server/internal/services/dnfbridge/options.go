@@ -773,6 +773,14 @@ type options struct {
 	// 失败码 21 → 客户端「所持金币不足」）。
 	// 现场、逐字段读法与 DB 证据见 expert_job_gold_source.go 文件头。
 	expertJobGoldSource expertJobGoldSourceMode
+
+	verboseDiagnosticsDisabled bool
+	verboseDiagnosticsEnvRaw   string
+	verboseDiagnosticsEnvBad   bool
+
+	partyUDPSocketBufferBytes  int
+	partyUDPSocketBufferEnvRaw string
+	partyUDPSocketBufferEnvBad bool
 }
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
@@ -1050,6 +1058,10 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 	// 绝不因此启动失败；状态词只用于日志，不回显内容。见 party_udp_relay_remote.go。
 	opts.partyUDPRelayRemoteSecret, opts.partyUDPRelayRemoteSecretState = readPartyUDPRelayRemoteSecret(
 		envString(partyUDPRelayRemoteSecretEnv, ""))
+	opts.verboseDiagnosticsDisabled, opts.verboseDiagnosticsEnvRaw, opts.verboseDiagnosticsEnvBad =
+		readVerboseDiagnosticsDisabled()
+	opts.partyUDPSocketBufferBytes, opts.partyUDPSocketBufferEnvRaw, opts.partyUDPSocketBufferEnvBad =
+		readPartyUDPSocketBufferBytes()
 	opts.partyPeerSelfEndpoint = readPartyPeerSelfEndpointMode(
 		envString(partyPeerSelfEndpointEnv, ""))
 	// CS op2 端口字节序（2026-09-25 本轮厂商实测配对）：**默认 be**（端口大端、同一结构里

@@ -49,16 +49,20 @@ type gameSession struct {
 	privateFestivalCommittedSerial    uint64                         // protected by Service.mu; survives character switches
 	dungeonPermissionMigrationAccount string                         // 只记本会话已完成归并的账号，不缓存权限值。
 	peerProfileSubscription           currentPeerProfileSubscription // protected by Service.mu
-	accountRank                       gameAccountRankState           // 限流和请求号由会话循环访问。
-	battlePassLast                    time.Time                      // 战令预览限流，仅会话循环访问。
-	playerStats                       gamePlayerStatsState           // 请求/缓存只由会话循环使用，busy跨工作协程。
-	professionChangeMu                sync.Mutex
-	professionChangePending           *currentProfessionChangePending
-	pendingItemExpiryProjection       *currentItemExpiryProjection          // selected-character event loop only
-	fiendWarPendingMove               *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
-	fiendWarAdmissionDiagnosticKey    currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
-	fiendWarProjection                currentFiendWarProjection
-	pvpClientGameType                 uint32 // 本次客户端选择的匹配类型，原子读取与更新。
+	// CMD1497 reuses the page cursor only for the exact viewer character and
+	// target in this session. The cursor advances after a successful send.
+	peerBuffInspectMu              sync.Mutex
+	peerBuffInspectCursor          peerBuffInspectionCursor
+	accountRank                    gameAccountRankState // 限流和请求号由会话循环访问。
+	battlePassLast                 time.Time            // 战令预览限流，仅会话循环访问。
+	playerStats                    gamePlayerStatsState // 请求/缓存只由会话循环使用，busy跨工作协程。
+	professionChangeMu             sync.Mutex
+	professionChangePending        *currentProfessionChangePending
+	pendingItemExpiryProjection    *currentItemExpiryProjection          // selected-character event loop only
+	fiendWarPendingMove            *currentFiendWarMovePlan              // 由 townMu / 当前会话事件循环保护。
+	fiendWarAdmissionDiagnosticKey currentFiendWarAdmissionDiagnosticKey // 由 townMu 保护；只保留最近一次 queue 诊断。
+	fiendWarProjection             currentFiendWarProjection
+	pvpClientGameType              uint32 // 本次客户端选择的匹配类型，原子读取与更新。
 	// 消耗品召唤源租约（[summon apc]），跨副本运行有效，只由本会话事件循环读写。
 	puppetLease                         *currentDungeonPuppetLease
 	auctionLastSearchOpcode             uint16
@@ -146,6 +150,7 @@ type gameSession struct {
 	events                                  *gameSessionEvents
 	characterGeneration                     uint64
 	raidProjection                          currentRaidProjectionOwner
+	raidProfileView                         currentRaidProfileSendView
 	raidRefresh                             currentRaidRefreshQueue
 	raidTableReturn                         currentRaidTableReturnQueue
 	partyRoomMove                           partyRoomMoveQueue

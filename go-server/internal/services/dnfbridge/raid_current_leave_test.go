@@ -36,11 +36,10 @@ func TestCurrentRaidVoluntaryLeaveRefreshesSuccessorBeforeRoster(t *testing.T) {
 	if err != nil || metadata.Header.MsgID != 591 || metadata.Header.Classification != 0 || !bytes.Equal(metadata.Body, want) || binary.LittleEndian.Uint32(metadata.Body[4:8]) != 2 {
 		t.Fatal("successor metadata must precede roster", metadata)
 	}
-	rest = consumeCurrentRaidProfiles(t, rest, state)
 	roster, rest := splitGameServerUpperPacket(t, rest)
 	wantRoster, _ := s.buildRuntimeRaidRosterBody(state)
 	if len(rest) != 0 || roster.Header.MsgID != 591 || !bytes.Equal(roster.Body, wantRoster) {
-		t.Fatal("successor roster missing or out of order")
+		t.Fatal("successor roster was duplicated with a profile replay")
 	}
 	mc.write.Reset()
 	if err := s.handleGameCommand(member, 1, 665, leave); err != nil {
