@@ -701,7 +701,10 @@ func (s *Service) handleDungeonUseCoin(session *gameSession, body []byte) error 
 
 	if consume.HasItemUpdate {
 		updateBody := buildCurrentItemUpdateBody(dnfrepo.MainInventoryListType, []currentItemListEntry{consume.ItemUpdate})
-		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), updateBody, 0); err != nil {
+		// This row only decrements or removes the already committed coin stack.
+		// It cannot grant a premium contract. Preserve the ordinary codec and
+		// expiry projection without loading acquisition catalogs on a revive.
+		if err := s.sendGameUpperRawClassCodec(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), updateBody, 0, true); err != nil {
 			s.logGameEvent(session, "game-dungeon-use-coin-inventory-update-failed",
 				"char_id", characterID,
 				"slot_key", consume.SlotKey,
