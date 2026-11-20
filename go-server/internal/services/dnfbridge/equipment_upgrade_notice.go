@@ -61,7 +61,7 @@ func (s *Service) broadcastCurrentEquipmentUpgradeNotice(source *gameSession, no
 	}
 	for _, target := range recipients {
 		target := target
-		err := s.postCurrentEquipmentNotice(target, func() error {
+		err := s.postCurrentGameNotice(target, "频道装备播报", func() error {
 			if !s.boundGameSessionCharacterCurrent(target) || currentTownPresenceChannelID(target.session) != channel {
 				return nil
 			}
@@ -87,9 +87,9 @@ func (s *Service) broadcastCurrentEquipmentUpgradeNotice(source *gameSession, no
 	return nil
 }
 
-// 装备播报是非关键通知。满队列时立即省略，不能在操作者事件中等待其他会话。
+// 播报是非关键通知。满队列时立即省略，避免阻塞其他会话。
 // 其余关键事件仍使用原来的阻塞投递；无事件循环的独立调用沿用同步契约。
-func (s *Service) postCurrentEquipmentNotice(target boundGameSessionCharacter, run func() error) error {
+func (s *Service) postCurrentGameNotice(target boundGameSessionCharacter, notice string, run func() error) error {
 	session := target.session
 	if session == nil || run == nil {
 		return errInvalidGameSessionEvent
@@ -101,9 +101,9 @@ func (s *Service) postCurrentEquipmentNotice(target boundGameSessionCharacter, r
 		return run()
 	}
 	return session.events.loop.Submit(eventloop.Event{
-		Type: "频道装备播报",
+		Type: notice,
 		Data: gameSessionEventTask{
-			source: "频道装备播报", characterID: target.character,
+			source: notice, characterID: target.character,
 			characterGeneration: target.generation, async: true, run: run,
 		},
 		Priority: eventloop.PriorityMedium,
