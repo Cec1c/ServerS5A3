@@ -195,6 +195,40 @@ class DeploymentBoundaries(unittest.TestCase):
             self.assertEqual(services["server"]["ports"][3], "10.90.0.1:10006:10006/tcp")
             self.assertIn("GOMEMLIMIT=2500MiB", (Path(directory) / "server.env").read_text())
 
+    def public_host_config(self, **extra):
+        return {"host_ip": "10.90.0.1", "server_ip": "10.254.90.2", "database_ip": "10.254.90.3",
+                "subnet": "10.254.90.0/24", "database_password": "abc", "root_password": "def",
+                "admin_token": "123", "body_codec": "plaintext", "client_body_codec": "plaintext",
+                "joust_event_enabled": True} | extra
+
+    def test_public_host_changes_only_the_advertised_address(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
+            manage.generate(self.public_host_config(public_host="8.8.4.4"), {"ports": [10006]})
+            env = (Path(directory) / "server.env").read_text()
+            self.assertIn("DNFBRIDGE_SERVER_IP=8.8.4.4\n", env)
+            self.assertIn("DNFBRIDGE_GAME_LISTEN_HOST=10.254.90.2\n", env)
+            services = json.loads((Path(directory) / "compose.json").read_text())["services"]
+            ports = services["server"]["ports"]
+            self.assertIn("10.90.0.1:10006:10006/tcp", ports)
+            self.assertFalse(any("8.8.4.4" in port for port in ports))
+            toml = (Path(directory) / "server/configs/dnfbridge.toml").read_text()
+            self.assertIn('public_addr = "8.8.4.4:7001"', toml)
+
+    def test_without_public_host_the_private_address_is_still_advertised(self):
+        for extra in ({}, {"public_host": ""}, {"public_host": None}):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(manage, "RUNTIME", Path(directory)):
+                manage.generate(self.public_host_config(**extra), {"ports": [10006]})
+                self.assertIn("DNFBRIDGE_SERVER_IP=10.90.0.1\n", (Path(directory) / "server.env").read_text())
+
+    def test_public_host_rejects_names_private_and_special_addresses(self):
+        for value in ("example.com", "192.168.1.5", "10.0.0.1", "127.0.0.1", "0.0.0.0",
+                      "169.254.1.1", "224.0.0.1", "255.255.255.255", "100.64.0.1", "::1",
+                      "8.8.4.4:7001", " 8.8.4.4", 5, True, []):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(manage, "RUNTIME", Path(directory)), self.assertRaisesRegex(ValueError, "public_host"):
+                manage.generate(self.public_host_config(public_host=value), {"ports": [10006]})
+
 
 if __name__ == "__main__":
     unittest.main()
