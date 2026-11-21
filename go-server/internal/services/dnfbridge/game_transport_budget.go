@@ -137,6 +137,11 @@ func beginGameWriteBudgetLocked(p *gameSession, parent context.Context) (func(),
 // All game TCP writes, including provider controls and batch flushes, pass
 // here under wireMu. A short write cannot reuse an advanced codec sequence.
 func (s *Service) writeGameSessionObserved(p *gameSession, data []byte, stage int) (int, error) {
+	// Cover direct batch/provider writes whose caller already owns wireMu.
+	// A successful EXIT permanently retires only this socket, not the account.
+	if p.channelExitWireClosed {
+		return 0, io.ErrClosedPipe
+	}
 	if p.wireWriteContext == nil {
 		finish, err := beginGameWriteBudgetLocked(p, nil)
 		if err != nil {

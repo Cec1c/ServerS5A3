@@ -34,17 +34,24 @@ func (s *Service) handleCurrentChannelExit(session *gameSession, body []byte, so
 	// while the old socket remains alive until the client's orderly close.
 	session.townMu.Lock()
 	defer session.townMu.Unlock()
-	if err := s.sendGameUpperRawClassNoCodec(
-		session,
-		uint16(dnfenum.CmdPacketExit),
-		[]byte{1},
-		dnfproto.DefaultChannelClassification,
-	); err != nil {
+	// Publish the final ACK and retire the old writer under the same wire lock.
+	// Raid broadcasts and queued callbacks can outlive the scene until the
+	// client closes this socket; they must not follow the teardown ACK.
+	if err := s.withGameWire(session, func() error {
+		if err := s.sendGameUpperRawClassCodecLocked(session,
+			uint16(dnfenum.CmdPacketExit), []byte{1},
+			dnfproto.DefaultChannelClassification, false); err != nil {
+			return err
+		}
+		session.channelExitWireClosed = true
+		return nil
+	}); err != nil {
 		cancelHandoff()
 		return err
 	}
 	session.channelExitAcknowledged = true
 	resetCurrentGuildPresenceRefresh(session, true)
+	resetCurrentRaidRefresh(session, true)
 	s.logGameEvent(session, "game-channel-exit-acknowledged",
 		"source", source,
 		"request_body_len", len(body),
