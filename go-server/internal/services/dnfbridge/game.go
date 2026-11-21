@@ -121,6 +121,7 @@ type gameSession struct {
 	// timer can send concurrently with the connection reader, so callers
 	// must not allocate a sequence before acquiring this lock.
 	wireMu                  sync.Mutex
+	channelExitWireClosed   bool                      // wireMu; EXIT ACK is the final write on the old scene connection
 	wireWriteContext        context.Context           // wireMu; active logical write budget
 	wireWritePacket         gameWritePacketDiagnostic // wireMu; immediate upper-frame identity only
 	selectTimingMu          sync.Mutex

@@ -161,6 +161,9 @@ func (s *Service) withGameWire(session *gameSession, operation func() error) err
 		return err
 	}
 	defer session.wireMu.Unlock()
+	if session.channelExitWireClosed {
+		return nil
+	}
 	finish, err := beginGameWriteBudgetLocked(session, nil)
 	if err != nil {
 		return err
@@ -176,6 +179,9 @@ func (s *Service) writeGameRawPacket(session *gameSession, packet []byte) error 
 }
 
 func (s *Service) writeGameRawPacketLocked(session *gameSession, packet []byte) error {
+	if session.channelExitWireClosed {
+		return nil
+	}
 	s.auditFallbackNameInOutboundPacket(session, packet, "game_raw_frame")
 	_, err := s.writeCurrentGameWireLocked(session, packet)
 	return err
@@ -188,6 +194,9 @@ func (s *Service) writeGameUpperPacket(session *gameSession, inner []byte) error
 }
 
 func (s *Service) writeGameUpperPacketLocked(session *gameSession, inner []byte) error {
+	if session.channelExitWireClosed {
+		return nil
+	}
 	if classification, msgID, ok := upperPacketClassMsgID(inner); ok {
 		// 1) 厂商缺失包注入（诊断）：挂在锚点包前面，只走 core 通道。
 		if err := s.emitUpperVendorInjectionsLocked(session, msgID); err != nil {
@@ -214,6 +223,9 @@ func (s *Service) writeGameUpperPacketLocked(session *gameSession, inner []byte)
 // 诊断钩子（注入/屏蔽/回放）都在 writeGameUpperPacketLocked 里，注入包直接调本函数，
 // 因此不会再触发钩子（否则锚点相同就会递归）。
 func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte) error {
+	if session.channelExitWireClosed {
+		return nil
+	}
 	if session.nativeResultDelivery != nil && !s.nativeResultPacketCanWait(session, inner) {
 		if err := s.flushNativeResultDeliveryLocked(session, "其他功能报文"); err != nil {
 			return err
