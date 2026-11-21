@@ -9,7 +9,7 @@ import (
 )
 
 func TestGuildReadCharactersBatchBoundedByShards(t *testing.T) {
-	for _, n := range []int{191, 1000} {
+	for _, n := range []int{191, 1000, repo.MaxGuildCharacterBatchIDs} {
 		for _, mode := range []string{"on", "off"} {
 			t.Run(fmt.Sprintf("%d/%s", n, mode), func(t *testing.T) {
 				t.Setenv("DNFBRIDGE_CHARACTER_MIRROR_STATS_AUTHORITATIVE", mode)
@@ -62,7 +62,7 @@ func TestGuildReadCharactersBatchBoundedByShards(t *testing.T) {
 }
 
 func TestGuildReadCharactersRejectsBadIdentityAndDeduplicates(t *testing.T) {
-	for _, ids := range [][]string{{""}, {" 1"}, make([]string, 1001)} {
+	for _, ids := range [][]string{{""}, {" 1"}, make([]string, repo.MaxGuildCharacterBatchIDs+1)} {
 		db := &fakeSQLDB{}
 		r := &mysqlGuildCharacters{router: mysqlRouter{db: db, writeDBs: []string{"a"}}}
 		if _, err := r.LoadGuildCharacters(context.Background(), ids); err == nil || len(db.execs) != 0 {

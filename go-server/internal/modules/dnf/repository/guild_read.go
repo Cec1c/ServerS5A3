@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// MaxGuildCharacterBatchIDs bounds one LoadGuildCharacters display batch to the
+// largest supported guild member capacity.
+const MaxGuildCharacterBatchIDs = 5000
+
 // GuildCharacter is a display-only projection, never an asset snapshot.
 type GuildCharacter struct {
 	CharacterID, AccountID, Name, Job string

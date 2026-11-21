@@ -171,6 +171,8 @@ func previousMemberLimit(target uint32) int {
 		return 500
 	case 1000:
 		return 700
+	case 5000:
+		return 1000
 	default:
 		return -1
 	}

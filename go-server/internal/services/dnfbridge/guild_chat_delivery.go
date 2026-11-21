@@ -192,7 +192,7 @@ func (s *Service) projectCurrentGuildChatContribution(identity boundGameSessionC
 	if g == nil {
 		return nil
 	}
-	body, err := buildCurrentGuildHongbaoPointsBody(guild.SortedMembers(g))
+	body, err := buildCurrentGuildHongbaoPointsBody(selectCurrentGuildHongbaoPointsMembers(guild.SortedMembers(g), id))
 	if err != nil {
 		return err
 	}
