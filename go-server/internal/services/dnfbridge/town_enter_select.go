@@ -459,6 +459,10 @@ func (s *Service) retireCompletedDungeonForTownAction(session *gameSession, requ
 		session.dungeon.mu.Unlock()
 		return false, nil
 	}
+	if err := s.clearCurrentSecretShopLocked(session, runtime); err != nil {
+		session.dungeon.mu.Unlock()
+		return false, err
+	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
 	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")
 	s.cancelCurrentDungeonCardAutoFlipLocked(session, runtime, "completed_run_retires_into_other_dungeon_selector")

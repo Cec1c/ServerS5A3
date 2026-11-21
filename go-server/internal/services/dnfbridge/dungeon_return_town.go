@@ -457,6 +457,11 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 	if err := s.recordCurrentActivityAbyss(session, runtime, snapshot.Scene, false); err != nil {
 		return err
 	}
+	if runtime.raidEntry != nil && runtime.raidEntry.ChannelType == 42 {
+		if err := s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, false); err != nil {
+			return err
+		}
+	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_return_transition_started")
 	if !runtime.townReturnPending {
 		runtime.townReturnPending = true

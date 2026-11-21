@@ -16,7 +16,7 @@ const (
 	// PVFPath is the archive path parsed by Load.
 	PVFPath = "etc/secretshop.etc"
 
-	// DefaultNPCID is the ordinary Gabriel shop. It has no secret-shop pool.
+	// DefaultNPCID is Delilah, restored when no Gabriel encounter is selected.
 	DefaultNPCID uint32 = 1000
 
 	maxSourceBytes      = 8 << 20

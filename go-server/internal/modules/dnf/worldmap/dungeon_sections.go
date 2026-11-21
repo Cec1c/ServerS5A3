@@ -37,6 +37,7 @@ var dungeonIntegerSections = stringSet(
 var dungeonNumberSections = stringSet("kill count const", "move speed")
 
 var dungeonFlagSections = stringSet(
+	"hidden secret shop", "legend dungeon", "warriors dungeon",
 	"defense dungeon", "blood dungeon", "dimension dungeon", "entry dungeon", "tournament dungeon",
 	"powerwar dungeon", "risk dungeon", "ancient dungeon", "event dungeon",
 	"crack of dimension dungeon", "disable exit", "individual map movement",

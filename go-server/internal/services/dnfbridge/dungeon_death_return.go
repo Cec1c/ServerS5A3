@@ -119,8 +119,8 @@ func (s *Service) handleDungeonDieCharacter(session *gameSession, body []byte) e
 	session.dungeon.mu.Lock()
 	runtime := session.dungeon.runtime
 	characterID, readyReason := currentDungeonDeathRuntimeOwner(runtime, session)
-	if readyReason == "dungeon_run_not_active" && s.currentFiendWarCompletedLifeOwner(session, runtime) {
-		err := s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, true)
+	if (readyReason == "" || readyReason == "dungeon_run_not_active") && s.currentFiendWarCompletedLifeOwner(session, runtime) {
+		err := s.sendCurrentFiendWarClearLifeLocked(session, runtime)
 		session.dungeon.mu.Unlock()
 		return err
 	}

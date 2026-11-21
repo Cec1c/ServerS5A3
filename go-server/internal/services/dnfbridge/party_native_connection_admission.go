@@ -191,11 +191,7 @@ func (s *Service) deferPartyNativeConnectionAdmissionWithContinuation(session *g
 		}
 		return false, nil
 	}
-	// FiendWar's automatic encounter owns a synchronous temporary-party/raid
-	// reservation transaction whose defers retire it if entry has not committed.
-	// Suspending that transaction here would destroy its just-created party.
-	// This gate covers ordinary selectors (including Anton/Luke); automatic
-	// encounter admission retains its existing dedicated transaction.
+	// Automatic entry opens its query while it owns the temporary party.
 	if admitted {
 		return false, nil
 	}
@@ -210,6 +206,10 @@ func (s *Service) deferPartyNativeConnectionAdmissionWithContinuation(session *g
 		p.resume = func() error { return resume(p) }
 		p.refuse = refuse
 	}
+	return s.startPartyNativeConnectionQuery(p, routed, admitted, nil)
+}
+
+func (s *Service) startPartyNativeConnectionQuery(p *partyNativeConnectionProof, routed *partyDungeonEntryRoutedRequest, admitted bool, finish func()) (bool, error) {
 	a := &s.partyNativeAdmission
 	a.mu.Lock()
 	if len(a.byNonce) >= 64 {
@@ -219,8 +219,8 @@ func (s *Service) deferPartyNativeConnectionAdmissionWithContinuation(session *g
 	for _, peer := range p.peers {
 		if a.bySession[peer.session] != nil {
 			a.mu.Unlock()
-			if routed != nil {
-				return false, errors.New("routed selector already has a native connection query")
+			if routed != nil || finish != nil {
+				return false, errors.New("selector already has a native connection query")
 			}
 			// Repeated clicks on the same pending selector are one attempt.
 			// A second response must not cancel the first attempt's native wait.
@@ -240,7 +240,13 @@ func (s *Service) deferPartyNativeConnectionAdmissionWithContinuation(session *g
 		a.bySession[peer.session] = p
 	}
 	a.mu.Unlock()
-	go s.runPartyNativeConnectionAdmission(p, routed, admitted)
+	go func() {
+		defer s.forgetPartyNativeProof(p)
+		if finish != nil {
+			defer finish()
+		}
+		s.runPartyNativeConnectionAdmission(p, routed, admitted)
+	}()
 	return true, nil
 }
 
@@ -256,7 +262,6 @@ func (s *Service) refusePartyNativeConnectionAdmission(session *gameSession, bod
 }
 
 func (s *Service) runPartyNativeConnectionAdmission(p *partyNativeConnectionProof, routed *partyDungeonEntryRoutedRequest, admitted bool) {
-	defer s.forgetPartyNativeProof(p)
 	ctx, cancel := context.WithDeadline(context.Background(), p.deadline)
 	defer cancel()
 	var failure error

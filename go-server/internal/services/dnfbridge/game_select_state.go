@@ -24,6 +24,9 @@ func (s *Service) sendSelectCharacterState(session *gameSession, body []byte) er
 	if s.options.currentClientVersion == "official-24.9" && hasCharacter && currentCharacterRenamePending(selectedCharacter) {
 		return s.sendCharacterBootstrap(session, "pending_rename_legacy_select_retry")
 	}
+	if !s.currentLukeChannelSelectionAllowed(ctx, session, selectedCharacter) {
+		return s.rejectCurrentLukeChannelSelection(session, selectedCharacter)
+	}
 	s.bindGameSessionCharacter(session, charID)
 	if hasCharacter && !s.currentRenameSelectionStillCurrent(ctx, session, selectedCharacter) {
 		return s.handleUpperReturnSelectCharacter(session, nil)

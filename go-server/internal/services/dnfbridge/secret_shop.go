@@ -38,6 +38,7 @@ type currentSecretShop struct {
 	Rows       []currentSecretShopRow
 	Scene      worldmap.DungeonRoomScene
 	Sent, Open bool
+	NPCSent    bool // 279 may succeed even when the following shelf packet fails.
 }
 
 var errCurrentSecretShop = errors.New("current secret shop is unavailable")
@@ -65,6 +66,13 @@ func (s *Service) currentSecretShopCatalog() (*secretshop.Catalog, error) {
 }
 
 func currentSecretShopEligible(runtime *runtimeDungeonState) bool {
+	if runtime != nil {
+		for _, flag := range []string{"hidden secret shop", "dimension dungeon", "legend dungeon", "warriors dungeon"} {
+			if runtime.Dungeon.Metadata.Flags[flag] {
+				return false
+			}
+		}
+	}
 	return runtime != nil && runtime.Session != nil && !runtime.townReturnPending && runtime.raidEntry == nil && runtime.guildDungeonClear == nil && runtime.guildPractice == nil && runtime.Tournament == nil && runtime.riftLoot == nil && runtime.epicEntry == nil && !isPVFTutorialDungeon(runtime) && !strings.Contains(strings.ToLower(runtime.Dungeon.Metadata.DungeonType), "tower") && runtime.Dungeon.ID > 0 && runtime.Dungeon.ID <= math.MaxUint32 && runtime.Session.Snapshot().Run.Status == worldmap.DungeonRunCompleted
 }
 
@@ -198,6 +206,7 @@ func (s *Service) retryPendingCurrentSecretShopLocked(session *gameSession, runt
 	}
 	if err := s.offerCurrentSecretShopLocked(session, runtime, scene); err != nil {
 		s.logGameEvent(session, "secret-shop-settlement-retry-deferred", "dungeon_id", runtime.Dungeon.ID, "error", err)
+		return
 	}
 	runtime.secretShopRetryPending = false
 }
@@ -314,7 +323,20 @@ func buildCurrentSecretShopItems(shop *currentSecretShop) []byte {
 
 func (s *Service) sendCurrentSecretShopLocked(session *gameSession, runtime *runtimeDungeonState) error {
 	shop := runtime.secretShop
-	if shop == nil || shop.Sent {
+	if shop == nil {
+		// A frozen Delilah result must also replace the previous run's NPC.
+		if !runtime.secretShopChecked || runtime.secretShopEncounter == nil || runtime.secretShopEncounter.NPCID != secretshop.DefaultNPCID || runtime.secretShopDefaultSent {
+			return nil
+		}
+		body := make([]byte, 4)
+		binary.LittleEndian.PutUint32(body, secretshop.DefaultNPCID)
+		if err := s.sendGameUpperRawClass(session, 279, body, 0); err != nil {
+			return err
+		}
+		runtime.secretShopDefaultSent = true
+		return nil
+	}
+	if shop.Sent {
 		return nil
 	}
 	if err := s.restoreCurrentSecretShopStock(session, shop); err != nil {
@@ -325,6 +347,7 @@ func (s *Service) sendCurrentSecretShopLocked(session *gameSession, runtime *run
 	if err := s.sendGameUpperRawClass(session, 279, body, 0); err != nil {
 		return err
 	}
+	shop.NPCSent = true
 	if err := s.sendGameUpperRawClass(session, 280, buildCurrentSecretShopItems(shop), 0); err != nil {
 		return err
 	}
@@ -334,7 +357,7 @@ func (s *Service) sendCurrentSecretShopLocked(session *gameSession, runtime *run
 }
 
 func (s *Service) clearCurrentSecretShopLocked(session *gameSession, runtime *runtimeDungeonState) error {
-	if runtime == nil || runtime.secretShop == nil || !runtime.secretShop.Sent {
+	if runtime == nil || runtime.secretShop == nil || (!runtime.secretShop.Sent && !runtime.secretShop.NPCSent) {
 		return nil
 	}
 	body := make([]byte, 4)
@@ -343,6 +366,7 @@ func (s *Service) clearCurrentSecretShopLocked(session *gameSession, runtime *ru
 		return err
 	}
 	runtime.secretShop.Sent = false
+	runtime.secretShop.NPCSent = false
 	runtime.secretShop.Open = false
 	return nil
 }

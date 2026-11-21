@@ -8,16 +8,20 @@ import "longheng.io/server/internal/modules/dnf/worldmap"
 // Caller owns this session's dungeon mutex; no transport runs under raidMu.
 func (s *Service) currentFiendWarCompletedLifeOwner(p *gameSession, r *runtimeDungeonState) bool {
 	if p == nil || r == nil || r.Session == nil || p.dungeon.runtime != r ||
-		!isCurrentFiendWarChannel(p) || !s.currentRaidAuthenticated(p) ||
+		r.raidEntry == nil || !isCurrentFiendWarChannel(p) ||
 		!dungeonRuntimeOwnsCharacter(r, p.selectedCharacterID) || r.townReturnPending ||
-		r.lifecycleToken == 0 || r.lifecycleToken != p.dungeon.runToken ||
-		r.Session.Snapshot().Run.Status != worldmap.DungeonRunCompleted ||
-		!completedDungeonSettlementEntryReady(r, p.selectedCharacterID) ||
-		!currentDungeonSettlementCompletionReady(r, worldmap.DungeonRunCompleted) || r.raidEntry == nil {
+		r.lifecycleToken == 0 || r.lifecycleToken != p.dungeon.runToken {
 		return false
 	}
 	e := r.raidEntry
 	if e.ChannelType != 42 || p.channel.ID != e.ChannelID || e.RunID == "" || e.Attempt == 0 {
+		return false
+	}
+	status := r.Session.Snapshot().Run.Status
+	if status != worldmap.DungeonRunActive && status != worldmap.DungeonRunCompleted {
+		return false
+	}
+	if !s.currentRaidAuthenticated(p) {
 		return false
 	}
 	s.raidMu.Lock()
@@ -33,13 +37,32 @@ func (s *Service) currentFiendWarCompletedLifeOwner(p *gameSession, r *runtimeDu
 		r.AccountID != s.accountIDForSession(p) {
 		return false
 	}
+	locallySettled := status == worldmap.DungeonRunCompleted &&
+		completedDungeonSettlementEntryReady(r, p.selectedCharacterID) && currentDungeonSettlementCompletionReady(r, status)
+	if !locallySettled {
+		// A teammate can commit the encounter before this participant has
+		// processed its own settlement. Require its exact admitted runtime.
+		participant := b.Participation[p.selectedCharacterID]
+		if participant.Session != p || participant.Runtime != r || participant.RunID != e.RunID {
+			return false
+		}
+	}
+	return currentFiendWarRunClearedFor(b, r, p.selectedCharacterID)
+}
+
+func currentFiendWarRunClearedFor(b *runtimeRaidBattle, r *runtimeDungeonState, character uint16) bool {
+	e := r.raidEntry
+	if e.RunID == "" || b.InstanceID != e.InstanceID || b.ChannelID != e.ChannelID || b.ChannelType != e.ChannelType ||
+		b.Phase != e.Phase || b.RunDepartures[e.RunID][character] {
+		return false
+	}
 	cleared, ok := b.ClearedRuns[e.RunID]
 	if !ok || int64(cleared.DungeonID) != r.Dungeon.ID || cleared.Phase != e.Phase ||
 		cleared.Attempt != e.Attempt || !sameRaidParticipants(cleared.Participants, e.Participants) {
 		return false
 	}
 	for _, id := range cleared.Participants {
-		if id == p.selectedCharacterID {
+		if id == character {
 			return true
 		}
 	}
@@ -47,9 +70,13 @@ func (s *Service) currentFiendWarCompletedLifeOwner(p *gameSession, r *runtimeDu
 }
 
 func (s *Service) restoreCurrentFiendWarCompletedLifeLocked(p *gameSession, r *runtimeDungeonState, lateDeath bool) error {
-	if !s.currentFiendWarCompletedLifeOwner(p, r) || !lateDeath && !r.deathStateSent && !r.deathReturnWaiting {
+	if r == nil || (!lateDeath && !r.deathStateSent && !r.deathReturnWaiting) || !s.currentFiendWarCompletedLifeOwner(p, r) {
 		return nil
 	}
+	return s.sendCurrentFiendWarClearLifeLocked(p, r)
+}
+
+func (s *Service) sendCurrentFiendWarClearLifeLocked(p *gameSession, r *runtimeDungeonState) error {
 	if err := s.sendGameUpperRawClass(p, currentDungeonDeathStateMsgID,
 		buildCurrentDungeonDeathStateBody(currentSceneActorObjectKey(p.selectedCharacterID), currentDungeonReviveStateType, 0), 0); err != nil {
 		return err

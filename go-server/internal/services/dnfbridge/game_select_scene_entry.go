@@ -41,6 +41,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 			return s.sendCharacterBootstrap(session, "pending_rename_select_retry")
 		}
 	}
+	if !s.currentLukeChannelSelectionAllowed(ctx, session, selectedCharacter) {
+		return s.rejectCurrentLukeChannelSelection(session, selectedCharacter)
+	}
 	s.bindGameSessionCharacter(session, charID)
 	if !s.currentRenameSelectionStillCurrent(ctx, session, selectedCharacter) {
 		return s.handleUpperReturnSelectCharacter(session, nil)
