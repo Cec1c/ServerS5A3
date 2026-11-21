@@ -83,7 +83,7 @@ type mysqlGuildCharacters struct{ router mysqlRouter }
 const guildCharacterQueryBatchSize = 256
 
 func (s *mysqlGuildCharacters) LoadGuildCharacters(ctx context.Context, ids []string) (map[string]r.GuildCharacter, error) {
-	if len(ids) > 1000 || len(s.router.writeDBs) == 0 {
+	if len(ids) > r.MaxGuildCharacterBatchIDs || len(s.router.writeDBs) == 0 {
 		return nil, r.ErrGuildTransaction
 	}
 	groups := make([][]string, len(s.router.writeDBs))

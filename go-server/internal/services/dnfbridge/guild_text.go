@@ -119,6 +119,10 @@ func (s *Service) refreshCurrentGuildText(ctx context.Context, guildID uint32, s
 		s.logGameEvent(source.session, "game-guild-text-refresh-failed", "error", err)
 		return
 	}
+	var shared *guildPresenceReadCache
+	if !notice {
+		shared = &guildPresenceReadCache{}
+	}
 	for _, member := range r.Members(guildID) {
 		id, err := strconv.ParseUint(member.CharacterID, 10, 16)
 		if err != nil || id == 0 {
@@ -128,13 +132,26 @@ func (s *Service) refreshCurrentGuildText(ctx context.Context, guildID uint32, s
 		if !online {
 			continue
 		}
-		if err := s.refreshCurrentGuildTextPeer(ctx, guildID, peer, source, notice); err != nil {
+		if !notice && peer != source && peer.session.events != nil && peer.session.events.active.Load() {
+			peer.session.guild.mu.Lock()
+			requested := peer.session.guild.memberListRequested
+			peer.session.guild.mu.Unlock()
+			if requested {
+				s.requestCurrentGuildPresenceRefresh(peer, guildID, shared)
+			}
+			continue
+		}
+		if err := s.refreshCurrentGuildTextPeerShared(ctx, guildID, peer, source, notice, shared); err != nil {
 			s.logGameEvent(peer.session, "game-guild-text-refresh-failed", "error", err)
 		}
 	}
 }
 
 func (s *Service) refreshCurrentGuildTextPeer(ctx context.Context, guildID uint32, peer, source boundGameSessionCharacter, notice bool) error {
+	return s.refreshCurrentGuildTextPeerShared(ctx, guildID, peer, source, notice, nil)
+}
+
+func (s *Service) refreshCurrentGuildTextPeerShared(ctx context.Context, guildID uint32, peer, source boundGameSessionCharacter, notice bool, shared *guildPresenceReadCache) error {
 	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{peer})
 	if err != nil {
 		return err
@@ -166,7 +183,7 @@ func (s *Service) refreshCurrentGuildTextPeer(ctx context.Context, guildID uint3
 		if source.session == nil {
 			trigger = "presence"
 		}
-		return s.handleCurrentGuildMemberListObserved(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger)
+		return s.handleCurrentGuildMemberListObservedShared(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger, shared)
 	}
 	return nil
 }
