@@ -59,12 +59,7 @@ func isCurrentChannelReconnectLifecycleBody(msgID uint16, classification byte, b
 }
 
 func isCurrentChannelReconnectDisplayProbeBodyLen(bodyLen int) bool {
-	return bodyLen == currentChannelReconnectDisplayProbeSize ||
-		bodyLen == reference90CNChannelReconnectDisplayProbeBodySize ||
-		bodyLen == currentObservedChannelReconnectDisplayProbeSize ||
-		bodyLen == v56ChannelReconnectDisplayProbeSize ||
-		bodyLen == v56RemoteChannelReconnectDisplayProbeSize ||
-		bodyLen == observedTokenLoginBodySize
+	return dnfproto.IsClientLoginEndpointBodyLen(bodyLen)
 }
 
 func markCurrentChannelReconnect(session *gameSession, bodyLen int) bool {

@@ -46,7 +46,64 @@ const (
 	// upper authentication rather than treating it as an unauthenticated
 	// legacy command. This does not validate or bypass the login token.
 	observedTokenLoginBodySize = 594
+
+	// Current EXE class=1/op=1 login builder (DNF.exe VA 0x0252cae0) writes a
+	// 582-byte fixed frame plus N local IPv4 addresses returned by
+	// gethostbyname(gethostname()) (4 bytes each, N >= 1 with 127.0.0.1
+	// fallback), yielding bodyLen = 582 + 4*N (or +16 when optional arg1 is
+	// non-NULL). Discrete whitelists previously missed N=5 (602B) and N>=8
+	// (614+B).
+	clientLoginBaseBodySize      = 582
+	clientLoginIPv4EntrySize     = 4
+	clientLoginMinIPv4Count      = 1
+	clientLoginMaxIPv4Count      = 64
+	clientLoginOptionalBlockSize = 16
+	clientLoginMinBodySize       = clientLoginBaseBodySize + clientLoginMinIPv4Count*clientLoginIPv4EntrySize
+	clientLoginMaxBodySize       = clientLoginBaseBodySize + clientLoginMaxIPv4Count*clientLoginIPv4EntrySize + clientLoginOptionalBlockSize
+	clientLoginFixedBlockOffset  = 54
+	clientLoginFixedBlockSize    = 0x200
+	clientLoginIPv4CountOffset   = 580
 )
+
+// IsClientLoginEndpointBodyLen reports whether bodyLen matches the current
+// EXE's class=1/op=1 login/endpoint frame length invariant 582 + 4*N
+// (1 <= N <= 64, plus optional 16-byte arg1 block).
+func IsClientLoginEndpointBodyLen(bodyLen int) bool {
+	return bodyLen >= clientLoginMinBodySize &&
+		bodyLen <= clientLoginMaxBodySize &&
+		(bodyLen-clientLoginBaseBodySize)%clientLoginIPv4EntrySize == 0
+}
+
+// IsClientLoginEndpointBody checks whether a class=1/op=1 client login body
+// matches the current EXE's 582 + 4*N length invariant and, when the live
+// 512-byte section header is present at offset 54, verifies header framing and
+// trailing IPv4 count consistency.
+func IsClientLoginEndpointBody(body []byte) bool {
+	if !IsClientLoginEndpointBodyLen(len(body)) {
+		return false
+	}
+	if binary.LittleEndian.Uint32(body[clientLoginFixedBlockOffset:clientLoginFixedBlockOffset+4]) == clientLoginFixedBlockSize {
+		if binary.LittleEndian.Uint32(body[0:4]) != 1 ||
+			binary.LittleEndian.Uint32(body[5:9]) != 32 {
+			return false
+		}
+		if n := int(body[clientLoginIPv4CountOffset]); n >= clientLoginMinIPv4Count &&
+			n <= clientLoginMaxIPv4Count &&
+			len(body) == clientLoginBaseBodySize+clientLoginIPv4EntrySize*n {
+			return true
+		}
+		if len(body) >= clientLoginMinBodySize+clientLoginOptionalBlockSize {
+			n := int(body[clientLoginIPv4CountOffset+clientLoginOptionalBlockSize])
+			if n >= clientLoginMinIPv4Count &&
+				n <= clientLoginMaxIPv4Count &&
+				len(body) == clientLoginBaseBodySize+clientLoginOptionalBlockSize+clientLoginIPv4EntrySize*n {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
 
 // LatestGameStreamPacket 是从 game TCP 字节流切出的完整包。
 type LatestGameStreamPacket struct {
@@ -276,18 +333,12 @@ func isKnownClientUpperMsg(msgID uint16, body []byte) bool {
 	bodyLen := len(body)
 	switch msgID {
 	case 1:
-		// The current EXE emits a 590-byte native upper packet before and after
-		// the target town route. The clean 90cn reference emits the same
-		// lifecycle packet with a 598-byte body. Both are exact, state-gated
-		// display-rebind shapes and must be cut before the overlapping legacy
-		// parser. The observed live remote client emits the 586-byte variant;
-		// accepting it keeps that same endpoint request out of the legacy path.
-		return bodyLen == currentChannelDisplayRebindSize ||
-			bodyLen == reference90CNChannelDisplayRebindBodySize ||
-			bodyLen == currentObservedChannelDisplayRebindBodySize ||
-			bodyLen == v56ChannelDisplayRebindBodySize ||
-			bodyLen == v56RemoteChannelDisplayRebindBodySize ||
-			bodyLen == observedTokenLoginBodySize
+		// Current EXE class=1/op=1 login/endpoint requests carry a 582-byte
+		// fixed prefix/suffix plus N local IPv4 addresses (582 + 4*N, N >= 1,
+		// with an optional 16-byte arg1 block). Match the structured formula
+		// instead of discrete lengths so N=5 (602B) and N>=8 (614+B) reach the
+		// authenticated upper route before the overlapping legacy parser.
+		return IsClientLoginEndpointBody(body)
 	case 2:
 		// A channel transfer opens the target game port without requesting the
 		// ordinary roster and emits this exact 31-byte native upper probe.
