@@ -590,3 +590,39 @@ func TestRealSecretShopRejectsInactiveWrongOwnerClosedAndMalformed(t *testing.T)
 		t.Fatal("replaced connection mutated assets")
 	}
 }
+
+func TestRealSecretShopLegacyOpenAndBuy(t *testing.T) {
+	f, r, catalog := realSecretShopFixture(t)
+	shop := installRealSecretShop(t, f, r, catalog)
+	shop.Open = false
+	row := shop.Rows[0]
+	seq := uint64(100)
+	send := func(op uint16, payload []byte) {
+		t.Helper()
+		body := append(append([]byte(nil), payload...), 0xde, 0xad, 0xbe, 0xef)
+		if err := f.service.handleGameCommandRequest(f.session, gameplayRequest{
+			Opcode: op, Classification: 1, Sequence: &seq, Body: normalizeLegacyGameBody(op, body),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(297, []byte{1})
+	if !shop.Open {
+		t.Fatal("legacy open never reached shop")
+	}
+	seq++
+	send(296, secretShopBuyBody(row.Candidate.ItemID, 1))
+	send(296, secretShopBuyBody(row.Candidate.ItemID, 1))
+	if f.gold(t) != 1000000-row.Candidate.Price || shop.Rows[0].Remaining != row.Remaining-1 {
+		t.Fatal("purchase or replay changed the wrong balance")
+	}
+	acks := shopPackets(t, f.service, f.connection, 296)
+	if len(acks) != 2 || len(acks[0]) != 30 || acks[0][0] != 1 {
+		t.Fatalf("purchase acknowledgement %x", acks)
+	}
+	seq++
+	send(297, []byte{0})
+	if shop.Open {
+		t.Fatal("legacy close never reached shop")
+	}
+}

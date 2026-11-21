@@ -381,6 +381,13 @@ func secretShopGameplayModule() gameplayModuleDefinition {
 			return s.handleCurrentSecretShop(session, r)
 		}
 	}
+	// The native shop can send these commands in a legacy frame. Its four
+	// transport trailer bytes are outside the one- and eight-byte payloads.
+	m.LegacyHandlers = m.UpperHandlers
+	m.LegacyNormalizers = map[uint16]gameplayLegacyNormalizer{
+		296: func(body []byte) []byte { return stripLegacyTransportTrailer(body, 8) },
+		297: func(body []byte) []byte { return stripLegacyTransportTrailer(body, 1) },
+	}
 	return m
 }
 
