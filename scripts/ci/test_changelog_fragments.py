@@ -221,6 +221,136 @@ class GitTests(unittest.TestCase):
         self.write(fresh, raw)
         with self.assertRaises(c.NoteError): c.check(self.root, 'public', base)
 
+    def test_legacy_frontmatter_prose_without_heading_is_preserved_and_new_is_rejected(self):
+        path = self.add_note('frontmatter-prose')
+        raw = '---\ncategory: 功能修复\n---\n\n已合入的正文片段，无 Markdown 标题。\n'.encode('utf-8')
+        self.write(path, raw); base = self.commit()
+        fresh = self.add_note('new-after-frontmatter-prose'); self.commit()
+        self.assertEqual(c.check(self.root, 'public', base)['fragments'], 2)
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+        text, manifest = c.render(self.root, 'public')
+        self.assertIn('已合入的正文片段，无 Markdown 标题。', text)
+        row = next(x for x in manifest['fragments'] if x['path'] == path)
+        self.assertTrue(row['legacyFormat'])
+        self.assertEqual(row['sha256'], c.hashlib.sha256(raw).hexdigest())
+        self.assertEqual((self.root / path).read_bytes(), raw)
+        # New fragments lacking heading/sections must still be rejected.
+        self.write(fresh, raw)
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public', base)
+
+    def test_legacy_frontmatter_prose_rejects_wrong_category_and_empty_body(self):
+        for slug, raw in (
+            ('wrong-cat', '---\ncategory: 群服内容\n---\n\n错误分类的历史正文。\n'.encode('utf-8')),
+            ('empty-body', '---\ncategory: 功能修复\n---\n\n   \n'.encode('utf-8')),
+        ):
+            with self.subTest(slug=slug):
+                path = self.add_note(slug)
+                self.write(path, raw); base = self.commit()
+                self.add_note(slug + '-next')
+                with self.assertRaises(c.NoteError):
+                    c.check(self.root, 'public', base)
+                self.git('reset', '--hard', self.base)
+                self.git('clean', '-fd')
+
+    def test_legacy_shorthand_fix_category_is_preserved_but_new_is_rejected(self):
+        path = self.add_note('shorthand-fix')
+        raw = note('历史简写分类', category='修复')
+        self.write(path, raw); base = self.commit()
+        fresh = self.add_note('new-after-shorthand'); self.commit()
+        self.assertEqual(c.check(self.root, 'public', base)['fragments'], 2)
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+        # Private fragments must NEVER accept the public shorthand "修复".
+        private_path = '.pos5a3/changelog.d/20261031-private-shorthand.fix.md'
+        with self.assertRaises(c.NoteError):
+            c.parse_note(private_path, raw, legacy_sections=True)
+        # Undocumented .group.md suffix remains rejected even in legacy mode.
+        with self.assertRaises(c.NoteError):
+            c.parse_note('.pos5a3/changelog.d/20261031-bad-kind.group.md', note(category='群服内容'), legacy_sections=True)
+        self.write(fresh, raw)
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public', base)
+
+    def test_rewritten_legacy_fragment_rejected_by_no_base_check_and_render(self):
+        path = self.add_note('rewritten-legacy')
+        original = '---\ncategory: 功能修复\n---\n\n历史原始正文。\n'.encode('utf-8')
+        self.write(path, original); self.commit()
+        self.add_note('next-valid'); self.commit()
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+        # Rewriting the inherited fragment in the working tree must fail no-base check.
+        rewritten = '---\ncategory: 功能修复\n---\n\n被篡改的正文。\n'.encode('utf-8')
+        self.write(path, rewritten)
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public')
+        # Committing a rewrite of the inherited fragment must fail both no-base check and render.
+        self.commit()
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public')
+        with self.assertRaises(c.NoteError):
+            c.render(self.root, 'public')
+
+    def test_legacy_headingless_preserves_markdown_indentation(self):
+        raw = '---\ncategory: 功能修复\n---\n\n    first line\n    second line\n'.encode('utf-8')
+        parsed = c.parse_note('changelog.d/20261031-indented.fix.md', raw, legacy_sections=True)
+        self.assertEqual(parsed.body, '    first line\n    second line')
+
+    def test_no_base_crlf_checkout_accepted_but_committed_crlf_rewrite_rejected(self):
+        self.write('.gitattributes', b'/changelog.d/*.md text eol=lf\n')
+        path = self.add_note('crlf-check')
+        original = '---\ncategory: 功能修复\n---\n\n无标题历史内容。\n'.encode('utf-8')
+        self.write(path, original); self.commit()
+        self.add_note('after-crlf'); self.commit()
+        # Genuine Windows CRLF checkout where HEAD blob is still the parent LF blob must pass.
+        self.write(path, original.replace(b'\n', b'\r\n'))
+        self.assertEqual(self.git('diff', '--name-only', 'HEAD', '--', path), '')
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+        # Committing a CRLF rewrite of the immutable LF fragment must fail both no-base check and render.
+        self.write('.gitattributes', b'* -text\n')
+        self.write(path, original.replace(b'\n', b'\r\n'))
+        self.commit()
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public')
+        with self.assertRaises(c.NoteError):
+            c.render(self.root, 'public')
+
+    def test_second_parent_legacy_rewrite_rejected_and_pre_merge_valid_edit_allowed(self):
+        path = self.add_note('immut-merge')
+        original = '---\ncategory: 功能修复\n---\n\n历史原始正文。\n'.encode('utf-8')
+        self.write(path, original); base = self.commit()
+        self.add_note('next-step'); self.commit()
+        # Merging a branch where second parent rewrote a first-parent legacy note must fail.
+        self.git('checkout', '-qb', 'rewrite-branch', base)
+        self.write(path, '---\ncategory: 功能修复\n---\n\n分支篡改历史。\n'.encode('utf-8'))
+        self.commit()
+        self.git('checkout', 'master')
+        self.git('merge', '--no-edit', '-X', 'theirs', 'rewrite-branch')
+        with self.assertRaises(c.NoteError):
+            c.check(self.root, 'public')
+        with self.assertRaises(c.NoteError):
+            c.render(self.root, 'public')
+
+    def test_range_render_preserves_legacy_in_range_and_allows_pre_merge_pr_refinement(self):
+        # 1. Fixed range since..until containing an unchanged legacy fragment added inside the range
+        since = self.base
+        legacy_path = self.add_note('in-range-legacy')
+        legacy_raw = '---\ncategory: 功能修复\n---\n\n区间内已合入无标题片段。\n'.encode('utf-8')
+        self.write(legacy_path, legacy_raw); self.commit()
+        # 2. A multi-commit PR adds a valid fragment in commit 1 and refines it in commit 2 before merge
+        pr_path = self.add_note('pr-refined')
+        self.commit()
+        self.write(pr_path, note('合并前补充验证说明'))
+        until = self.commit()
+        # Both fixed-range render AND no-base check/render must accept the valid pre-merge edit
+        # while marking the unchanged legacy note as legacyFormat=True!
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+        for render_since in (since, None):
+            text, manifest = c.render(self.root, 'public', render_since, until)
+            self.assertIn('合并前补充验证说明', text)
+            self.assertIn('区间内已合入无标题片段。', text)
+            by_path = {r['path']: r for r in manifest['fragments']}
+            self.assertTrue(by_path[legacy_path]['legacyFormat'])
+            self.assertFalse(by_path[pr_path]['legacyFormat'])
+
     def test_legacy_layout_does_not_hide_duplicate_id_or_invalid_category(self):
         broken = self.add_note('legacy-id')
         self.write(broken, note().replace('## 验证'.encode(), b'## Check'))
@@ -241,6 +371,30 @@ class GitTests(unittest.TestCase):
         self.git('checkout', 'master'); self.add_note('mainline'); self.commit()
         self.git('merge', '--no-edit', 'legacy-branch')
         self.assertEqual(c.check(self.root, 'public')['fragments'], 2)
+
+    def test_no_base_check_accepts_crlf_checkout_of_refined_committed_fragment(self):
+        # Commit 1 adds a modern note; Commit 2 refines it cleanly in LF;
+        # Windows text checkout materializes CRLF while Git reports HEAD clean.
+        p = self.add_note('refined-crlf')
+        self.commit()
+        refined = note('修订版本')
+        self.write(p, refined)
+        self.commit()
+        self.git('config', 'core.autocrlf', 'true')
+        (self.root / p).unlink()
+        self.git('checkout', '--', p)
+        self.assertIn(b'\r\n', (self.root / p).read_bytes())
+        self.assertEqual(c.check(self.root, 'public')['fragments'], 1)
+        # Rewriting a legacy note in a refined commit must still fail strict parsing even under CRLF checkout.
+        legacy_p = self.add_note('legacy-refined-crlf')
+        self.write(legacy_p, note().replace('## 验证'.encode(), b'## Check'))
+        self.commit()
+        self.write(legacy_p, note('改动遗留').replace('## 验证'.encode(), b'## Check'))
+        self.commit()
+        (self.root / legacy_p).unlink()
+        self.git('checkout', '--', legacy_p)
+        with self.assertRaisesRegex(c.NoteError, '验证'):
+            c.check(self.root, 'public')
 
     def test_requires_note_and_freezes_legacy(self):
         self.write('code.txt', b'change\n')
