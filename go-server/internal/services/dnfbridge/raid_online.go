@@ -1002,7 +1002,13 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	if state.RouteOrRaidType == 2 && state.Started {
 		return runtimeRaidState{}, false, false
 	}
-	if targetGroup != 0 && state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(*state, targetGroup, memberID) >= runtimeRaidGroupSize {
+	placement := *state
+	if !state.Started && runtimeRaidKeepsUneditedSolos(*state) {
+		// Match the roster's live solo projection. Automatic admission seats
+		// hidden as unassigned must not occupy a manually selected group.
+		placement = s.currentRaidLivePartyProjection(placement)
+	}
+	if targetGroup != 0 && state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(placement, targetGroup, memberID) >= runtimeRaidGroupSize {
 		return runtimeRaidState{}, false, false
 	}
 	if state.RouteOrRaidType == 2 {
@@ -1020,7 +1026,7 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 		state.Members[index].OrdinaryPartySolo = true
 		state.Members[index].RecruitingPlacementExplicit = false
 	} else {
-		state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(*state, targetGroup, memberID)
+		state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(placement, targetGroup, memberID)
 		state.Members[index].OrdinaryPartySolo = false
 		if !state.Started && state.CurrentLayout && state.RouteOrRaidType <= 1 {
 			state.Members[index].RecruitingPlacementExplicit = true
@@ -1773,7 +1779,7 @@ func nextRuntimeRaidSlot(state runtimeRaidState, group byte) byte {
 func nextRuntimeRaidSlotExcluding(state runtimeRaidState, group byte, exclude uint16) byte {
 	used := make(map[byte]bool)
 	for _, member := range state.Members {
-		if member.CharID == exclude || member.GroupIndex != group {
+		if member.CharID == exclude || member.GroupIndex != group || !runtimeRaidMemberReservesOrdinaryGroup(state, member) {
 			continue
 		}
 		used[member.SlotOrder] = true

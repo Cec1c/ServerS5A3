@@ -185,13 +185,24 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 		diagnostic.setReason("claim_rejected")
 		return err
 	}
-	defer s.releaseCurrentFiendWarEncounterClaim(state, claim)
+	transferred := false
+	release := func() { s.releaseCurrentFiendWarEncounterClaim(state, claim) }
+	defer func() {
+		if !transferred {
+			release()
+		}
+	}()
 	previous, err := s.moveCurrentFiendWarEncounterRoster(state, roster, area)
 	if err != nil {
 		diagnostic.setReason("roster_move_failed")
 		return err
 	}
-	defer s.rollbackCurrentFiendWarEncounterRoster(state, previous, area)
+	rollback := func() { s.rollbackCurrentFiendWarEncounterRoster(state, previous, area) }
+	defer func() {
+		if !transferred {
+			rollback()
+		}
+	}()
 	managed, ok := s.replaceManagedRuntimeParty(runtimeRaidGroupPartyState(state, roster))
 	if !ok {
 		diagnostic.setReason("party_create_failed")
@@ -203,9 +214,14 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 		return fmt.Errorf("超时空遭遇战临时队伍已更换")
 	}
 	entered := false
-	defer func() {
+	retire := func() {
 		if !entered {
 			s.retireCurrentFiendWarPartySnapshot(p, temporary, "entry_not_committed")
+		}
+	}
+	defer func() {
+		if !transferred {
+			retire()
 		}
 	}()
 	if err := s.prepareCurrentFiendWarFormationActors(p, temporary, int64(a.Dungeon)); err != nil {
@@ -216,25 +232,73 @@ func (s *Service) tryCurrentFiendWarEncounterWithDiagnostic(p *gameSession, diag
 		diagnostic.setReason("party_snapshot_send_failed")
 		return err
 	}
-	err = s.handleDungeonSelectUpperPlannedAdmitted(p, body, nil, true, nil)
-	p.dungeon.mu.Lock()
-	entered = p.dungeon.runtime != nil && p.dungeon.runtime.raidEntry != nil && p.dungeon.runtime.raidEntry.InstanceID == b.InstanceID
-	p.dungeon.mu.Unlock()
-	if entered {
-		if err != nil {
-			diagnostic.setReason("entry_committed_with_error")
+	enter := func(proof *partyNativeConnectionProof, d *currentFiendWarAdmissionDiagnostic) error {
+		err := s.handleDungeonSelectUpperPlannedWithNativeAdmission(p, body, nil, true, nil, true, proof)
+		p.dungeon.mu.Lock()
+		entered = p.dungeon.runtime != nil && p.dungeon.runtime.raidEntry != nil && p.dungeon.runtime.raidEntry.InstanceID == b.InstanceID && p.dungeon.runtime.Dungeon.ID == int64(a.Dungeon)
+		p.dungeon.mu.Unlock()
+		if entered {
+			if err != nil {
+				d.setReason("entry_committed_with_error")
+			} else {
+				d.setReason("entry_committed")
+			}
+			p.townMu.Lock()
+			if p.fiendWarPendingMove == pendingMove {
+				p.fiendWarPendingMove = nil
+			}
+			p.townMu.Unlock()
+		} else if err != nil {
+			d.setReason("dungeon_entry_error")
 		} else {
-			diagnostic.setReason("entry_committed")
+			d.setReason("entry_not_committed")
 		}
-		p.townMu.Lock()
-		if p.fiendWarPendingMove == pendingMove {
-			p.fiendWarPendingMove = nil
-		}
-		p.townMu.Unlock()
-	} else if err != nil {
-		diagnostic.setReason("dungeon_entry_error")
-	} else {
-		diagnostic.setReason("entry_not_committed")
+		return err
 	}
-	return err
+
+	// A member continuing from a cleared encounter must have working links to
+	// this newly assembled roster before another fight can be charged.
+	afterClear := false
+	for _, member := range roster {
+		if b.MemberClears[member.CharID] > 0 {
+			afterClear = true
+			break
+		}
+	}
+	if !afterClear || len(roster) < 2 || !s.nativePartyConnectionAdmissionEnabled() {
+		return enter(nil, diagnostic)
+	}
+	proof, err := s.newPartyNativeConnectionProof(p, managed, body)
+	if err != nil {
+		diagnostic.setReason("connection_query_unavailable")
+		return err
+	}
+	result := newCurrentFiendWarAdmissionDiagnostic(p, uint32(a.Dungeon))
+	result.captureRaid(state)
+	if diagnostic != nil {
+		result = *diagnostic
+	}
+	proof.resume = func() error {
+		err := enter(proof, &result)
+		s.logCurrentFiendWarAutomaticAdmissionDiagnostic(p, result)
+		return err
+	}
+	proof.refuse = func(cause error) error {
+		s.logInfo("fiendwar encounter connection refused", "raid_key", state.RaidKey, "dungeon_id", a.Dungeon,
+			"char_id", claim.Leader, "error", cause)
+		return nil
+	}
+	// Keep the same roster until the asynchronous reply and its cleanup finish,
+	// including a timeout, leader disconnect or rejected session event.
+	transferred, err = s.startPartyNativeConnectionQuery(proof, nil, true, func() {
+		retire()
+		rollback()
+		release()
+	})
+	if err != nil {
+		diagnostic.setReason("connection_query_unavailable")
+		return err
+	}
+	diagnostic.setReason("connection_query_pending")
+	return nil
 }

@@ -219,6 +219,12 @@ func (s *Service) restoreCurrentRaidRetryReturnOwners(leader *gameSession, owner
 			}
 			if scene, ok := owner.runtime.Session.Scene(); ok {
 				s.adoptPartyDungeonInstance(peer, owner.runtime, scene)
+				if owner.runtime.secretShopChecked && owner.runtime.secretShop != nil {
+					// A refused retry restores the completed room and its frozen
+					// merchant; retirement already removed the old client NPC.
+					owner.runtime.secretShopRetryPending = true
+					s.retryPendingCurrentSecretShopLocked(peer, owner.runtime, scene)
+				}
 			}
 			peer.townMu.Lock()
 			owner.gates.restore(peer)

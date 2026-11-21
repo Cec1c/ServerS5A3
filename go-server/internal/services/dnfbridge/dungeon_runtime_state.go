@@ -141,6 +141,7 @@ type runtimeDungeonState struct {
 	// original completion write failed before 279/280.
 	secretShopRetryPending  bool
 	secretShopChecked       bool
+	secretShopDefaultSent   bool
 	epicShopChecked         bool
 	hellEntryItemsCommitted bool
 	// hellPillarPeerDestroyKey 记录"柱子破坏已经投影给队友"的那个房间
@@ -1058,6 +1059,9 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 		snapshot := session.dungeon.runtime.Session.Snapshot().Run
 		if snapshot.Status == worldmap.DungeonRunActive {
 			return fmt.Errorf("%w: dungeon=%d maze=%d", errDungeonAlreadyActive, snapshot.DungeonID, snapshot.MazeIndex)
+		}
+		if err := s.clearCurrentSecretShopLocked(session, session.dungeon.runtime); err != nil {
+			return err
 		}
 		s.cancelCurrentDungeonDeathReturnLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")
 		s.cancelCurrentCrystalContractTimerLocked(session, session.dungeon.runtime, "new_dungeon_run_replaces_previous_runtime")

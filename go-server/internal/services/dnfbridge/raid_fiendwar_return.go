@@ -121,7 +121,7 @@ func (s *Service) commitCurrentFiendWarReturnLocked(p *gameSession, r *runtimeDu
 	b := bstate.Battle
 	next := b.FiendWar.Clone()
 	next.MemberAreas[p.selectedCharacterID] = int(r.townReturnTransition.AreaID)
-	if r.Session.Snapshot().Run.Status == worldmap.DungeonRunActive {
+	if r.Session.Snapshot().Run.Status == worldmap.DungeonRunActive && !currentFiendWarRunClearedFor(b, r, p.selectedCharacterID) {
 		next.ImprisonMember(p.selectedCharacterID, time.Now())
 	}
 	b.FiendWar = next
