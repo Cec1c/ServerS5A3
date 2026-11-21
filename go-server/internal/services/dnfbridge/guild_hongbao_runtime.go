@@ -196,7 +196,7 @@ func (s *Service) sendCurrentGuildHongbaoPointsSnapshot(session *gameSession) er
 	if err != nil || g == nil {
 		return err
 	}
-	body, err := buildCurrentGuildHongbaoPointsBody(guild.SortedMembers(g))
+	body, err := buildCurrentGuildHongbaoPointsBody(selectCurrentGuildHongbaoPointsMembers(guild.SortedMembers(g), strconv.Itoa(int(session.selectedCharacterID))))
 	if err != nil {
 		return err
 	}

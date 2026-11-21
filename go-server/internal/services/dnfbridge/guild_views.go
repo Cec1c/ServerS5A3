@@ -252,7 +252,11 @@ func (s *Service) currentGuildOwnedSelectedIdentity(session *gameSession) (dnfre
 	return character, nil
 }
 
-func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opcode uint16, source string) (result error) {
+func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opcode uint16, source string) error {
+	return s.handleCurrentGuildMemberListObservedShared(session, opcode, source, nil)
+}
+
+func (s *Service) handleCurrentGuildMemberListObservedShared(session *gameSession, opcode uint16, source string, shared *guildPresenceReadCache) (result error) {
 	started := s.performanceStart()
 	var readTime, buildTime, writeTime time.Duration
 	defer func() {
@@ -280,7 +284,7 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
 	}
 	readStart := s.performanceStart()
-	g, err := s.readCurrentGuildDisplay(ctx, bound, false, full)
+	g, err := s.readCurrentGuildDisplayShared(ctx, bound, false, full, shared)
 	if !readStart.IsZero() {
 		readTime = time.Since(readStart)
 	}
@@ -315,12 +319,12 @@ func (s *Service) sendCurrentGuildRosterDisplay(ctx context.Context, bound bound
 			"members", members, "online", len(online), "full", full, "cursor", cursor)
 	}
 	buildStart := s.performanceStart()
-	body := buildCurrentGuildMemberListBody(g, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID()))
+	chunks := buildCurrentGuildMemberListChunks(g, opcode, full, cursor, online, s.gameplayNow(), byte(s.channelAdvertiseID()))
 	s.performanceEnd(perfGuildProjectionBuild, buildStart, nil)
 	if !buildStart.IsZero() {
 		*buildTime = time.Since(buildStart)
 	}
-	// EXIT and this final roster frame share the scene fence, just like NOTI127.
+	// EXIT and these roster frames share the scene fence, just like NOTI127.
 	if source == "client" {
 		session.townMu.Lock()
 	} else if !session.townMu.TryLock() {
@@ -331,7 +335,12 @@ func (s *Service) sendCurrentGuildRosterDisplay(ctx context.Context, bound bound
 		return nil
 	}
 	writeStart := s.performanceStart()
-	err := s.sendGameUpperSuccess(session, opcode, body)
+	var err error
+	for _, chunk := range chunks {
+		if err = s.sendGameUpperSuccess(session, chunk.opcode, chunk.body); err != nil {
+			break
+		}
+	}
 	s.performanceEnd(perfGuildRosterWrite, writeStart, err)
 	if !writeStart.IsZero() {
 		*writeTime = time.Since(writeStart)
@@ -343,6 +352,7 @@ func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
 	if g == nil {
 		return
 	}
+	shared := &guildPresenceReadCache{}
 	for id, m := range g.Members {
 		key := uint16(currentGuildNumericID(id))
 		if key == skip {
@@ -355,10 +365,15 @@ func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
 		peer.session.guild.mu.Lock()
 		requested := peer.session.guild.memberListRequested
 		peer.session.guild.mu.Unlock()
-		if requested {
-			if err := s.handleCurrentGuildMemberListObserved(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership"); err != nil {
-				s.logGameEvent(peer.session, "game-guild-member-refresh-failed", "error", err)
-			}
+		if !requested {
+			continue
+		}
+		if peer.session.events != nil && peer.session.events.active.Load() {
+			s.requestCurrentGuildPresenceRefresh(peer, g.ID, shared)
+			continue
+		}
+		if err := s.handleCurrentGuildMemberListObservedShared(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership", shared); err != nil {
+			s.logGameEvent(peer.session, "game-guild-member-refresh-failed", "error", err)
 		}
 	}
 }
@@ -453,5 +468,10 @@ func (s *Service) handleCurrentGuildGrades(session *gameSession, op uint16) erro
 	if err != nil {
 		return err
 	}
-	return s.sendGameUpperSuccess(session, op, buildCurrentGuildGradeBody(g, op == currentGuildGradesOpcode))
+	for _, chunk := range buildCurrentGuildGradeChunks(g, op) {
+		if err := s.sendGameUpperSuccess(session, chunk.opcode, chunk.body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
