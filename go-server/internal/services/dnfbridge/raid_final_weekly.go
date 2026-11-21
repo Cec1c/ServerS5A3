@@ -14,6 +14,7 @@ import (
 
 type currentRaidWeeklyIntent struct {
 	Command     raid.WeeklyClearCommand
+	ClearNotice []byte
 	Running     bool
 	Committed   bool
 	Attempts    uint32
@@ -126,7 +127,7 @@ func (s *Service) freezeCurrentRaidFinalWeeklyIntentLocked(state runtimeRaidStat
 		}
 		return nil
 	}
-	s.raidWeeklyIntents[command.InstanceID] = &currentRaidWeeklyIntent{Command: command}
+	s.raidWeeklyIntents[command.InstanceID] = &currentRaidWeeklyIntent{Command: command, ClearNotice: prepareCurrentRaidClearNotice(state)}
 	return nil
 }
 
@@ -211,6 +212,7 @@ func (s *Service) queueCurrentRaidWeeklyClears() {
 		}
 		for _, command := range completed {
 			s.queueCurrentAntonResultsAfterWeeklyCommit(command)
+			s.publishCurrentRaidClearNotice(command.InstanceID)
 			for _, member := range command.Members {
 				id, err := strconv.ParseUint(member.CharacterID, 10, 16)
 				if err != nil {

@@ -467,6 +467,20 @@ func (s *Service) onlineGameSessionCharacterSnapshot(characterID uint16) (boundG
 	}, true
 }
 
+// 每个在线角色仅取当前绑定的主游戏连接，覆盖本服务的全部频道。
+func (s *Service) onlineGameSessionCharacterSnapshots() []boundGameSessionCharacter {
+	s.mu.Lock()
+	recipients := make([]boundGameSessionCharacter, 0, len(s.gameSessions))
+	for id, session := range s.gameSessions {
+		if session != nil && session.selectedCharacterID == id {
+			recipients = append(recipients, boundGameSessionCharacter{session: session, character: id, generation: session.characterGeneration})
+		}
+	}
+	s.mu.Unlock()
+	sort.Slice(recipients, func(i, j int) bool { return recipients[i].character < recipients[j].character })
+	return recipients
+}
+
 func (s *Service) boundGameSessionCharacterCurrent(identity boundGameSessionCharacter) bool {
 	if s == nil || identity.session == nil || identity.character == 0 {
 		return false

@@ -7,7 +7,6 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -185,17 +184,8 @@ func (s *Service) notifyCurrentLevelUpRewards(ctx context.Context, identity boun
 		if !valid {
 			continue
 		}
-		s.mu.Lock()
-		recipients := make([]boundGameSessionCharacter, 0, len(s.gameSessions))
-		for id, session := range s.gameSessions {
-			if session != nil && session.selectedCharacterID == id {
-				recipients = append(recipients, boundGameSessionCharacter{session: session, character: id, generation: session.characterGeneration})
-			}
-		}
-		s.mu.Unlock()
-		sort.Slice(recipients, func(i, j int) bool { return recipients[i].character < recipients[j].character })
 		// 不持有来源角色租约再获取其它角色租约，避免跨角色锁环。
-		for _, recipient := range recipients {
+		for _, recipient := range s.onlineGameSessionCharacterSnapshots() {
 			s.mu.Lock()
 			account := strings.TrimSpace(recipient.session.accountID)
 			s.mu.Unlock()

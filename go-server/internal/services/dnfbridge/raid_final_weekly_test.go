@@ -38,6 +38,8 @@ func actualFinalAntonWeeklyFixture(t *testing.T) (*raidStartGuardFixture, runtim
 	for i := range f.state.Members {
 		f.state.Members[i].GroupIndex = 1
 	}
+	f.state.NameBytes = []byte{0xb9, 0xa5, 0xbc, 0xe1, 0xb6, 0xd3} // 攻坚队
+	f.state.Members[0].Name = "团长"
 	now := time.Now()
 	base := now.Add(-20 * time.Second)
 	anton, err := program.BeginPhase(1, base, 91321)
