@@ -13,6 +13,7 @@ import (
 
 const guildReadSnapshotSources = 8
 const guildReadSnapshotVersions = 3
+const guildReadSnapshotMaxBytes = 32 << 20
 
 type guildReadSnapshot struct {
 	registry Registry
@@ -143,7 +144,7 @@ func loadGuildReadSnapshot(ctx context.Context, settings r.SettingsRepository) (
 		if err != nil {
 			return nil, err
 		}
-		if len(raw) <= 4<<20 {
+		if len(raw) <= guildReadSnapshotMaxBytes {
 			cache.Lock()
 			cache.entries = append([]guildReadSnapshotEntry{{revision: revision, snapshot: snapshot}}, cache.entries...)
 			if len(cache.entries) > guildReadSnapshotVersions {

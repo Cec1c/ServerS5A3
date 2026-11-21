@@ -2,7 +2,9 @@ package dnfbridge
 
 import (
 	"encoding/binary"
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +21,14 @@ const currentGuildPageSize = 30
 const currentGuildMembershipNotificationMsgID uint16 = 0x134
 const currentGuildMemberOfflineChannel byte = 0xff
 const currentGuildMemberUnrepresentedChannel byte = 0xfe
+const currentGuildPermanentBenefitExpires uint32 = math.MaxInt32
+const currentGuildMemberListChunkSize = 300
+const currentGuildGradeListChunkSize = 500
+
+type currentGuildPacketChunk struct {
+	opcode uint16
+	body   []byte
+}
 
 type currentGuildSearchRequest struct {
 	Filter dnfguild.SearchFilter
@@ -284,6 +294,58 @@ func currentGuildMemberOfflineSeconds(
 }
 
 func buildCurrentGuildMemberListBody(guild *dnfguild.Guild, includeGuildIdentity, includeCursor bool, onlineChannels map[string]byte, now time.Time, region byte) []byte {
+	var members []dnfguild.Member
+	total := uint16(0)
+	if guild != nil {
+		if includeGuildIdentity {
+			members = dnfguild.SortedMembers(guild)
+			if len(members) > 0xffff {
+				members = members[:0xffff]
+			}
+			total = uint16(len(members))
+		}
+	}
+	return buildCurrentGuildMemberListChunkBody(guild, includeGuildIdentity, includeCursor, total, members, onlineChannels, now, region)
+}
+
+// DNF.exe VA 0x01fd2d10 / 0x02982940 appends op141 continuations into the
+// roster vector opened by op67/op140 until vector.size() >= total. Splitting
+// large guilds keeps each frame bounded (~18 KB at 300 members) while keeping
+// small guilds identical to a single-frame reply.
+func buildCurrentGuildMemberListChunks(guild *dnfguild.Guild, opcode uint16, full, cursor bool, onlineChannels map[string]byte, now time.Time, region byte) []currentGuildPacketChunk {
+	if !full || guild == nil {
+		return []currentGuildPacketChunk{{
+			opcode: opcode,
+			body:   buildCurrentGuildMemberListChunkBody(guild, full, cursor, 0, nil, onlineChannels, now, region),
+		}}
+	}
+	members := dnfguild.SortedMembers(guild)
+	if len(members) > 0xffff {
+		members = members[:0xffff]
+	}
+	total := uint16(len(members))
+	if len(members) <= currentGuildMemberListChunkSize {
+		return []currentGuildPacketChunk{{
+			opcode: opcode,
+			body:   buildCurrentGuildMemberListChunkBody(guild, true, cursor, total, members, onlineChannels, now, region),
+		}}
+	}
+	chunks := make([]currentGuildPacketChunk, 0, (len(members)+currentGuildMemberListChunkSize-1)/currentGuildMemberListChunkSize)
+	chunks = append(chunks, currentGuildPacketChunk{
+		opcode: opcode,
+		body:   buildCurrentGuildMemberListChunkBody(guild, true, cursor, total, members[:currentGuildMemberListChunkSize], onlineChannels, now, region),
+	})
+	for start := currentGuildMemberListChunkSize; start < len(members); start += currentGuildMemberListChunkSize {
+		end := min(start+currentGuildMemberListChunkSize, len(members))
+		chunks = append(chunks, currentGuildPacketChunk{
+			opcode: uint16(dnfenum.CmdPacketGuildAllMemberListNext),
+			body:   buildCurrentGuildMemberListChunkBody(guild, false, true, total, members[start:end], onlineChannels, now, region),
+		})
+	}
+	return chunks
+}
+
+func buildCurrentGuildMemberListChunkBody(guild *dnfguild.Guild, includeGuildIdentity, includeCursor bool, total uint16, members []dnfguild.Member, onlineChannels map[string]byte, now time.Time, region byte) []byte {
 	var writer packetWriter
 	if guild == nil {
 		writer.writeUint32(0)
@@ -300,12 +362,8 @@ func buildCurrentGuildMemberListBody(guild *dnfguild.Guild, includeGuildIdentity
 	writer.writeUint32(guild.ID)
 	if includeGuildIdentity {
 		writeClientNameDstr(&writer, guild.Name)
-		writer.writeUint16(uint16(min(len(guild.Members), 0xffff)))
+		writer.writeUint16(total)
 	}
-	members := dnfguild.SortedMembers(guild)
-	if !includeGuildIdentity {
-		members = nil
-	} // first reply carries the complete roster
 	if len(members) > 0xffff {
 		members = members[:0xffff]
 	}
@@ -409,6 +467,10 @@ func buildCurrentGuildManagementBody(guild *dnfguild.Guild, onlineCount int, now
 		expires := uint32(0)
 		if !row.expires.IsZero() {
 			expires = uint32(row.expires.Unix())
+		} else if row.typ == 5 {
+			// DNF.exe VA 0x011a9f13 / 0x02978afc treats 0x7fffffff as permanent ("无期限");
+			// sending 0 fails expires < now and hides the permanent-stats slot icon.
+			expires = currentGuildPermanentBenefitExpires
 		}
 		writer.writeByte(row.typ)
 		writer.writeUint32(expires)
@@ -464,18 +526,64 @@ func buildCurrentGuildInfoBody(characterID uint32, guild *dnfguild.Guild) []byte
 // Matched RVA 0x01bd67c0: u32 guild, first-page u16 total, u16 count,
 // then {u8 region, DSTR member name, u8 grade, u8 group, u8 representative}.
 func buildCurrentGuildGradeBody(g *dnfguild.Guild, first bool) []byte {
-	var w packetWriter
 	id := uint32(0)
 	var members []dnfguild.Member
 	if g != nil {
 		id = g.ID
-		members = dnfguild.SortedMembers(g)
+		if first {
+			members = dnfguild.SortedMembers(g)
+			if len(members) > 0xffff {
+				members = members[:0xffff]
+			}
+		}
 	}
-	w.writeUint32(id)
+	return buildCurrentGuildGradeChunkBody(id, first, uint16(len(members)), members)
+}
+
+// DNF.exe VA 0x01fd67c0 / 0x011bd430 streams op1452 followed by op1453 chunks
+// until the accumulated vector reaches the first packet's u16 total.
+func buildCurrentGuildGradeChunks(g *dnfguild.Guild, op uint16) []currentGuildPacketChunk {
+	id := uint32(0)
+	if g != nil {
+		id = g.ID
+	}
+	if op != currentGuildGradesOpcode || g == nil {
+		return []currentGuildPacketChunk{{
+			opcode: op,
+			body:   buildCurrentGuildGradeChunkBody(id, op == currentGuildGradesOpcode, 0, nil),
+		}}
+	}
+	members := dnfguild.SortedMembers(g)
+	if len(members) > 0xffff {
+		members = members[:0xffff]
+	}
+	total := uint16(len(members))
+	if len(members) <= currentGuildGradeListChunkSize {
+		return []currentGuildPacketChunk{{
+			opcode: currentGuildGradesOpcode,
+			body:   buildCurrentGuildGradeChunkBody(id, true, total, members),
+		}}
+	}
+	chunks := make([]currentGuildPacketChunk, 0, (len(members)+currentGuildGradeListChunkSize-1)/currentGuildGradeListChunkSize)
+	chunks = append(chunks, currentGuildPacketChunk{
+		opcode: currentGuildGradesOpcode,
+		body:   buildCurrentGuildGradeChunkBody(id, true, total, members[:currentGuildGradeListChunkSize]),
+	})
+	for start := currentGuildGradeListChunkSize; start < len(members); start += currentGuildGradeListChunkSize {
+		end := min(start+currentGuildGradeListChunkSize, len(members))
+		chunks = append(chunks, currentGuildPacketChunk{
+			opcode: currentGuildGradesNextOpcode,
+			body:   buildCurrentGuildGradeChunkBody(id, false, total, members[start:end]),
+		})
+	}
+	return chunks
+}
+
+func buildCurrentGuildGradeChunkBody(guildID uint32, first bool, total uint16, members []dnfguild.Member) []byte {
+	var w packetWriter
+	w.writeUint32(guildID)
 	if first {
-		w.writeUint16(uint16(len(members)))
-	} else {
-		members = nil
+		w.writeUint16(total)
 	}
 	w.writeUint16(uint16(len(members)))
 	for _, m := range members {

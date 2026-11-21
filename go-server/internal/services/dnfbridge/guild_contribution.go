@@ -102,7 +102,7 @@ func (s *Service) projectCurrentGuildContribution(session *gameSession, income g
 	if g == nil {
 		return nil
 	}
-	body, err := buildCurrentGuildHongbaoPointsBody(guild.SortedMembers(g))
+	body, err := buildCurrentGuildHongbaoPointsBody(selectCurrentGuildHongbaoPointsMembers(guild.SortedMembers(g), strconv.Itoa(int(session.selectedCharacterID))))
 	if err != nil {
 		return err
 	}

@@ -63,7 +63,7 @@ func (u *memoryGuildUnitOfWork) CompareGuildRegistry(ctx context.Context, before
 type memoryGuildCharacters map[string]r.GuildCharacter
 
 func (s memoryGuildCharacters) LoadGuildCharacters(ctx context.Context, ids []string) (map[string]r.GuildCharacter, error) {
-	if len(ids) > 1000 {
+	if len(ids) > r.MaxGuildCharacterBatchIDs {
 		return nil, r.ErrGuildTransaction
 	}
 	result := map[string]r.GuildCharacter{}
