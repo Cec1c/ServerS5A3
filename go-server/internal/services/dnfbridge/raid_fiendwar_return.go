@@ -157,6 +157,9 @@ func (s *Service) queueCurrentFiendWarMaintenance() {
 	}
 }
 func (s *Service) maintainCurrentFiendWarSession(p *gameSession) error {
+	// 先收口"战斗已结束、最后一人也已离开副本"的临时队伍。
+	// 客户端打完遭遇战是切场景重连，下面所有基于 runtime 的回城分支都不会执行。
+	s.retireStaleFiendWarEncounterParties(p)
 	if !isCurrentFiendWarChannel(p) || !s.currentRaidAuthenticated(p) {
 		return nil
 	}
@@ -223,5 +226,12 @@ func (s *Service) maintainCurrentFiendWarSession(p *gameSession) error {
 	if retreat {
 		r.fiendWarRetreatKeepsParty = true
 	}
+	returnRunID := ""
+	if r.raidEntry != nil {
+		returnRunID = r.raidEntry.RunID
+	}
+	s.logGameEvent(p, "game-fiendwar-battle-return", "run_id", returnRunID,
+		"char_id", p.selectedCharacterID, "retreat", retreat,
+		"keeps_party", r.fiendWarRetreatKeepsParty)
 	return s.sendCurrentDungeonReturnToTownLocked(p, r, transition, 0, "超时空区域战斗结束")
 }

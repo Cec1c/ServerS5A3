@@ -142,6 +142,7 @@ type dungeonPartyInstance struct {
 	positions              map[uint16]partyDungeonActorPosition
 	doorArrivals           map[partyDungeonDoorArrivalKey]map[uint16]partyDungeonDoorArrival
 	deadMembers            map[uint16]bool
+	retiredMembers         []uint16
 	cardFlipSlots          [dungeonCardSlotsPerSide]currentDungeonOp71Slot
 	cardFlipKnown          [dungeonCardSideCount][dungeonCardSlotsPerSide]bool
 	cardFlipOwner          [dungeonCardSideCount][dungeonCardSlotsPerSide]uint16
@@ -999,6 +1000,7 @@ func (s *Service) releasePartyDungeonInstance(runtime *runtimeDungeonState, char
 			"instance_id", instance.id, "char_id", characterID, "source", source)
 		return
 	}
+	instance.retiredMembers = append(instance.retiredMembers, characterID)
 	delete(instance.members, characterID)
 	delete(instance.sessions, characterID)
 	delete(instance.memberRuntimes, characterID)

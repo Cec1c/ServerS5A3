@@ -228,7 +228,7 @@ func (s *Service) handleCurrentDungeonDiscard(session *gameSession, body []byte)
 			"error", errCurrentDungeonDiscardRuntimeMissing)
 		return true, nil
 	}
-	if currentDungeonGroundDropsDisabled(runtime) {
+	if currentTeamRaidGroundDropsDisabled(runtime) {
 		s.logGameEvent(session, "game-dungeon-discard-blocked",
 			"reason", "team_raid_ground_items_disabled")
 		return true, nil

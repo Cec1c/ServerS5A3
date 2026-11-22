@@ -121,6 +121,9 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 // finishing first must not consume the final resend while its peer is still
 // rebuilding; the late participant retries that receiver after both tails.
 func (s *Service) finishDungeonPartyPeerActorProjection(session *gameSession, source string) {
+	if currentDungeonPeerOp37ResendMode() == dungeonPeerOp37ResendOff {
+		return
+	}
 	if !peerSceneStableForPeerActorLandingResend(session) {
 		return
 	}
@@ -133,7 +136,7 @@ func (s *Service) claimDungeonPeerActorResend(session *gameSession, key dungeonP
 	if session == nil || !s.boundGameSessionCharacterCurrent(peer) {
 		return false
 	}
-	marker := dungeonPeerActorResendKey{Run: key, Peer: peer}
+	marker := dungeonPeerActorResendKey{Run: normalizeDungeonPeerActorResendKey(key), Peer: peer}
 	session.dungeonPartyRunMu.Lock()
 	defer session.dungeonPartyRunMu.Unlock()
 	if session.dungeonPeerActorResent == nil {
@@ -157,7 +160,7 @@ func (s *Service) releaseDungeonPeerActorResend(session *gameSession, key dungeo
 	if session == nil {
 		return
 	}
-	marker := dungeonPeerActorResendKey{Run: key, Peer: peer}
+	marker := dungeonPeerActorResendKey{Run: normalizeDungeonPeerActorResendKey(key), Peer: peer}
 	session.dungeonPartyRunMu.Lock()
 	delete(session.dungeonPeerActorResent, marker)
 	session.dungeonPartyRunMu.Unlock()

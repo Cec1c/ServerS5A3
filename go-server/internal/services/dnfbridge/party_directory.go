@@ -157,14 +157,21 @@ func (s *Service) handleRuntimePartyDirectoryJoin(session *gameSession, body []b
 			"reason", result.Reason)
 		return true, s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0)
 	}
-	s.synchronizeOrdinaryPartyRaidGroups(state, "party_directory_join", result.Party)
-	if err := s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0); err != nil {
+	// 收尾统一走 finishManagedPartyJoin：op90 的 ACK 固定在"同步之后、快照之前"，
+	// 用 AfterSynchronize 钩子表达，与改动前的顺序逐字相同。
+	if err := s.finishManagedPartyJoin(partyJoinFinish{
+		State:  state,
+		Party:  result.Party,
+		Source: "party_directory_join",
+		Joiner: session,
+		Anchor: targetSession,
+		Prior:  result.PriorLeave,
+		AfterSynchronize: func() error {
+			return s.sendGameUpperRawClass(session, currentPartyDirectoryJoin, nil, 0)
+		},
+	}); err != nil {
 		return true, err
 	}
-	if err := s.sendManagedRuntimePartySnapshots(state); err != nil {
-		return true, err
-	}
-	s.refreshTownPartyActorsAfterJoin(state, "party_directory_join")
 	s.logGameEvent(session, "game-party-directory-join-complete",
 		"type", currentPartyDirectoryJoin,
 		"party_id", partyID,
@@ -199,11 +206,20 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return
 	}
+	explicitClientExit := source == "channel_exit" ||
+		source == "return_select_character" ||
+		source == "selected_character_changed"
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if !bound && explicitClientExit {
+		identity, bound = s.onlineGameSessionCharacterSnapshot(session.selectedCharacterID)
+	}
 	if !bound {
 		return
 	}
 	state := runtimePartyStateSnapshot(session)
+	if identity.session != nil && identity.session != session && state.PartyID <= 0 {
+		state = runtimePartyStateSnapshot(identity.session)
+	}
 	before, managed := s.runtimePartyManagerForService().SnapshotByUser(identity.character, 0)
 	if managed {
 		// The central membership remains authoritative even if the departing
@@ -213,23 +229,25 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 		return
 	}
 	if s.options.currentClientVersion == "official-24.9" {
-		session.dungeon.mu.Lock()
-		runtime := session.dungeon.runtime
+		targetSession := identity.session
+		if targetSession == nil {
+			targetSession = session
+		}
+		targetSession.dungeon.mu.Lock()
+		runtime := targetSession.dungeon.runtime
 		var instance *dungeonPartyInstance
 		if runtime != nil {
 			instance = runtime.partyInstance
 		}
-		session.dungeon.mu.Unlock()
+		targetSession.dungeon.mu.Unlock()
 		if instance != nil {
-			removed, err := s.leaveRuntimePartyDungeonMember(session, instance, "detach:"+source, false)
+			removed, err := s.leaveRuntimePartyDungeonMember(targetSession, instance, "detach:"+source, explicitClientExit)
+			targetSession.dungeon.mu.Lock()
+			if targetSession.dungeon.runtime == runtime && runtime.partyInstance == instance {
+				s.releasePartyDungeonInstance(runtime, identity.character, "detach:"+source)
+			}
+			targetSession.dungeon.mu.Unlock()
 			if removed {
-				// Keep the surviving lobby and remove the disconnected
-				// occupant from the shared room's progression barrier.
-				session.dungeon.mu.Lock()
-				if session.dungeon.runtime == runtime && runtime.partyInstance == instance {
-					s.releasePartyDungeonInstance(runtime, identity.character, "detach:"+source)
-				}
-				session.dungeon.mu.Unlock()
 				if err != nil {
 					s.logWarn("dnfbridge deferred dungeon party removal during session detach", "source", source, "char_id", identity.character, "error", err)
 				}
@@ -238,30 +256,54 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 		}
 	}
 	nextState, result, removed := s.leaveManagedRuntimeParty(identity, "detach:"+source)
-	if !removed && result.Reason == "stale_session" && s.partyLeaveRepair() == partyLeaveRepairOn {
+	if !removed && s.partyLeaveRepair() == partyLeaveRepairOn {
 		nextState, result, removed = s.repairManagedRuntimePartyLeave(identity)
 	}
 	if !removed {
+		s.clearRuntimePartyProjection(identity.character, identity.generation)
 		storeRuntimePartyState(session, alignedcmd.PartyState{})
+		if explicitClientExit && state.PartyID > 0 {
+			_ = s.sendRuntimePartyDeparture(session, state)
+		}
 		return
+	}
+	if explicitClientExit {
+		_ = s.sendRuntimePartyDeparture(session, state)
 	}
 	s.notifyRuntimePartySelectionDeparture(session, result, source)
 	if result.Retired != nil {
 		s.closeRuntimePartyUDPRelay(int(result.Retired.ID))
+		beforeMembers := runtimePartyMembers(result.Retired.StateFor(result.Retired.Leader))
 		for _, member := range result.Retired.Members {
-			if member.UserID == identity.character {
+			if member.UserID == 0 || member.UserID == identity.character {
 				continue
 			}
-			if target, online := s.onlineGameSessionCharacterSnapshot(member.UserID); online {
-				if err := s.queueDetachedPartyProjection(target, alignedcmd.PartyState{}, func() error {
-					return s.sendRuntimePartySnapshot(target.session, alignedcmd.PartyState{})
-				}); err != nil {
-					s.logWarn("dnfbridge deferred retired party clear during session detach", "source", source, "char_id", identity.character, "error", err)
+			if nextState.PartyID <= 0 {
+				s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+			}
+			if target, online := s.onlineGameSession(member.UserID); online && target != nil {
+				if nextState.PartyID <= 0 {
+					if s.sessionHasActiveDungeonRuntime(target) {
+						_ = s.clearDungeonSurvivorTownPartyRecords(target, beforeMembers, "detach:"+source)
+						_ = s.clearDisbandedDungeonPartyRecords(target, beforeMembers, identity.character, false, "detach:"+source)
+						_ = s.sendRuntimePartyMemberRemoved(target, identity.character, alignedcmd.PartyState{})
+						_ = s.sendDungeonDepartedActorRemoval(target, identity.character, "detach:"+source)
+					} else if err := s.sendRuntimePartyDeparture(target, result.Retired.StateFor(member.UserID)); err != nil {
+						s.logWarn("dnfbridge deferred retired party departure during session detach", "source", source, "char_id", identity.character, "error", err)
+					}
+				} else {
+					if err := s.sendRuntimePartySnapshot(target, alignedcmd.PartyState{}); err != nil {
+						s.logWarn("dnfbridge deferred retired party clear during session detach", "source", source, "char_id", identity.character, "error", err)
+					}
 				}
 			}
 		}
-		s.syncRuntimePartyUDPRelay(nextState)
-		s.queueDetachedPartySnapshots(nextState)
+		if nextState.PartyID > 0 {
+			s.syncRuntimePartyUDPRelay(nextState)
+			if err := s.sendManagedRuntimePartySnapshots(nextState); err != nil {
+				s.logWarn("dnfbridge deferred rebuilt party snapshot during session detach", "source", source, "char_id", identity.character, "error", err)
+			}
+		}
 		return
 	}
 	if nextState.PartyID > 0 {
@@ -269,5 +311,11 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 	} else if state.PartyID > 0 {
 		s.closeRuntimePartyUDPRelay(state.PartyID)
 	}
-	s.queueDetachedPartyMemberRemoved(state, nextState, identity.character)
+	if err := s.broadcastRuntimePartyMemberRemoved(state, nextState, identity.character, session); err != nil {
+		s.logWarn("dnfbridge deferred party member removal during session detach",
+			"source", source,
+			"char_id", identity.character,
+			"party_id", nextState.PartyID,
+			"error", err)
+	}
 }

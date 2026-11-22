@@ -47,9 +47,9 @@ const partySelectorMemberSelfPrepareEnv = "DNFBRIDGE_PARTY_SELECTOR_MEMBER_SELF_
 
 func partySelectorMemberSelfPrepareEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(partySelectorMemberSelfPrepareEnv))) {
-	case "on", "1", "true", "yes":
-		return true
-	default:
+	case "0", "off", "false", "no", "legacy":
 		return false
+	default:
+		return true
 	}
 }

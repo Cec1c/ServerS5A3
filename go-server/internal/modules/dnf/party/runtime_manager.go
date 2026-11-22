@@ -298,9 +298,32 @@ func (m *RuntimePartyManager) leaveLocked(userID uint16, generation uint64, allo
 		delete(m.parties, party.id)
 		return RuntimePartyResult{OK: true, Previous: &previousCopy, TargetUser: userID, Disbanded: true}
 	}
+	// 单变量实验（默认 off）：2 -> 1 直接解散，不留下 1 人残党。
+	// 客户端没有「1 人普通队伍」状态，1 人 op9 会让血条永久残留且无法退队。
+	// Retired 带上解散前的完整快照（含幸存者），桥层据此下发 kind3 清场并关中继。
+	if disbandOnSingleton() && party.count() == 1 {
+		for _, survivor := range party.membersBySlot() {
+			delete(m.byUser, survivor.UserID)
+		}
+		delete(m.parties, party.id)
+		disbanded := previousCopy
+		return RuntimePartyResult{OK: true, Previous: &previousCopy, TargetUser: userID, Disbanded: true, Retired: &disbanded}
+	}
 	if !wasLeader {
 		result := runtimePartySuccess(party, userID)
 		result.Previous = &previousCopy
+		return result
+	}
+
+	// 单变量实验（默认 off）：同 partyId 转让，保住幸存两人的中继端口。
+	if leaderLeaveSameID() {
+		members := party.membersBySlot()
+		if len(members) > 0 {
+			party.leader = members[0].UserID
+		}
+		result := runtimePartySuccess(party, userID)
+		result.Previous = &previousCopy
+		result.LeaderMoved = true
 		return result
 	}
 
@@ -351,11 +374,24 @@ func (m *RuntimePartyManager) Kick(byUser uint16, byGeneration uint64, targetUse
 		return runtimePartyFailure("stale_target_session")
 	}
 	previous := snapshotRuntimeParty(party)
+	previousCopy := previous
 	party.remove(targetUser)
 	delete(m.byUser, targetUser)
 	m.clearInvitesForLocked(targetUser, targetGeneration)
+	if party.count() == 0 {
+		delete(m.parties, party.id)
+		return RuntimePartyResult{OK: true, Previous: &previousCopy, TargetUser: targetUser, Disbanded: true}
+	}
+	if disbandOnSingleton() && party.count() == 1 {
+		for _, survivor := range party.membersBySlot() {
+			delete(m.byUser, survivor.UserID)
+		}
+		delete(m.parties, party.id)
+		disbanded := previousCopy
+		return RuntimePartyResult{OK: true, Previous: &previousCopy, TargetUser: targetUser, Disbanded: true, Retired: &disbanded}
+	}
 	result := runtimePartySuccess(party, targetUser)
-	result.Previous = &previous
+	result.Previous = &previousCopy
 	return result
 }
 
@@ -437,15 +473,16 @@ func (m *RuntimePartyManager) RecordOnlinePeerRequest(recipient uint16, recipien
 	}
 	if mode == 0 || mode == 12 {
 		if targetParty != nil && (sourceParty == nil || sourceParty.count() == 1) {
-			if targetParty.leader != recipient {
+			if targetParty.leader != recipient || targetParty.full() {
 				return RuntimePeerRequest{}, false
 			}
 			request.JoinerID, request.AnchorID = requester, recipient
 			request.PartyID = targetParty.id
 		} else if sourceParty != nil {
-			if sourceParty.leader != requester || targetParty != nil {
+			if targetParty != nil || sourceParty.full() {
 				return RuntimePeerRequest{}, false
 			}
+			request.AnchorID = sourceParty.leader
 			request.PartyID = sourceParty.id
 		}
 	} else if sourceParty != nil {

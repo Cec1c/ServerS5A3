@@ -6,9 +6,6 @@ func (s *Service) logRaidPeerDiagnostic(kind string, fields ...any) {
 	if !isRaidPeerDiagnostic(kind) {
 		return
 	}
-	if !s.verboseDiagnosticsEnabled() && !isAbnormalRaidPeerDiagnostic(kind, fields) {
-		return
-	}
 	args := []any{"kind", kind}
 	loadingFailed := false
 	for i := 0; i+1 < len(fields); i += 2 {

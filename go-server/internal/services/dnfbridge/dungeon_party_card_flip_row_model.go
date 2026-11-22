@@ -106,6 +106,33 @@ func dungeonPartyCardFlipRowModelFromEnv() dungeonPartyCardFlipRowModel {
 // currentDungeonCardFlipRowStateValue 是本会话要写进 op71 行状态字节的值：
 // 修复档 = 本会话在**队伍名册里的下标**（= 客户端认的那种队伍槽位）；
 // 回退档 = 0（= 改动前那个恒 0）。取不到名册时回退 0（单人语义，与改动前一致）。
+// currentDungeonCardPartySlot 返回本会话在队伍里的**固定槽位**（member.Slot），
+// 而不是压缩后的成员切片下标。中途有人退图后，切片下标会和客户端 CParty 的槽位
+// 错位（例如队长 slot 0、留场队员 slot 2，但切片下标是 1），op71 的 StateA 若写
+// 切片下标，客户端就会把奖励挂到"退出队伍的角色"那张牌上，并在本机留一张空牌。
+func currentDungeonCardPartySlot(session *gameSession) int {
+	if session == nil {
+		return -1
+	}
+	session.party.mu.Lock()
+	state := session.party.state
+	session.party.mu.Unlock()
+	members := runtimePartyMembers(state)
+	if len(members) <= 1 {
+		return -1
+	}
+	for index, member := range members {
+		if member.UserID != session.selectedCharacterID {
+			continue
+		}
+		if int(member.Slot) < dungeonCardSlotsPerSide {
+			return int(member.Slot)
+		}
+		return index
+	}
+	return -1
+}
+
 func currentDungeonCardFlipRowStateValue(session *gameSession) byte {
 	if !dungeonPartyCardFlipRowModelFromEnv().carriesFlipperPartySlot() {
 		return 0
@@ -113,7 +140,10 @@ func currentDungeonCardFlipRowStateValue(session *gameSession) byte {
 	if session == nil {
 		return 0
 	}
-	slot := currentTournamentLocalPartySlot(session)
+	slot := currentDungeonCardPartySlot(session)
+	if slot < 0 {
+		slot = currentTournamentLocalPartySlot(session)
+	}
 	if slot < 0 || slot >= dungeonCardSlotsPerSide {
 		return 0
 	}

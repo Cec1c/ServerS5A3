@@ -36,6 +36,9 @@ type dungeonPeerActorRecovery struct {
 }
 
 func (s *Service) scheduleDungeonPeerActorRecovery(receiver, actor *gameSession, key dungeonPartyRunKey) {
+	if !dungeonPeerActorRecoveryEnabled() {
+		return
+	}
 	if s == nil || s.options.currentClientVersion != "official-24.9" || receiver == actor {
 		return
 	}

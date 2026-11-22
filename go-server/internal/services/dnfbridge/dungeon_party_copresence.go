@@ -1,8 +1,10 @@
 package dnfbridge
 
 import (
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"context"
 	"fmt"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/worldmap"
@@ -87,6 +89,12 @@ func (s *Service) recordDungeonPartyRunKey(session *gameSession, runtime *runtim
 		return
 	}
 	key, ok := dungeonPartyRunKeyFrom(session, runtime, scene)
+	// 落位同时把这间房的权威 Seed 登记到共享实例，供退队校验判断"这个 Seed
+	// 是不是本局过图产生的"。放在 dungeonPartyRunMu 之外取 instance.mu，
+	// 保持 session.dungeon.mu → instance.mu 的既有锁序。
+	if ok {
+		notePartyDungeonInstanceRoomSeed(runtime, scene)
+	}
 	session.dungeonPartyRunMu.Lock()
 	if !ok {
 		session.dungeonPartyRun = dungeonPartyRunKey{}
@@ -525,52 +533,87 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 	// 这个 actor 的所有 BUFF 按 0 级算（现场症状：勇气祝福特效可见、面板不动、buff 栏 0 级）。
 	// 判定与档位表见 peer_skill_page.go 文件头；发给本人的 body 不带这个标记，一个字节都不变。
 	ctx = withDungeonPartyPeerSkillPageTarget(ctx, receiverIdentity.character)
-	// Mode0 and mode1 describe one actor snapshot. A second repository read
-	// failing after mode0 must not become a successful empty equipment list.
-	var err error
-	ctx, err = s.currentRemoteActorEquipmentSnapshot(ctx, actor, actorIdentity.character)
-	if err != nil {
-		return false, fmt.Errorf("snapshot dungeon peer equipment: %w", err)
+	charID := actorIdentity.character
+	cacheKey := dungeonPeerActorSnapshotKey{
+		actorCharID: actorIdentity.character,
+		generation:  actorIdentity.generation,
+		actorOwner:  ownerPlan.ActorOwner,
 	}
-	charID, charName, character, hasCharacter := s.characterForEnter(ctx, actor, actorIdentity.character)
-	if charID != actorIdentity.character || !hasCharacter {
-		return false, fmt.Errorf(
-			"dungeon peer actor repository record unavailable: requested=%d loaded=%d found=%t",
-			actorIdentity.character,
+	now := time.Now()
+	var (
+		charName     string
+		character    dnfrepo.CharacterRecord
+		hasCharacter bool
+		mode0Body    []byte
+		mode1Body    []byte
+		subtype0Body []byte
+	)
+	if cached, hit := s.lookupDungeonPeerActorSnapshot(cacheKey, now); hit {
+		charName = cached.charName
+		character = cached.character
+		hasCharacter = cached.hasCharacter
+		mode0Body = cached.mode0Body
+		mode1Body = cached.mode1Body
+		subtype0Body = cached.subtype0Body
+	} else {
+		// Mode0 and mode1 describe one actor snapshot. A second repository read
+		// failing after mode0 must not become a successful empty equipment list.
+		var err error
+		ctx, err = s.currentRemoteActorEquipmentSnapshot(ctx, actor, actorIdentity.character)
+		if err != nil {
+			return false, fmt.Errorf("snapshot dungeon peer equipment: %w", err)
+		}
+		charID, charName, character, hasCharacter = s.characterForEnter(ctx, actor, actorIdentity.character)
+		if charID != actorIdentity.character || !hasCharacter {
+			return false, fmt.Errorf(
+				"dungeon peer actor repository record unavailable: requested=%d loaded=%d found=%t",
+				actorIdentity.character,
+				charID,
+				hasCharacter,
+			)
+		}
+		mode0Body, err = s.buildCurrentSceneObjectListBodyForSessionInContextStrict(
+			ctx,
+			actor,
 			charID,
+			charName,
+			character,
 			hasCharacter,
+			ownerPlan.ActorOwner,
 		)
+		if err != nil {
+			return false, fmt.Errorf("build dungeon peer actor mode0: %w", err)
+		}
+		// This frame arrives after dungeon USER_STATE and may create or reuse an
+		// actor. Native mode0 copies its state into actor+0x4c, so a town default
+		// would undo state=1, including when the appearance frame is repeated.
+		mode0Body, err = projectCurrentDungeonPeerActorState(mode0Body, currentSceneActorObjectKey(charID))
+		if err != nil {
+			return false, fmt.Errorf("project dungeon peer actor state: %w", err)
+		}
+		adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, actor, character, hasCharacter)
+		mode1Body = s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
+			ctx,
+			actor,
+			character,
+			hasCharacter,
+			charID,
+			uint32(adventureSummary.ManageLevel),
+			ownerPlan.ActorOwner,
+			true,
+		)
+		subtype0Body = s.peerActorUserInfoSubtype0BodyForProjection(
+			ctx, receiver, actor, character, hasCharacter, charID, charName, mode0Body,
+		)
+		s.storeDungeonPeerActorSnapshot(cacheKey, dungeonPeerActorSnapshot{
+			charName:     charName,
+			character:    character,
+			hasCharacter: hasCharacter,
+			mode0Body:    mode0Body,
+			mode1Body:    mode1Body,
+			subtype0Body: subtype0Body,
+		}, now)
 	}
-	mode0Body, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(
-		ctx,
-		actor,
-		charID,
-		charName,
-		character,
-		hasCharacter,
-		ownerPlan.ActorOwner,
-	)
-	if err != nil {
-		return false, fmt.Errorf("build dungeon peer actor mode0: %w", err)
-	}
-	// This frame arrives after dungeon USER_STATE and may create or reuse an
-	// actor. Native mode0 copies its state into actor+0x4c, so a town default
-	// would undo state=1, including when the appearance frame is repeated.
-	mode0Body, err = projectCurrentDungeonPeerActorState(mode0Body, currentSceneActorObjectKey(charID))
-	if err != nil {
-		return false, fmt.Errorf("project dungeon peer actor state: %w", err)
-	}
-	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, actor, character, hasCharacter)
-	mode1Body := s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
-		ctx,
-		actor,
-		character,
-		hasCharacter,
-		charID,
-		uint32(adventureSummary.ManageLevel),
-		ownerPlan.ActorOwner,
-		true,
-	)
 	s.logDungeonPartyOwnerOverride(receiver, charID, ownerPlan, source)
 	peerActorFields := []any{
 		"conn_id", receiver.connID,
@@ -589,16 +632,6 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 	peerActorFields = append(peerActorFields, ownerPlan.ownerFields()...)
 	peerActorFields = append(peerActorFields, currentPeerActorWireDiagnostic(mode0Body, mode1Body)...)
 	s.logGameEvent(receiver, "game-dungeon-party-peer-actor-send", peerActorFields...)
-	// 判读事件：这条投影到底带没带队友的时装（克隆装扮链接字段）。操作者的
-	// 「队长看不到队员时装、队员看得到队长时装」两个方向都靠这一条事件判定，见
-	// party_peer_appearance.go 的文件头。
-	//
-	// subtype0Body 是**第二条外观载体**（被投影角色自己的 USERINFO subtype0 外观列表，
-	// 厂商 TownHandler.cs:502-515 的同屏口径）：mode0 那条载体的 delta 已经是 0，
-	// 缺的就是这一条。见 party_peer_appearance_subtype0.go 的文件头。
-	subtype0Body := s.peerActorUserInfoSubtype0BodyForProjection(
-		ctx, receiver, actor, character, hasCharacter, charID, charName, mode0Body,
-	)
 	s.logCurrentPeerActorAppearanceEvent(receiver, actor, source, mode0Body, mode1Body, subtype0Body)
 	delivered := false
 	if err := s.withGameWire(receiver, func() error {

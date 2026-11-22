@@ -28,18 +28,53 @@ func onlineRaidCommandKnown(op uint16) bool {
 // Current raid mutations require the actual selected owner and connection
 // generation. A cached numeric character ID alone is not authorization.
 func (s *Service) currentRaidAuthenticated(session *gameSession) bool {
-	if session == nil || !session.loginPacketSeen || !session.accountFromToken || strings.TrimSpace(session.accountID) == "" {
+	reason := ""
+	defer func() {
+		if reason != "" && session != nil {
+			s.logGameEvent(session, "game-raid-auth-probe", "reason", reason,
+				"char_id", session.selectedCharacterID, "account", session.accountID,
+				"login_seen", session.loginPacketSeen, "from_token", session.accountFromToken)
+		}
+	}()
+	if session == nil {
+		reason = "no_session"
+		return false
+	}
+	if !session.loginPacketSeen || !session.accountFromToken || strings.TrimSpace(session.accountID) == "" {
+		reason = "login_state"
 		return false
 	}
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if !bound {
+		reason = "character_not_bound"
+		return false
+	}
 	repos, available := s.repositoryGroup()
-	if !bound || !available || repos.Character == nil {
+	if !available || repos.Character == nil {
+		reason = "repository_unavailable"
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	character, found, err := repos.Character.Load(ctx, strconv.Itoa(int(identity.character)))
-	return err == nil && found && character.AccountID == s.accountIDForSession(session) && s.boundGameSessionCharacterCurrent(identity)
+	if err != nil {
+		reason = "character_load_error"
+		return false
+	}
+	if !found {
+		reason = "character_missing"
+		return false
+	}
+	if character.AccountID != s.accountIDForSession(session) {
+		reason = "account_mismatch"
+		return false
+	}
+	if !s.boundGameSessionCharacterCurrent(identity) {
+		reason = "generation_stale"
+		return false
+	}
+	reason = ""
+	return true
 }
 
 func currentRaidNameValid(raw []byte) bool {

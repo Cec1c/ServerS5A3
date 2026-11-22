@@ -49,6 +49,11 @@ import (
 
 // Service 是 DNF 最新客户端 bridge 的生命周期组件。
 type Service struct {
+	characterEnterCache       characterEnterShortCache
+	dungeonPeerActorCache     dungeonPeerActorSnapshotCache
+	fiendWarEncounterParties map[uint32]map[uint16]*fiendWarEncounterPartyEntry
+	fiendWarPartyMu          sync.Mutex
+	raidKeyEpoch      uint16
 	secretShops           currentSecretShopCatalogState
 	battlePassCatalogMu   sync.Mutex
 	battlePassCatalog     *battlepass.Catalog

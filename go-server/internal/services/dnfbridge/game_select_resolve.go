@@ -195,6 +195,25 @@ func (s *Service) characterForEnter(
 	session *gameSession,
 	characterID uint16,
 ) (uint16, string, dnfrepo.CharacterRecord, bool) {
+	if session != nil && session.partyLoadingPrepared != nil && session.partyLoadingPrepared.characterSnapshots != nil && characterID != 0 {
+		return session.partyLoadingPrepared.characterSnapshots.getOrLoad(characterID, func() (uint16, string, dnfrepo.CharacterRecord, bool) {
+			return s.loadCharacterForEnterUncached(ctx, session, characterID)
+		})
+	}
+	if s != nil && session != nil && characterID != 0 && session.selectedCharacterID == characterID && session.characterGeneration != 0 {
+		key := characterEnterShortCacheKey{charID: characterID, generation: session.characterGeneration}
+		return s.characterEnterCache.getOrLoad(key, time.Now(), func() (uint16, string, dnfrepo.CharacterRecord, bool) {
+			return s.loadCharacterForEnterUncached(ctx, session, characterID)
+		})
+	}
+	return s.loadCharacterForEnterUncached(ctx, session, characterID)
+}
+
+func (s *Service) loadCharacterForEnterUncached(
+	ctx context.Context,
+	session *gameSession,
+	characterID uint16,
+) (uint16, string, dnfrepo.CharacterRecord, bool) {
 	if repos, ok := s.repositoryGroupFor(ctx); ok && repos.Character != nil {
 		if characterID != 0 {
 			characterKey := strconv.Itoa(int(characterID))
@@ -208,7 +227,9 @@ func (s *Service) characterForEnter(
 						loaded.Roster.Entry.EquipSummary = summary
 					}
 				}
-				s.attachEquipmentSummary(ctx, repos, &loaded)
+				if len(loaded.Roster.Entry.EquipSummary) == 0 {
+					s.attachEquipmentSummary(ctx, repos, &loaded)
+				}
 				charName := loaded.Name
 				if charName == "" {
 					charName = csharpSelectCharacterName(characterID)

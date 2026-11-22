@@ -87,6 +87,9 @@ type currentRaidProjectionOwner struct {
 	participation               map[uint16]currentRaidParticipationPosition
 	clearEvents                 map[currentRaidClearEvent]struct{}
 	memberClearCounts           map[uint16]byte
+	statusBoardIdentity         currentRaidProjectionIdentity
+	statusBoardSignature        [32]byte
+	statusBoardSent             bool
 }
 
 type currentRaidProjectionPacket struct {
@@ -398,6 +401,19 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 	}
 	participationPackets, clearEvents := currentRaidParticipationProjection(o.participation, nextParticipation, fresh, previousClearEvents)
 	packets = append(packets, participationPackets...)
+	var nextStatusBoardSig [32]byte
+	statusBoardUpdated := false
+	if (b.Mode == 1 || b.Mode == 2) && !b.Single && b.FiendWar == nil {
+		statusBody, sig, err := currentRaidStatusBoardBody(state)
+		if err != nil {
+			return err
+		}
+		if fresh || !o.statusBoardSent || o.statusBoardIdentity != identity || o.statusBoardSignature != sig {
+			packets = append(packets, currentRaidProjectionPacket{opcode: raid.StatusBoardMsgID, body: statusBody})
+			nextStatusBoardSig = sig
+			statusBoardUpdated = true
+		}
+	}
 	memberClearCounts := currentRaidMemberClearCounters(state)
 	if !sameCurrentRaidMemberClearCounters(o.memberClearCounts, memberClearCounts) {
 		// Accepted clears change the table's Field56 independently of map/584
@@ -424,6 +440,9 @@ func (s *Service) sendCurrentRaidProgressProjectionLocked(session *gameSession, 
 		}
 	}
 	o.participation, o.clearEvents = nextParticipation, clearEvents
+	if statusBoardUpdated {
+		o.statusBoardIdentity, o.statusBoardSignature, o.statusBoardSent = identity, nextStatusBoardSig, true
+	}
 	o.memberClearCounts = memberClearCounts
 	o.mapProjection = nextMapProjection
 	o.identity, o.version, o.symbolCursor, o.timers, o.initialized = identity, b.ProgressVersion, cursor, nextTimers, true

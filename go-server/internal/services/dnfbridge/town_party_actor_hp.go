@@ -221,5 +221,8 @@ func projectCurrentTownPartyHPIntoMode0(mode0, realtime []byte, actorID uint16) 
 	// v113 is four bytes after the variable-length equipment table; v114
 	// follows it. Keep all names, equipment, clone links and tail bytes exact.
 	tail[equipEnd+4] = hp
+	if last := len(mode0) - 15; last >= tailStart && last < len(mode0) {
+		mode0[last] = hp
+	}
 	return nil
 }

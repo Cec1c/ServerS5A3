@@ -173,6 +173,23 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	official249 bool,
 	serverRoute ...byte,
 ) []byte {
+	return buildCurrentSceneOp9ActorPartyDisplayBodyForProfileWithPartyMax(
+		sceneObjectKey, character, hasCharacter, fallbackName, ownerChannel, localChannel,
+		members, partyLeaderSlot, 0, official249, serverRoute...)
+}
+
+// buildCurrentSceneOp9ActorPartyDisplayBodyForProfileWithPartyMax 与上一版逐字节
+// 同形，只多了 partyMaxMembers：客户端 NOTI9 (0x020167B1) 把记录头里的这个字节
+// 写进 CPartyRecord.MaxMembers ([record+0x50])，"队伍信息"面板与本地
+// "队伍人员已满"判定都读它。传 0 表示沿用旧行为（写角色等级）。
+func buildCurrentSceneOp9ActorPartyDisplayBodyForProfileWithPartyMax(
+	sceneObjectKey uint16, character dnfrepo.CharacterRecord, hasCharacter bool,
+	fallbackName string, ownerChannel byte, localChannel int,
+	members []currentSceneOp9PartyMemberProjection, partyLeaderSlot byte,
+	partyMaxMembers byte,
+	official249 bool,
+	serverRoute ...byte,
+) []byte {
 	if sceneObjectKey == 0 {
 		sceneObjectKey = currentSceneBootstrapObjectKey
 	}
@@ -181,13 +198,11 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 		name = character.Name
 	}
 	level := byte(1)
-	job := byte(0)
 	grow := byte(0)
 	if hasCharacter {
 		if character.Level > 0 && character.Level < 256 {
 			level = byte(character.Level)
 		}
-		job = byte(numericCharacterStat(character.Job))
 		grow = characterGrowTypeByte(character)
 	}
 
@@ -205,14 +220,22 @@ func buildCurrentSceneOp9ActorPartyDisplayBodyForProfile(
 	writer.writeByte(0)
 	writer.writeByte(currentSceneOp9ActorDisplayKind)
 
+	recordMaxMembers := level
+	if partyMaxMembers >= 1 && partyMaxMembers <= 4 {
+		recordMaxMembers = partyMaxMembers
+	}
+
 	writer.writeByte(currentSceneObjectRoute)
 	// sub_1D64CA0 uses this nested byte as the inline-identity discriminator,
 	// not as the actor-owner key. Zero is required for the following DSTR name
 	// branch; the real actor owner is already carried by the outer record.
 	writer.writeByte(currentSceneObjectContext)
 	writer.writeRawDstr(rosterNameBytes(name))
-	writer.writeByte(job)
-	writer.writeByte(level)
+	// 紧跟队伍名的第 1 个字节被客户端写进 CPartyRecord+0x56（[eax+0x52]）的
+	// "副本进行中" 标记，城镇必须为 0，否则队伍信息面板会画绿色 [进行中]。
+	// 成员职业由下方 writeCurrentSceneOp9PartyRoster 的成员行独立携带。
+	writer.writeByte(0)
+	writer.writeByte(recordMaxMembers)
 	writer.writeUint32(0)
 	writer.writeByte(grow)
 	writer.writeUint16(0)

@@ -113,7 +113,7 @@ func TestLearnedPartyMemberStallRecoveryIsBoundedAndTargeted(t *testing.T) {
 					for key, leg := range r.legs {
 						if key.ownerID != clients[0].characterID && key.peerID != clients[0].characterID {
 							leg.mu.Lock()
-							forwarded, used := leg.forwarded, leg.stallRecoveryUsed
+							forwarded, used := leg.forwarded+leg.fastForwarded.Load(), leg.stallRecoveryUsed
 							leg.mu.Unlock()
 							if forwarded < 32 || used {
 								t.Errorf("healthy pair disturbed: forwarded=%d recovery=%v", forwarded, used)

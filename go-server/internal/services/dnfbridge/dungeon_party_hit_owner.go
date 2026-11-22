@@ -169,6 +169,21 @@ type currentDungeonPartyHitOwnerResolution struct {
 //     而实例键本身已经把 PartyID 算进去了（`dungeonPartyRunKey.PartyID`）。
 //
 // 回退档（`strict`）恒返回 `accepted=false`：与改动前逐字节相同。
+// resolveCurrentDungeonPartyHitOwnerForActor 把"是否属于非本人击杀的队友归属"收口在领域模块内：
+// 本人击杀（relatedActorObjectKey == playerObjectKey）时直接短路，不读环境变量、不做跨锁查询。
+func (s *Service) resolveCurrentDungeonPartyHitOwnerForActor(
+	session *gameSession,
+	runtime *runtimeDungeonState,
+	relatedActorObjectKey uint16,
+	playerObjectKey uint16,
+) (dungeonPartyHitOwnerMode, currentDungeonPartyHitOwnerResolution) {
+	if relatedActorObjectKey == playerObjectKey {
+		return dungeonPartyHitOwnerParty, currentDungeonPartyHitOwnerResolution{reason: "self_owner_fast_path"}
+	}
+	mode := s.dungeonPartyHitOwnerGate()
+	return mode, s.resolveCurrentDungeonPartyHitOwner(session, runtime, relatedActorObjectKey, mode)
+}
+
 func (s *Service) resolveCurrentDungeonPartyHitOwner(
 	session *gameSession,
 	runtime *runtimeDungeonState,
