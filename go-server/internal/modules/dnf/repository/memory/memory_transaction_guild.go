@@ -75,29 +75,19 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 		chars.exists[ch.CharacterID] = true
 		originals[ch.CharacterID] = repository.CloneCharacter(ch)
 	}
-	before, found, err := u.settings.Load(ctx, repository.GuildRegistryScope)
-	if err != nil {
+	settingsSet := newMemoryGuildSettingsTxSet(u.settings, true)
+	if err := settingsSet.preload(ctx, repository.GuildRegistryScope); err != nil {
 		return err
 	}
-	settings := &memorySettingsTransaction{scope: repository.GuildRegistryScope, record: repository.CloneSettings(before), exists: found}
-	settingsTransactions := map[string]*memorySettingsTransaction{repository.GuildRegistryScope: settings}
-	settingsBefore := map[string]repository.SettingsRecord{repository.GuildRegistryScope: before}
-	settingsFound := map[string]bool{repository.GuildRegistryScope: found}
 	if receiptScope != "" {
-		receipt, receiptFound, loadErr := u.settings.Load(ctx, receiptScope)
-		if loadErr != nil {
-			return loadErr
+		if err := settingsSet.preload(ctx, receiptScope); err != nil {
+			return err
 		}
-		settingsTransactions[receiptScope] = &memorySettingsTransaction{
-			scope: receiptScope, record: repository.CloneSettings(receipt), exists: receiptFound,
-		}
-		settingsBefore[receiptScope] = receipt
-		settingsFound[receiptScope] = receiptFound
 	}
-	readSettings := &memoryGuildReceiptSettings{SettingsRepository: settings, reader: u.settings}
+	readSettings := &memoryGuildReceiptSettings{SettingsRepository: settingsSet, reader: u.settings}
 	group := repository.GuildScopedGroup(repository.Group{Character: chars, Settings: readSettings}, ordered)
 	if receiptScope != "" {
-		group.Settings = repository.GuildDungeonEntrySettings(memoryGuildDungeonEntrySettings(settingsTransactions), receiptScope)
+		group.Settings = repository.GuildDungeonEntrySettings(settingsSet, receiptScope)
 	}
 	var inventoryBefore repository.InventoryRecord
 	var inventoryFound bool
@@ -116,7 +106,7 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 		if loadErr != nil {
 			return loadErr
 		}
-		readSettings := &memoryGuildInventorySettings{SettingsRepository: settings, scope: containerScope, record: repository.CloneSettings(container), found: exists}
+		readSettings := &memoryGuildInventorySettings{SettingsRepository: settingsSet, scope: containerScope, record: repository.CloneSettings(container), found: exists}
 		group = repository.GuildInventoryScopedGroup(repository.Group{Character: chars, Settings: readSettings, Inventory: inventory}, ordered[0])
 	}
 	if err = apply(group); err != nil {
@@ -135,7 +125,7 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 		var failures []error
 		for i := len(settingsTouched) - 1; i >= 0; i-- {
 			scope := settingsTouched[i]
-			failures = append(failures, restoreSettingsRecord(u.settings, scope, settingsBefore[scope], settingsFound[scope], true))
+			failures = append(failures, restoreSettingsRecord(u.settings, scope, settingsSet.before[scope], settingsSet.existed[scope], true))
 		}
 		if inventoryTouched {
 			failures = append(failures, restoreInventoryRecord(u.inventory, ordered[0].CharacterID, inventoryBefore, inventoryFound))
@@ -167,8 +157,8 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 			return err
 		}
 	}
-	for _, scope := range []string{repository.GuildRegistryScope, receiptScope} {
-		tx := settingsTransactions[scope]
+	for _, scope := range settingsSet.order {
+		tx := settingsSet.txs[scope]
 		if tx == nil || !tx.dirty {
 			continue
 		}
@@ -182,22 +172,6 @@ func (u *memoryGuildUnitOfWork) withinGuild(ctx context.Context, owners []reposi
 	}
 	committed = true
 	return nil
-}
-
-type memoryGuildDungeonEntrySettings map[string]*memorySettingsTransaction
-
-func (s memoryGuildDungeonEntrySettings) Load(ctx context.Context, scope string) (repository.SettingsRecord, bool, error) {
-	if tx := s[scope]; tx != nil {
-		return tx.Load(ctx, scope)
-	}
-	return repository.SettingsRecord{}, false, repository.ErrGuildTransaction
-}
-
-func (s memoryGuildDungeonEntrySettings) Save(ctx context.Context, record repository.SettingsRecord) error {
-	if tx := s[record.Scope]; tx != nil {
-		return tx.Save(ctx, record)
-	}
-	return repository.ErrGuildTransaction
 }
 
 // Capacity is a read-only snapshot under the same owner lock. Settings writes
@@ -218,4 +192,59 @@ func (s *memoryGuildInventorySettings) Load(ctx context.Context, scope string) (
 
 func (u *memoryGuildUnitOfWork) WithinGuildRaidClear(ctx context.Context, owners []repository.GuildOwner, apply func(repository.Group) error) error {
 	return u.withinGuild(ctx, owners, false, false, true, "", apply)
+}
+
+// WithinGuildArchive 与 WithinGuild* 共用 sharedMu，确保归档写入与主注册表更新
+// 具备完全一致的串行可见性与原子提交/回滚语义。
+func (u *memoryGuildUnitOfWork) WithinGuildArchive(ctx context.Context, apply func(repository.SettingsRepository) error) (result error) {
+	if u == nil || u.sharedMu == nil || u.settings == nil || apply == nil {
+		return repository.ErrGuildTransaction
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	u.sharedMu.Lock()
+	defer u.sharedMu.Unlock()
+	settingsSet := newMemoryGuildSettingsTxSet(u.settings, true)
+	if err := settingsSet.preload(ctx, repository.GuildRegistryScope); err != nil {
+		return err
+	}
+	scoped := repository.GuildArchiveSettings(settingsSet)
+	if err := apply(scoped); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	settingsTouched := []string{}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		var failures []error
+		for i := len(settingsTouched) - 1; i >= 0; i-- {
+			scope := settingsTouched[i]
+			failures = append(failures, restoreSettingsRecord(u.settings, scope, settingsSet.before[scope], settingsSet.existed[scope], true))
+		}
+		result = errors.Join(result, errors.Join(failures...))
+	}()
+	for _, scope := range settingsSet.order {
+		tx := settingsSet.txs[scope]
+		if tx == nil || !tx.dirty {
+			continue
+		}
+		settingsTouched = append(settingsTouched, scope)
+		if err := u.settings.Save(ctx, tx.record); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	committed = true
+	return nil
 }

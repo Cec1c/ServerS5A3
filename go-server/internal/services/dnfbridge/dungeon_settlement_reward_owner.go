@@ -755,6 +755,7 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		}
 	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
+		MileageEnabled:         s.options.mileageShopEnabled,
 		WeddingCapsule:         capsule,
 		BattlePassDungeonKind:  currentBattlePassAdaptedDungeonKind(runtime),
 		BattlePassNoCoinClear:  currentBattlePassDungeonClear(runtime) && !runtime.battlePassCoinUsed,
@@ -791,6 +792,9 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
+	if err := s.sendCurrentMileageState(session); err != nil {
+		s.logGameEvent(session, "game-mileage-clear-state-deferred", "error", err)
+	}
 	if capsule != nil {
 		if err := s.sendCurrentWeddingCapsuleGauge(session, result.Character); err != nil {
 			s.logGameEvent(session, "game-wedding-capsule-gauge-projection-deferred", "error", err)

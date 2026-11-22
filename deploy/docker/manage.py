@@ -55,16 +55,20 @@ def checked_channel_catalog(catalog, channel_path):
     return catalog
 
 BUFF_GROUP_SYNC_KEY = "DNFBRIDGE_BUFF_GROUP_SYNC"
+RAID_SHOP_CLIENTS = frozenset((
+    "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
+    "e3e1b2bb2fdf689a82216923d1516505c606cc4ec56cfc81fa1bab527dd52ef8",
+    "fb2db71ee7cb4956e91891eea9731a2999cbb3694e681801e139239833458927",
+    "21a9ed0b0c86e8e3a95f7b6c84270025c91219d3df3e9143bdd6629264c9166e",
+))
 TAG_BUFF_CLIENTS = frozenset((
     "40657c19955dc2f594fc2221ef91044170d86406ba6fd193cdb1839877f28cb0",
     "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
-    "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
-))
+)) | RAID_SHOP_CLIENTS
 WEDDING_FEMALE_CLIENTS = frozenset((
     "f16d3bf48b6b802378fb066eaab96add8132c6406d7941a6d8d60328e47f6d8b",
     "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
-    "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
-))
+)) | RAID_SHOP_CLIENTS
 BUFF_GROUP_CLIENTS = {
     "69ea3a8b38d70af340baed28ec03e88162e7d3e434f5f99c9d5b71dafc12f544": "on",  # V212
     "a28601e349a65a1ec0356995b693a326620d81887031c17b76b5b73daaeb5216": "on",  # V213
@@ -74,9 +78,23 @@ BUFF_GROUP_CLIENTS = {
     "bc613e368e8fd49c50c35163f2ed8a28564fc23342701a5a6c22b839f3bf6b7a": "off",  # legacy v56
 }
 
+BLACK_DIAMOND_SECRET_SHOP_KEY = "DNFBRIDGE_BLACK_DIAMOND_SECRET_SHOP"
+BLACK_DIAMOND_SECRET_SHOP_CLIENTS = frozenset((
+    "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84",
+    "40657c19955dc2f594fc2221ef91044170d86406ba6fd193cdb1839877f28cb0",
+    "f16d3bf48b6b802378fb066eaab96add8132c6406d7941a6d8d60328e47f6d8b",
+    "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
+)) | RAID_SHOP_CLIENTS
+
 RUNTIME_COMPATIBILITY_VALUES = {
     "DNFBRIDGE_BUFF_GROUP_SYNC": ("off", "on"),
     "DNFBRIDGE_EXPERIMENTAL_PEAK": ("off", "on"),
+    "DNFBRIDGE_MILEAGE_SHOP_ENABLED": ("off", "on"),
+    BLACK_DIAMOND_SECRET_SHOP_KEY: ("off", "on"),
+    "DNFBRIDGE_MAP_CACHE": ("true", "false", "on", "off"),
+    "DNFBRIDGE_PVF_READ_CACHE_MIB": None,
+    "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS": None,
+    "DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC": None,
     "DNFBRIDGE_MYSQL_INSERT_BATCH": None,
     "DNFBRIDGE_INVENTORY_SAVE_SCOPE": ("collection", "slot"),
     "DNFBRIDGE_EQUIPMENT_SAVE_SCOPE": ("collection", "entry"),
@@ -158,8 +176,26 @@ def runtime_compatibility_env(config):
             raise ValueError(f"runtime_compatibility value must be a string: {key}")
         allowed = RUNTIME_COMPATIBILITY_VALUES[key]
         if allowed is None:
-            if not re.fullmatch(r"[0-9]+", value) or not 1 <= int(value) <= 1000:
-                raise ValueError("DNFBRIDGE_MYSQL_INSERT_BATCH must be an integer from 1 to 1000")
+            if key == "DNFBRIDGE_MYSQL_INSERT_BATCH":
+                if not re.fullmatch(r"[0-9]+", value) or not 1 <= int(value) <= 1000:
+                    raise ValueError("DNFBRIDGE_MYSQL_INSERT_BATCH must be an integer from 1 to 1000")
+            elif key == "DNFBRIDGE_PVF_READ_CACHE_MIB":
+                if value not in ("off", "none", "unbounded") and (
+                    not re.fullmatch(r"[0-9]+", value) or not 0 <= int(value) <= 4096
+                ):
+                    raise ValueError("DNFBRIDGE_PVF_READ_CACHE_MIB must be off/none/unbounded or an integer from 0 to 4096")
+            elif key == "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS":
+                if value not in ("off", "false", "none") and (
+                    not re.fullmatch(r"[0-9]+", value) or not 0 <= int(value) <= 5000
+                ):
+                    raise ValueError("DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS must be off/false/none or an integer from 0 to 5000")
+            elif key == "DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC":
+                if value not in ("off", "false", "none") and (
+                    not re.fullmatch(r"[0-9]+", value) or not 0 <= int(value) <= 3600
+                ):
+                    raise ValueError("DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC must be off/false/none or an integer from 0 to 3600")
+            else:
+                raise ValueError(f"runtime_compatibility contains unsupported key: {key}")
         elif value not in allowed:
             raise ValueError(f"runtime_compatibility value is not allowed: {key}={value}")
         validated[key] = value
@@ -191,6 +227,48 @@ def buff_group_sync_env(config, compatibility):
     if mode is None:
         raise ValueError("buff_group_sync auto does not recognize DNF.exe; select the verified on/off client protocol explicitly")
     return mode
+
+
+def client_executable_sha256(config):
+    configured = config.get("client_exe_sha256")
+    if configured is not None and (not isinstance(configured, str)
+                                   or not re.fullmatch(r"[0-9a-f]{64}", configured)):
+        raise ValueError("client_exe_sha256 must be a lowercase SHA256")
+    # A deployment-generated identity describes the EXE being activated. The
+    # optional local client_dir may still point at an older checkout and must
+    # not veto a reviewed paired update or its rollback.
+    if configured is not None:
+        return configured
+    client_dir = config.get("client_dir")
+    if client_dir:
+        executable = Path(client_dir) / "DNF.exe"
+        if executable.is_file():
+            return digest(executable)
+    return None
+
+
+def black_diamond_secret_shop_env(config, compatibility):
+    """Resolve off/on solely from an exact reviewed client identity."""
+    configured = config.get("black_diamond_secret_shop")
+    relevant = (configured is not None or "client_exe_sha256" in config or
+                BLACK_DIAMOND_SECRET_SHOP_KEY in compatibility)
+    if not relevant:
+        return None
+    mode = "auto" if configured is None else configured
+    if mode not in ("auto", "on", "off"):
+        raise ValueError("black_diamond_secret_shop must be auto, on or off")
+    explicit = compatibility.get(BLACK_DIAMOND_SECRET_SHOP_KEY)
+    if explicit is not None and explicit not in ("off", "on"):
+        raise ValueError("DNFBRIDGE_BLACK_DIAMOND_SECRET_SHOP must be off or on")
+    if explicit is not None:
+        if mode in ("on", "off") and mode != explicit:
+            raise ValueError("black_diamond_secret_shop conflicts with runtime_compatibility")
+        mode = explicit
+    client_version = config.get("client_version", "official-24.9")
+    executable_sha256 = client_executable_sha256(config)
+    if mode == "off" or client_version != "official-24.9":
+        return "off"
+    return "on" if executable_sha256 in BLACK_DIAMOND_SECRET_SHOP_CLIENTS else "off"
 
 
 def run(*args, capture=False):
@@ -285,9 +363,18 @@ def prepare(args):
             "default_group_login_only": True,
             "client_version": "official-24.9",
             "buff_group_sync": "auto",
+            "black_diamond_secret_shop": "auto",
         }
     if getattr(args, "buff_group_sync", None) is not None:
         config["buff_group_sync"] = args.buff_group_sync
+    if getattr(args, "black_diamond_secret_shop", None) is not None:
+        config["black_diamond_secret_shop"] = args.black_diamond_secret_shop
+    if args.client_dir:
+        executable = Path(config["client_dir"]) / "DNF.exe"
+        if executable.is_file():
+            config["client_exe_sha256"] = digest(executable)
+        else:
+            config.pop("client_exe_sha256", None)
     compatibility = runtime_compatibility_env(config)
     buff_group_sync = buff_group_sync_env(config, compatibility)
     if not existing and config["buff_group_sync"] == "auto":
@@ -535,6 +622,9 @@ create_databases = false
     if percent is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"] = str(percent)
     env.update(compatibility_env)
+    shop = black_diamond_secret_shop_env(c, compatibility_env)
+    if shop is not None:
+        env[BLACK_DIAMOND_SECRET_SHOP_KEY] = shop
     if buff_group_sync is not None:
         env[BUFF_GROUP_SYNC_KEY] = buff_group_sync
     if encoding is not None:
@@ -585,6 +675,7 @@ def main():
     parser.add_argument("--pvf")
     parser.add_argument("--host-ip")
     parser.add_argument("--client-dir")
+    parser.add_argument("--black-diamond-secret-shop", choices=("auto", "on", "off"))
     parser.add_argument("--buff-group-sync", choices=("auto", "on", "off"),
                         help="Fresh installs select V212+ automatically; use off only for a legacy client")
     parser.add_argument("--channel-info", help="Explicit path to the common 120-channel baseline; fresh installs use the bundled table")

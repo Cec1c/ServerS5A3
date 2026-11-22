@@ -30,8 +30,13 @@ for _identity in (TAG_BUFF_FORMAL_SHA, WEDDING_FEMALE_SHA, TAG_BUFF_WEDDING_SHA)
         'DNF.exe': {'sha256': _identity, 'bytes': BLACKDIAMOND_FORMAL_BYTES}}
 
 ROSCH_CLIENT_SHA = 'a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf'
-FEATURE_CLIENT_VARIANTS[ROSCH_CLIENT_SHA] = {**BLACKDIAMOND_FORMAL_FILES,
-    'DNF.exe': {'sha256': ROSCH_CLIENT_SHA, 'bytes': 112820224}}
+for _identity in (ROSCH_CLIENT_SHA,
+                  'e3e1b2bb2fdf689a82216923d1516505c606cc4ec56cfc81fa1bab527dd52ef8',
+                  'fb2db71ee7cb4956e91891eea9731a2999cbb3694e681801e139239833458927',
+                  '21a9ed0b0c86e8e3a95f7b6c84270025c91219d3df3e9143bdd6629264c9166e',
+):
+    FEATURE_CLIENT_VARIANTS[_identity] = {**BLACKDIAMOND_FORMAL_FILES,
+        'DNF.exe': {'sha256': _identity, 'bytes': 112820224}}
 
 def checked_client_files(pair):
     """Bounded EXE/NPK plus exact reviewed plugin pair; GM assets stay separate."""

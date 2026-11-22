@@ -28,11 +28,16 @@ type currentRaidDungeonEntry struct {
 	fiendWarOrigin  currentTownPositionSnapshot
 	teamMode        bool
 	singleAntonMode bool
+	singleLukeMode  bool
 	fiendWarParty   *party.RuntimePartySnapshot
 }
 
-// Team raids and single Anton do not create floor items or gold. Keep this rule on the frozen
-// entry, so an expired or retired battle cannot restore ordinary map drops.
+// Team raids, single Anton, and repeated ordinary Luke runs do not create floor items or gold.
+// Keep this rule on the frozen entry, so an expired or retired battle cannot restore drops.
+func currentDungeonGroundDropsDisabled(runtime *runtimeDungeonState) bool {
+	return (runtime != nil && runtime.lukeRepeat) || currentTeamRaidGroundDropsDisabled(runtime)
+}
+
 func currentTeamRaidGroundDropsDisabled(runtime *runtimeDungeonState) bool {
 	return runtime != nil && runtime.raidEntry != nil && (runtime.raidEntry.teamMode || runtime.raidEntry.singleAntonMode)
 }
@@ -257,6 +262,7 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 	}
 	entry.teamMode = !b.Single
 	entry.singleAntonMode = b.Single && b.Mode == 1
+	entry.singleLukeMode = b.Single && b.Mode == 2
 	for _, target := range targets {
 		copy := entry
 		copy.Participants = append([]uint16(nil), entry.Participants...)

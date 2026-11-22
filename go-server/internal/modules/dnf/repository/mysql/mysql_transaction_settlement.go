@@ -104,6 +104,9 @@ func (u *mysqlCharacterSettlementUnitOfWork) withinSettlement(ctx context.Contex
 	base := newMySQLGroupFromRouter(txRouter, false)
 	base.Account.(*mysqlAccountStore).trackMetadataChanges = true
 	base.Character.(*mysqlCharStore).trackStatChanges = true
+	if store, ok := base.Settings.(*mysqlSettingsStore); ok {
+		store.cacheLockedReads = true
+	}
 	// 当前事务已加载的完整背包与共享仓库快照用于槽位差量。
 	// 保留既有公会登记、账号、角色的锁顺序；未Load仍走完整写入。
 	if store, ok := base.Inventory.(*mysqlBagStore); ok {

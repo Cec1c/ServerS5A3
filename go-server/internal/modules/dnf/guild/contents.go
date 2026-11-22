@@ -224,6 +224,11 @@ func purchaseExpansion(ctx context.Context, uow r.GuildUnitOfWork, query CargoPu
 		if _, reused := reg.ContractClaims[query.RequestID]; reused {
 			return ErrPurchaseIdentity
 		}
+		if _, archived, err := LoadArchivedReceipt(ctx, tx.Settings, query.RequestID); err != nil {
+			return err
+		} else if archived {
+			return ErrPurchaseIdentity
+		}
 		if previous, exists := receipts[query.RequestID]; exists {
 			if previous.Owner != query.Owner || previous.GuildID != g.ID || previous.ContentID != query.ContentID {
 				return ErrPurchaseIdentity

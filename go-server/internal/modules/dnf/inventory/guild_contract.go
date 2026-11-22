@@ -45,6 +45,36 @@ func (o *Owner) ClaimGuildContract(ctx context.Context, req GuildContractClaim, 
 		if err != nil {
 			return err
 		}
+		if _, inState := reg.ContractClaims[req.RequestID]; !inState {
+			archived, found, archiveErr := guild.LoadArchivedReceipt(ctx, tx.Settings, req.RequestID)
+			if archiveErr != nil {
+				return archiveErr
+			}
+			if found {
+				if req.Catalog.ContractRewardItemID == 0 || req.Catalog.ContractRewardCount != 1 || now.IsZero() {
+					return guild.ErrInvalidContent
+				}
+				g, _, member := reg.GuildForOwner(req.Owner)
+				if !member {
+					return guild.ErrNotMember
+				}
+				_, cargo := reg.CargoPurchases[req.RequestID]
+				_, expansion := reg.MemberExpansions[req.RequestID]
+				_, benefit := reg.BenefitPurchases[req.RequestID]
+				if cargo || expansion || benefit || archived.Kind != guild.ArchivedReceiptKindContractClaim || archived.ContractClaim == nil {
+					return guild.ErrPurchaseIdentity
+				}
+				old := *archived.ContractClaim
+				if old.Owner != req.Owner || old.GuildID != g.ID {
+					return guild.ErrPurchaseIdentity
+				}
+				if !req.Revalidate() {
+					return guild.ErrCharacterNotFound
+				}
+				result = old
+				return nil
+			}
+		}
 		claim, replayed, err := reg.RecordContractClaim(req.Owner, req.RequestID, req.Catalog, now)
 		if err != nil {
 			return err
@@ -55,6 +85,11 @@ func (o *Owner) ClaimGuildContract(ctx context.Context, req GuildContractClaim, 
 			}
 			result = claim
 			return nil
+		}
+		if claimedArchived, err := guild.HasArchivedContractDayClaim(ctx, tx.Settings, req.Owner, claim.DayEnd); err != nil {
+			return err
+		} else if claimedArchived {
+			return guild.ErrContractAlreadyClaimed
 		}
 		bag, found, err := tx.Inventory.Load(ctx, req.Owner.CharacterID)
 		if err != nil {
@@ -85,6 +120,9 @@ func (o *Owner) ClaimGuildContract(ctx context.Context, req GuildContractClaim, 
 		bag.UpdatedAt = now
 		claim.Slots = append([]int16(nil), slots...)
 		reg.ContractClaims[req.RequestID] = claim
+		if _, err := guild.ArchiveExpiredContractClaims(ctx, tx.Settings, &reg, now, 0); err != nil {
+			return err
+		}
 		if err := r.SaveInventoryFields(ctx, tx.Inventory, bag, r.InventoryFieldSlots); err != nil {
 			return err
 		}

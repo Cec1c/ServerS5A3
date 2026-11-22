@@ -479,6 +479,11 @@ func (s *Service) sendGameUpperRawClassCodec(session *gameSession, msgID uint16,
 
 // Caller holds session.wireMu for sequence allocation, codec and socket write.
 func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID uint16, body []byte, classification byte, allowCodec bool) error {
+	_, err := s.sendGameUpperRawClassCodecLockedWithOutcome(session, msgID, body, classification, allowCodec)
+	return err
+}
+
+func (s *Service) sendGameUpperRawClassCodecLockedWithOutcome(session *gameSession, msgID uint16, body []byte, classification byte, allowCodec bool) (upperPacketWriteOutcome, error) {
 	sequence := session.upperSeq
 	headerSize := s.gameUpperHeaderSize()
 	wireBody := body
@@ -492,7 +497,7 @@ func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID u
 	} else if allowCodec && classification == dnfproto.DefaultChannelClassification && bodyCodec != gameUpperBodyCodecPlain {
 		encodedBody, encoded, err := dnfproto.EncodeLatestUpperServerBody(msgID, body)
 		if err != nil {
-			return err
+			return upperPacketNotWritten, err
 		}
 		wireBody = encodedBody
 		bodyEncoded = encoded
@@ -501,7 +506,7 @@ func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID u
 	}
 	packet, err := dnfproto.BuildGameServerUpperPacketWithHeaderSize(msgID, wireBody, sequence, classification, headerSize)
 	if err != nil {
-		return err
+		return upperPacketNotWritten, err
 	}
 	session.upperSeq++
 	runtimeName := upperRuntimeCmdPacketName(msgID, classification)
@@ -531,9 +536,9 @@ func (s *Service) sendGameUpperRawClassCodecLocked(session *gameSession, msgID u
 		"body_len", len(wireBody),
 		"body_encoded", bodyEncoded,
 		"body_codec", bodyCodec)
-	err = s.writeGameUpperPacketLocked(session, packet)
+	outcome, err := s.writeGameUpperPacketLockedWithOutcome(session, packet)
 	s.logCurrentWeddingWindowWire(session, msgID, classification, sequence, body, err == nil)
-	return err
+	return outcome, err
 }
 
 func (s *Service) gameUpperHeaderSize() int {

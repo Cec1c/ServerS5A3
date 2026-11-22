@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"longheng.io/server/internal/modules/dnf/mileage"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -46,7 +47,9 @@ type CheckoutAssets struct {
 type CheckoutProjector func(*CheckoutAssets) (CheckoutChanges, error)
 
 type CheckoutCommand struct {
-	PayPolicy PayPolicy
+	// Nonzero only while the event266 shop is enabled; fixed by the runtime PVF.
+	MileageCashLimit uint32
+	PayPolicy        PayPolicy
 	// 受PVF限制的金额先预留，余款再按PayPolicy扣除，支持混合购物车。
 	CeraOnlyCost, TokenOnlyCost int64
 	AccountID                   string
@@ -214,6 +217,12 @@ func (o *Owner) Checkout(ctx context.Context, command CheckoutCommand) (Checkout
 			}
 			walletAfter := WalletBalance(account)
 			ceraBefore, ceraAfter := walletBefore.Cera, walletAfter.Cera
+			if command.MileageCashLimit != 0 {
+				spent := payment.FromCera + payment.FromTokenCera + payment.FromHappyTokenCera
+				if err := mileage.AccrueSpend(&account, spent, command.MileageCashLimit); err != nil {
+					return err
+				}
+			}
 
 			assets := &CheckoutAssets{
 				Account:        &account,

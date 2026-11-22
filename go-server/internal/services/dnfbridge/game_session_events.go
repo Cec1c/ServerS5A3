@@ -100,6 +100,10 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 				if !ran && task.discard != nil {
 					task.discard()
 				}
+				if task.source != "game-session-shutdown" {
+					session.guild.eventLoopCompletedSeq.Add(1)
+					s.resumePendingGuildMembershipRefresh(session)
+				}
 			}()
 			if session.loginRevoked.Load() && task.source != "game-session-shutdown" {
 				if task.async {

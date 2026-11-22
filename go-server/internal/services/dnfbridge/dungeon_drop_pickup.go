@@ -162,6 +162,9 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 	session.dungeon.mu.Lock()
 	defer session.dungeon.mu.Unlock()
 	runtime := session.dungeon.runtime
+	if runtime != nil && runtime.lukeRepeat {
+		return nil
+	}
 	// 队伍级共享实例下，掉落账本是**两个会话共用**的：整个拾取流程（读状态 → 资产事务
 	// → 标记 consumed）必须在实例锁下串行，否则两人同时点同一份掉落会各自入账一次。
 	// 锁序固定为 session.dungeon.mu → instance.mu；单人/无队伍时返回 nil，无副作用。

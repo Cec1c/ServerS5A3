@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -9,6 +10,34 @@ import (
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
+
+const (
+	guildPresencePersistMinIntervalEnv    = "DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC"
+	maxGuildPresencePersistMinIntervalSec = 3600
+)
+
+func readGuildPresencePersistMinInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(guildPresencePersistMinIntervalEnv))
+	if raw == "" {
+		return 0
+	}
+	lower := strings.ToLower(raw)
+	if lower == "0" || lower == "off" || lower == "false" || lower == "none" {
+		return 0
+	}
+	sec, err := strconv.Atoi(raw)
+	if err != nil || sec < 0 || sec > maxGuildPresencePersistMinIntervalSec {
+		return 0
+	}
+	return time.Duration(sec) * time.Second
+}
+
+func (s *Service) guildPresencePersistMinInterval() time.Duration {
+	if s == nil {
+		return 0
+	}
+	return s.options.guildPresencePersistMinInterval
+}
 
 // Capture only a canonical binding while service.mu is held. Keeping immutable
 // owner/time values lets disconnect and character-select persist after removing
@@ -43,11 +72,63 @@ func (s *Service) persistCurrentGuildPresence(observations ...currentGuildPresen
 			continue
 		}
 		ctx, cancel := s.currentGuildContext()
+		// 权威只读预检：通过 WithinGuildRead（定向主/写库、无写锁）校验成员资格；
+		// 1）未加入任何公会的角色无需争抢全局 GuildRegistryScope 写锁；
+		// 2）若启用了最小落库间隔，且本周排行在场位已记录、距上次落库未满间隔、
+		//    且角色归属/未删除核验通过，则跳过本次整包 JSON 重写，但仍立即广播在线变化。
+		// 若只读事务不可用或失败，则退回原有写事务路径以保持故障日志和桩仓储语义。
+		if reader, ok := repos.Guild.(dnfrepo.GuildReadUnitOfWork); ok {
+			var memberFound bool
+			var throttledGuildID uint32
+			minInterval := s.guildPresencePersistMinInterval()
+			preErr := reader.WithinGuildRead(ctx, func(view dnfrepo.GuildReadView) error {
+				membership, found, err := dnfguild.ReadGuildMembership(ctx, view.Settings, observation.owner.CharacterID)
+				if err != nil || !found {
+					return err
+				}
+				g, err := membership.RosterProjection(observation.owner)
+				if err != nil {
+					return err
+				}
+				if g == nil {
+					return nil
+				}
+				memberFound = true
+				if minInterval > 0 {
+					m, ok := g.Members[observation.owner.CharacterID]
+					if ok && !observation.at.IsZero() && !observation.at.Before(m.JoinedAt) &&
+						!m.LastOnlineAt.IsZero() && m.HasRankingPresenceFor(observation.at) &&
+						observation.at.Sub(m.LastOnlineAt) < minInterval {
+						chars, charErr := view.Characters.LoadGuildCharacters(ctx, []string{observation.owner.CharacterID})
+						if charErr != nil {
+							return charErr
+						}
+						c, exists := chars[observation.owner.CharacterID]
+						if exists && c.CharacterID == observation.owner.CharacterID &&
+							c.AccountID == observation.owner.AccountID && c.DeleteFlag == 0 {
+							throttledGuildID = g.ID
+						}
+					}
+				}
+				return nil
+			})
+			if preErr == nil && !memberFound {
+				cancel()
+				continue
+			}
+			if preErr == nil && throttledGuildID != 0 {
+				s.queueCurrentGuildPresenceRefresh(ctx, throttledGuildID)
+				cancel()
+				continue
+			}
+		}
 		var guildID uint32
-		err := repos.Guild.WithinGuild(ctx, []dnfrepo.GuildOwner{observation.owner}, func(tx dnfrepo.Group) error {
-			if _, found, err := tx.Character.Load(ctx, observation.owner.CharacterID); err != nil {
+		applyPresence := func(tx dnfrepo.Group) error {
+			identity, found, err := dnfrepo.LoadCharacterIdentity(ctx, tx.Character, observation.owner.CharacterID)
+			if err != nil {
 				return err
-			} else if !found {
+			}
+			if !found || identity.CharacterID != observation.owner.CharacterID || identity.AccountID != observation.owner.AccountID {
 				return dnfguild.ErrCharacterNotFound
 			}
 			r, err := dnfguild.Load(ctx, tx.Settings)
@@ -61,7 +142,13 @@ func (s *Service) persistCurrentGuildPresence(observations ...currentGuildPresen
 				}
 			}
 			return nil
-		})
+		}
+		var err error
+		if presenceUOW, ok := repos.Guild.(dnfrepo.GuildPresenceUnitOfWork); ok {
+			err = presenceUOW.WithinGuildPresence(ctx, observation.owner, applyPresence)
+		} else {
+			err = repos.Guild.WithinGuild(ctx, []dnfrepo.GuildOwner{observation.owner}, applyPresence)
+		}
 		if err != nil {
 			s.logPacketEvent("game-guild-presence-persist-failed", "char_id", observation.owner.CharacterID, "error", err)
 		} else if guildID != 0 {

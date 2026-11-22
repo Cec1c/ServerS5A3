@@ -165,6 +165,7 @@ type runtimeDungeonState struct {
 	bossDieCheckRelatedActorObjectKey    uint16
 	bossDieCheckTargetObjectKey          uint16
 	bossDieCheckResponseSent             bool
+	lukeRepeat                           bool // Frozen per character and dungeon on entry.
 	storyNPCNotificationRoom             *runtimeDungeonRoom
 	storyNPCNotificationCount            int
 	ordinaryFinalRoomClearAccepted       bool
@@ -623,6 +624,11 @@ func (s *Service) prepareDungeonRuntimePlanned(
 	// 扣减失败（持仓不足 / 事务失败）⇒ 明确拒绝入场（错误冒到
 	// `refuseDungeonSelectEntryValidation` 的既有拒绝回包），**绝不静默放行**。
 	// 默认档 / 未声明 `[required item]` 的 DGN ⇒ 一行都不执行、不读背包、不写库。
+	entryTime := s.gameplayNow()
+	lukeRepeat, err := s.lukeRepeatEntry(ctx, character.CharacterID, dungeon, entryTime)
+	if err != nil {
+		return nil, worldmap.DungeonRoomScene{}, err
+	}
 	if !s.options.mapDefinitionCache {
 		if err := s.consumeDungeonEntryItemsWithTournament(ctx, dungeon, session); err != nil {
 			return nil, worldmap.DungeonRoomScene{}, err
@@ -940,7 +946,7 @@ func (s *Service) prepareDungeonRuntimePlanned(
 		LayerChains: make(map[worldmap.RoomCoordinate]*runtimeDungeonLayerChain),
 		StoryStages: append([]worldmap.DungeonStoryStage(nil), storyStages...),
 		Rooms:       make(map[runtimeDungeonRoomKey]*runtimeDungeonRoomVisit),
-		startedAt:   s.gameplayNow(),
+		startedAt:   entryTime, lukeRepeat: lukeRepeat,
 	}
 	// 深渊房间（操作者清单第 ⑤ 条后半、"已完成任务角色开深渊看不到深渊房间/柱子"）：
 	// 厂商 Dungeon.cs:904-1029 FindHellMapRoom 只在**这条 op16 真是深渊派对请求**

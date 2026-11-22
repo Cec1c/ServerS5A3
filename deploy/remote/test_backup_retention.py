@@ -16,6 +16,11 @@ class RetentionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        self._default_mounts = retention._default_container_mount_sources
+        retention._default_container_mount_sources = lambda: []
+        self.addCleanup(
+            setattr, retention, "_default_container_mount_sources",
+            self._default_mounts)
         self.runtime = Path(self.temp.name).resolve() / "runtime"
         self.backups = self.runtime / "backups"
         self.backups.mkdir(parents=True)
