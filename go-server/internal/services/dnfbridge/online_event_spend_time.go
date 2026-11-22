@@ -560,6 +560,9 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		}
 	}
 	// 保留108与所属在线活动状态紧邻，然后同步周常逐图开放表。
+	if err := s.sendCurrentMileageState(session); err != nil {
+		return descriptorSent, err
+	}
 	// 同一进程省略108时，换角仍需恢复855；写失败重试时发送整组状态。
 	if err := s.sendCurrentDayDungeonSchedule(session, dayDungeonEvent, "活动目录与所属状态之后"); err != nil {
 		return descriptorSent, err
@@ -1172,6 +1175,7 @@ func (s *Service) buildCurrentCompleteActivityInfoForDay(session *gameSession, c
 		s.currentAttendanceMarbleAvailable(),
 		s.currentPortedCatalogAt(s.gameplayNow()),
 		s.currentBattlePassEntryAvailable(),
+		s.options.mileageShopEnabled,
 	)
 	if err != nil {
 		return nil, fiendWarAvailable, err

@@ -81,7 +81,7 @@ func (s *Service) consumeCurrentDungeonReviveCoinWithLukeCaps(ctx context.Contex
 	if b.Phase < 2 {
 		auditFields = append(auditFields, "phase_coin_used", b.PhaseCoins[b.Phase], "phase_coin_limit", b.Configuration.PhaseCoinLimits[b.Phase])
 	}
-	if b.Single || b.Mode != 2 || b.Anton == nil || !b.Anton.IsLuke() || b.InstanceID != entry.InstanceID || b.Phase != entry.Phase || b.Phase > 1 || b.Anton.Epoch() != entry.Attempt || entry.RunID == "" || b.ChannelID != entry.ChannelID || b.ChannelType != entry.ChannelType || session.channel.ID != entry.ChannelID || session.channel.Type != entry.ChannelType || b.MemberAccounts[char] != r.AccountID || r.AccountID != s.accountIDForSession(session) || b.PhaseCompleted || b.TimedOut || now.Before(b.EnterAfter) || !now.Before(b.Deadline) || now.Before(b.Anton.LastTime()) {
+	if b.Single != entry.singleLukeMode || b.Mode != 2 || b.InstanceID != entry.InstanceID || b.Phase != entry.Phase || b.Phase > 1 || entry.RunID == "" || b.ChannelID != entry.ChannelID || b.ChannelType != entry.ChannelType || session.channel.ID != entry.ChannelID || session.channel.Type != entry.ChannelType || b.MemberAccounts[char] != r.AccountID || r.AccountID != s.accountIDForSession(session) || b.PhaseCompleted || b.TimedOut || now.Before(b.EnterAfter) || !now.Before(b.Deadline) {
 		return reject("binding_expired", "Luke coin binding expired")
 	}
 	participant := false
@@ -98,7 +98,12 @@ func (s *Service) consumeCurrentDungeonReviveCoinWithLukeCaps(ctx context.Contex
 	for _, d := range b.Dungeons {
 		open = open || int64(d.ID) == r.Dungeon.ID && d.State == 0
 	}
-	if !open || !(&raid.LukeProgression{AntonProgression: b.Anton}).HasEnteredRun(entry.RunID, uint32(r.Dungeon.ID)) {
+	if b.Single {
+		open = open && entry.Attempt == 1 && len(entry.Participants) == 1 && validateCurrentSingleLukeSelector(b) == nil && b.SingleIndex < len(b.SingleSequence) && int64(b.SingleSequence[b.SingleIndex]) == r.Dungeon.ID
+	} else {
+		open = open && b.Anton != nil && b.Anton.IsLuke() && b.Anton.Epoch() == entry.Attempt && !now.Before(b.Anton.LastTime()) && (&raid.LukeProgression{AntonProgression: b.Anton}).HasEnteredRun(entry.RunID, uint32(r.Dungeon.ID))
+	}
+	if !open {
 		return reject("dungeon_unavailable", "Luke coin dungeon unavailable")
 	}
 	life, found := b.MemberLives[currentRaidMemberRun{RunID: entry.RunID, CharacterID: char}]

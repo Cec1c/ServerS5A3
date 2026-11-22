@@ -27,14 +27,14 @@ type guildSettlementSettings struct {
 }
 
 func (r *guildSettlementSettings) Load(ctx context.Context, scope string) (SettingsRecord, bool, error) {
-	if r.base == nil || (scope != GuildRegistryScope && scope != r.receiptScope) {
+	if r.base == nil || (scope != GuildRegistryScope && scope != r.receiptScope && !ValidGuildArchiveScope(scope)) {
 		return SettingsRecord{}, false, ErrGuildTransaction
 	}
 	return r.base.Load(ctx, scope)
 }
 
 func (r *guildSettlementSettings) Save(ctx context.Context, record SettingsRecord) error {
-	if r.base == nil || (record.Scope != GuildRegistryScope && record.Scope != r.receiptScope) {
+	if r.base == nil || (record.Scope != GuildRegistryScope && record.Scope != r.receiptScope && !ValidGuildArchiveScope(record.Scope)) {
 		return ErrGuildTransaction
 	}
 	return r.base.Save(ctx, record)

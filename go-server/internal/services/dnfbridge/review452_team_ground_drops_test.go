@@ -202,12 +202,19 @@ func TestReview452TeamRaidOtherGroundProducers(t *testing.T) {
 					forbidden := kind == "anton" || kind == "luke" && !single
 					switch producer {
 					case "pvf_passive_item":
-						doc, err := dnfpvf.Parse("review452.dgn", "[special passive object item]\n0 -1 1 3227 10000\n")
+						table := "[special passive object item]\n0 -1 1 3227 10000\n"
+						spawns := []worldmap.SpecialObjectSpawn{{Kind: "[item]", Code: 0, Level: 1, Params: [3]int64{-1, -1, -1}}}
+						if kind == "luke" && single {
+							// Single Luke filters the material but must keep equipment from the same object.
+							table += "1 -1 1 9001 10000\n"
+							spawns = append(spawns, worldmap.SpecialObjectSpawn{Kind: "[item]", Code: 1, Level: 1, Params: [3]int64{-1, -1, -1}})
+						}
+						doc, err := dnfpvf.Parse("review452.dgn", table)
 						if err != nil {
 							t.Fatal(err)
 						}
 						r.Dungeon.SourceSections = worldmap.ParseDungeon(1, doc.Path, doc).SourceSections
-						scene.SpecialPassiveObjects = []worldmap.SpecialPassiveObject{{Spawns: []worldmap.SpecialObjectSpawn{{Kind: "[item]", Code: 0, Level: 1, Params: [3]int64{-1, -1, -1}}}}}
+						scene.SpecialPassiveObjects = []worldmap.SpecialPassiveObject{{Spawns: spawns}}
 						t.Setenv(mapOwnedPassiveObjectModeEnvName, mapOwnedPassiveObjectRegisterValue)
 						if err := f.service.prepareCurrentDungeonPassiveObjectDrops(f.session, r, scene, "review452"); err != nil {
 							t.Fatal(err)
@@ -219,6 +226,9 @@ func TestReview452TeamRaidOtherGroundProducers(t *testing.T) {
 						rows, _ := currentDungeonPassiveObjectDropEntries(r, scene)
 						if forbidden && len(rows) != 0 {
 							t.Fatal("team passive item emitted a START_MAP row")
+						}
+						if kind == "luke" && single && (len(rows) != 1 || len(registration.Rows) != 1 || registration.Rows[0].ItemID != 9001) {
+							t.Fatalf("single Luke must project only equipment from the mixed passive item table: %+v", registration.Rows)
 						}
 					case "hell_equipment":
 						catalog, err := f.service.dungeonMonsterCatalog()

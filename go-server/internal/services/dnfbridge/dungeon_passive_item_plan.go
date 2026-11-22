@@ -115,7 +115,7 @@ func currentDungeonPVFPassiveItemPlan(dungeon worldmap.Dungeon, scene worldmap.D
 }
 
 func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession, runtime *runtimeDungeonState, scene worldmap.DungeonRoomScene, source string, minimumObjectKey uint32) error {
-	if currentTeamRaidGroundDropsDisabled(runtime) {
+	if currentDungeonGroundDropsDisabled(runtime) {
 		return nil
 	}
 	room := runtimeDungeonRoomKeyFromScene(scene)
@@ -153,12 +153,22 @@ func (s *Service) prepareCurrentDungeonPVFPassiveItemDrops(session *gameSession,
 	if err != nil {
 		return err
 	}
-	definitions := make([]dungeonDropItemDefinition, len(plan))
-	for i, row := range plan {
-		definitions[i], err = drops.ResolveItem(row.itemID)
+	definitions := make([]dungeonDropItemDefinition, 0, len(plan))
+	filtered := plan[:0]
+	for _, row := range plan {
+		definition, err := drops.ResolveItem(row.itemID)
 		if err != nil {
 			return err
 		}
+		if singleLukeMaterialSuppressed(runtime, definition) {
+			continue
+		}
+		filtered = append(filtered, row)
+		definitions = append(definitions, definition)
+	}
+	plan = filtered
+	if len(plan) == 0 {
+		return nil
 	}
 	instance := runtime.lockPartyDungeonInstance()
 	defer unlockPartyDungeonInstance(instance)

@@ -267,7 +267,8 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesAndPorted(rewardItemI
 	return buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(rewardItemIDs, totalStageSeconds, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime, dayDungeonEvent, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad, townActivities, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, includeMarble, ported, false)
 }
 
-func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, includeMarble bool, ported currentPortedCatalog, includeBattlePass bool) ([]byte, error) {
+func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(rewardItemIDs []uint32, totalStageSeconds uint32, includeJoustEvent, includeTownNpcEvent, includeAntonChannelEvent, includeAntonModeSelection, includeSpendTime bool, dayDungeonEvent uint16, includeLuke, includeMonthly, includeWeekly, includeOrdinary, includeEpicRoad bool, townActivities []uint16, includeFiendWar, nativeOnlinePanel, includeSeriaLuck, includeMarble bool, ported currentPortedCatalog, includeBattlePass bool, mileage ...bool) ([]byte, error) {
+	includeMileage := len(mileage) == 1 && mileage[0]
 	if err := validateCurrentImageTownActivityIDs(townActivities); err != nil {
 		return nil, err
 	}
@@ -375,6 +376,10 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(r
 	var writer packetWriter
 	baseCatalogCount += uint16(len(townActivities))
 	activeCount += byte(len(townActivities))
+	if includeMileage {
+		baseCatalogCount++
+		activeCount++
+	}
 	writer.writeUint16(baseCatalogCount) // base_catalog_count
 	if includeSpendTime && nativeOnlinePanel {
 		writeCurrentPCRoomTimePointActivityBase(&writer)
@@ -526,6 +531,13 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(r
 		writer.writeRawDstr(nil)
 		writer.writeByte(0)
 	}
+	if includeMileage {
+		writer.writeUint16(266) // Native mileage-shop visibility event.
+		writer.writeUint32(currentSpendTimeBaseCatalogValue)
+		writer.writeRawDstr(nil)
+		writer.writeRawDstr(nil)
+		writer.writeByte(0)
+	}
 	writer.writeByte(activeCount) // active_count
 	if includeSpendTime && nativeOnlinePanel {
 		writer.writeUint16(currentPCRoomTimePointEventID)
@@ -643,6 +655,13 @@ func buildCurrentActivityEventInfoBodyWithRuntimeActivitiesPortedAndBattlePass(r
 
 	if includeBattlePass {
 		writer.writeUint16(currentBattlePassEventID)
+		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
+			writer.writeUint32(0)
+		}
+	}
+
+	if includeMileage {
+		writer.writeUint16(266)
 		for i := 0; i < currentSpendTimeDescriptorParamCount; i++ {
 			writer.writeUint32(0)
 		}

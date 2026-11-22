@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
+	"longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
@@ -120,10 +122,14 @@ func loadCurrentLukeThronePrerequisites(source initialEquipmentTextSource) ([]ui
 }
 
 func currentLukeNormalDungeon(runtime *runtimeDungeonState) bool {
-	if runtime == nil || runtime.raidEntry != nil || runtime.Dungeon.ID < 5101 || runtime.Dungeon.ID > 5106 {
+	return runtime != nil && runtime.raidEntry == nil && isLukeNormalMap(runtime.Dungeon)
+}
+
+func isLukeNormalMap(dungeon worldmap.Dungeon) bool {
+	if dungeon.ID < 5101 || dungeon.ID > 5106 {
 		return false
 	}
-	path := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(runtime.Dungeon.Path, "\\", "/")))
+	path := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(dungeon.Path, "\\", "/")))
 	return strings.HasPrefix(path, "dungeon/luke_normal/")
 }
 
@@ -247,4 +253,18 @@ func currentLukeNormalBossesPending(runtime *runtimeDungeonState, scene worldmap
 		pending = pending || monster.State != runtimeDungeonMonsterDefeated
 	}
 	return count > 1 && pending
+}
+
+func (s *Service) lukeRepeatEntry(ctx context.Context, character string, dungeon worldmap.Dungeon, at time.Time) (bool, error) {
+	if !isLukeNormalMap(dungeon) {
+		return false, nil
+	}
+	repos, ok := s.repositoryGroup()
+	reader, found := repos.Character.(repository.CharacterDungeonClearReader)
+	if !ok || !found {
+		return false, errCurrentDungeonSettlementOwnerUnavailable
+	}
+	// The game day begins at 06:00 UTC+8 (22:00 UTC on the previous date).
+	start := at.UTC().Add(2 * time.Hour).Truncate(24 * time.Hour).Add(-2 * time.Hour)
+	return reader.HasDungeonClearSince(ctx, character, dungeon.ID, start)
 }

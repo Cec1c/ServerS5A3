@@ -371,6 +371,9 @@ func (o *HongbaoOwner) Issue(ctx context.Context, q HongbaoIssueRequest, now tim
 		h := HongbaoRecord{ID: s.NextID, GuildID: q.GuildID, Sender: q.Owner, SenderName: tx.actor.Name, JoinedAt: m.JoinedAt, Product: p, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour), Shares: shares}
 		s.NextID++
 		s.Records[h.ID] = h
+		if _, err := archiveExpiredHongbao(ctx, tx.repos.Settings, &tx.reg, now, guildInlineArchiveBatch); err != nil {
+			return err
+		}
 		delete(tx.inventory.Slots, slot)
 		out = HongbaoIssueResult{RecordID: h.ID, ItemID: q.ItemID, Portions: q.Portions, ConsumedSlot: slot}
 		return nil
@@ -416,7 +419,22 @@ func (o *HongbaoOwner) Claim(ctx context.Context, q HongbaoClaimRequest, now tim
 			return ErrHongbaoUnavailable
 		}
 		h, ok := tx.reg.Hongbao.Records[q.RecordID]
-		if !ok || h.GuildID != q.GuildID {
+		if !ok {
+			archived, found, err := loadArchivedHongbaoRecord(ctx, tx.repos.Settings, q.RecordID)
+			if err != nil {
+				return err
+			}
+			if !found || archived.GuildID != q.GuildID {
+				return ErrHongbaoUnavailable
+			}
+			for _, c := range archived.Claims {
+				if c.Owner.AccountID == q.Owner.AccountID {
+					return ErrHongbaoAlreadyClaimed
+				}
+			}
+			return ErrHongbaoUnavailable
+		}
+		if h.GuildID != q.GuildID {
 			return ErrHongbaoUnavailable
 		}
 		for _, c := range h.Claims {
@@ -477,7 +495,14 @@ func (o *HongbaoOwner) Settle(ctx context.Context, id uint32, now time.Time) (Ho
 	}
 	original, ok := reg.Hongbao.Records[id]
 	if !ok {
-		return out, ErrHongbaoUnavailable
+		archived, found, archiveErr := loadArchivedHongbaoRecord(ctx, o.repos.Settings, id)
+		if archiveErr != nil {
+			return out, archiveErr
+		}
+		if !found {
+			return out, ErrHongbaoUnavailable
+		}
+		original = archived
 	}
 	key := fmt.Sprintf("hongbao:v1:settle:%d", id)
 	err = o.uow.WithinGuildSettlement(ctx, original.Sender, key, func(tx r.Group) error {
@@ -489,7 +514,17 @@ func (o *HongbaoOwner) Settle(ctx context.Context, id uint32, now time.Time) (Ho
 			return ErrHongbaoState
 		}
 		h, ok := reg.Hongbao.Records[id]
-		if !ok || h.Sender != original.Sender {
+		if !ok {
+			archived, found, archiveErr := loadArchivedHongbaoRecord(ctx, tx.Settings, id)
+			if archiveErr != nil {
+				return archiveErr
+			}
+			if !found {
+				return ErrHongbaoState
+			}
+			h = archived
+		}
+		if h.Sender != original.Sender {
 			return ErrHongbaoState
 		}
 		if h.Settlement != nil {
@@ -569,6 +604,9 @@ func (o *HongbaoOwner) Settle(ctx context.Context, id uint32, now time.Time) (Ho
 		h.Settlement = &out
 		h.SettledAt = now
 		reg.Hongbao.Records[id] = h
+		if _, err := archiveExpiredHongbao(ctx, tx.Settings, &reg, now, guildInlineArchiveBatch); err != nil {
+			return err
+		}
 		return Save(ctx, tx.Settings, reg, now)
 	})
 	if err != nil {

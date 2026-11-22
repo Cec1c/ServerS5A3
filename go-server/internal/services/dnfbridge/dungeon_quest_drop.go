@@ -85,7 +85,7 @@ func (s *Service) grantCurrentDungeonQuestEnemyDrops(
 }
 
 func (s *Service) grantCurrentDungeonQuestEnemyDropsWithContext(parent context.Context, session *gameSession, runtime *runtimeDungeonState, enemyType, enemyCode int64, rollSeed uint32) (currentQuestDropGrantResult, error) {
-	if s == nil || session == nil || session.selectedCharacterID == 0 || runtime == nil || enemyCode <= 0 {
+	if s == nil || session == nil || session.selectedCharacterID == 0 || runtime == nil || runtime.lukeRepeat || enemyCode <= 0 {
 		return currentQuestDropGrantResult{Resolved: true}, nil
 	}
 	ctx, cancel := context.WithTimeout(parent, createWriteTimeout)
@@ -185,6 +185,9 @@ func (s *Service) grantCurrentDungeonQuestEnemyDropsWithContext(parent context.C
 						"quest_id", candidate.QuestID,
 						"item_id", candidate.ItemID,
 						"error", resolveErr)
+					continue
+				}
+				if singleLukeMaterialSuppressed(runtime, definition) {
 					continue
 				}
 				slot, grantErr := currentQuestDropGrantStack(inventory, definition, uint32(dropCount))

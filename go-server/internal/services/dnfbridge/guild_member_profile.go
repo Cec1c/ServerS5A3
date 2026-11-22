@@ -171,9 +171,14 @@ func (s *Service) sendCurrentGuildMemberProfile(ctx context.Context, a currentGu
 // cacheOnly sends the existing silent mode8 cache projection. It does not
 // send the separate mode3 inspection request or create a visible scene actor.
 func (s *Service) sendCurrentGuildMemberProfileWithPolicy(ctx context.Context, a currentGuildMemberProfileAccess, cacheOnly bool) error {
+	_, _, err := s.sendCurrentGuildMemberProfileWithPolicyDelivered(ctx, a, cacheOnly)
+	return err
+}
+
+func (s *Service) sendCurrentGuildMemberProfileWithPolicyDelivered(ctx context.Context, a currentGuildMemberProfileAccess, cacheOnly bool) (bool, uint64, error) {
 	c, err := s.validateCurrentGuildMemberProfileAccess(ctx, a)
 	if err != nil {
-		return nil
+		return false, 0, nil
 	}
 	actor := a.actor.session
 	revision := currentCrossSceneAppearanceRevision(actor)
@@ -181,18 +186,18 @@ func (s *Service) sendCurrentGuildMemberProfileWithPolicy(ctx context.Context, a
 	if a.request.kind == 4 {
 		body, err := s.buildCurrentGuildMemberAdventure(ctx, a, c)
 		if err != nil {
-			return err
+			return false, 0, err
 		}
 		frames = append(frames, currentGuildMemberProfileFrame{currentAdventureInfoRequestMsgID, 1, upperSuccessBody(body)})
 	} else {
 		owner := a.request.channel
 		mode0, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(ctx, actor, a.actor.character, c.Name, c, true, owner)
 		if err != nil {
-			return err
+			return false, 0, err
 		}
 		repos, ok := s.repositoryGroupFor(ctx)
 		if !ok {
-			return dnfguild.ErrRepositoryUnavailable
+			return false, 0, dnfguild.ErrRepositoryUnavailable
 		}
 		ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, c.CharacterID)
 		if buffSwapReapplyEnabled() {
@@ -201,14 +206,15 @@ func (s *Service) sendCurrentGuildMemberProfileWithPolicy(ctx context.Context, a
 		mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(ctx, actor, repos.LegacyUserInfo, c, true, a.actor.character, owner)
 		priming, err := buildCurrentCrossSceneUserInfoBody(mode0, mode3)
 		if err != nil {
-			return err
+			return false, 0, err
 		}
 		frames = []currentGuildMemberProfileFrame{{2, 0, priming}, {2, 0, mode3}}
 		if cacheOnly {
 			frames = frames[:1]
 		}
 	}
-	return s.sendCurrentGuildMemberProfileFrames(ctx, a, revision, frames)
+	delivered, err := s.sendCurrentGuildMemberProfileFramesDelivered(ctx, a, revision, frames)
+	return delivered, revision, err
 }
 
 // Keep this checked wire path separate from the party/raid memory-only
@@ -216,44 +222,60 @@ func (s *Service) sendCurrentGuildMemberProfileWithPolicy(ctx context.Context, a
 // after a wire wait. No service, guild-owner or database transaction lock is
 // held across a network write; only this actor's appearance and viewer stream.
 func (s *Service) sendCurrentGuildMemberProfileFrames(ctx context.Context, a currentGuildMemberProfileAccess, revision uint64, frames []currentGuildMemberProfileFrame) error {
+	_, err := s.sendCurrentGuildMemberProfileFramesDelivered(ctx, a, revision, frames)
+	return err
+}
+
+// sendCurrentGuildMemberProfileFramesDelivered 仅在所有帧都直接写出到底层连接
+// （outcome == upperPacketWritten，排除阻断/诊断过滤、批次缓冲待写及任何错误）时
+// 才返回 true，供调用方据此维护预热去重缓存。
+func (s *Service) sendCurrentGuildMemberProfileFramesDelivered(ctx context.Context, a currentGuildMemberProfileAccess, revision uint64, frames []currentGuildMemberProfileFrame) (bool, error) {
+	if len(frames) == 0 {
+		return false, nil
+	}
 	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{a.viewer, a.actor})
 	if err != nil {
 		// A peer may reconnect between preparation and binding reservation.
 		// Drop this inspection instead of failing the viewer's command stream.
 		if errors.Is(err, errDungeonWorldMapUnavailable) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	defer release()
 	actor, viewer := a.actor.session, a.viewer.session
 	if err := lockCurrentCrossSceneProfile(ctx, &actor.crossSceneAppearanceMu); err != nil {
-		return err
+		return false, err
 	}
 	defer actor.crossSceneAppearanceMu.Unlock()
 	if err := s.lockGameWire(viewer, ctx); err != nil {
-		return err
+		return false, err
 	}
 	defer viewer.wireMu.Unlock()
 	finishWrite, err := beginGameWriteBudgetLocked(viewer, ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer finishWrite()
+	allWritten := true
 	for _, frame := range frames {
 		if revision != actor.crossSceneAppearanceRevision {
-			return nil
+			return false, nil
 		}
 		if _, err := s.validateCurrentGuildMemberProfileAccess(ctx, a); err != nil {
 			if errors.Is(err, dnfguild.ErrNotMember) || errors.Is(err, dnfguild.ErrCharacterNotFound) {
-				return nil
+				return false, nil
 			}
-			return err
+			return false, err
 		}
-		if err := s.sendGameUpperRawClassCodecLocked(viewer, frame.opcode, frame.body, frame.class, true); err != nil {
+		outcome, err := s.sendGameUpperRawClassCodecLockedWithOutcome(viewer, frame.opcode, frame.body, frame.class, true)
+		if err != nil {
 			viewer.closeGameTransport()
-			return err
+			return false, err
+		}
+		if outcome != upperPacketWritten {
+			allWritten = false
 		}
 	}
-	return nil
+	return allWritten, nil
 }

@@ -30,6 +30,15 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if runtime.settlementCardRewardState != nil {
 		return nil
 	}
+	if runtime.lukeRepeat {
+		// Preserve the ordinary result, retry and exit handshake with empty free and paid rows.
+		plan, err := newDungeonCardRewardPlan(dungeonCardPlanIdentity{CharacterID: strconv.Itoa(int(session.selectedCharacterID)), DungeonID: runtime.Dungeon.ID, MazeIndex: runtime.MazeIndex, RunSeed: runtime.Seed}, "luke_daily_repeat", dungeonCardRewardBundle{}, dungeonCardRewardBundle{})
+		if err != nil {
+			return err
+		}
+		runtime.settlementCardRewardState, err = newDungeonCardState(plan)
+		return err
+	}
 	monsterCatalog, err := s.dungeonMonsterCatalog()
 	if err != nil {
 		return err

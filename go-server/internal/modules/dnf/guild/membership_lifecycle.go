@@ -29,6 +29,7 @@ func (r *Registry) checkDeparture(owner dnfrepo.GuildOwner, now time.Time) error
 }
 
 func (r *Registry) recordDeparture(owner dnfrepo.GuildOwner, now time.Time) {
+	pruneExpiredDepartures(r, now)
 	if r.Departures == nil {
 		r.Departures = make(map[string]Departure)
 	}

@@ -173,6 +173,7 @@ type options struct {
 	maxPacketBytes           int
 	packetLogEnabled         bool
 	goldDiagnosticCharID     int
+	mileageShopEnabled       bool
 	packetLogPath            string
 	accountID                string
 	accountPrefix            string
@@ -781,6 +782,8 @@ type options struct {
 	partyUDPSocketBufferBytes  int
 	partyUDPSocketBufferEnvRaw string
 	partyUDPSocketBufferEnvBad bool
+	guildPresenceCoalesceWindow time.Duration
+	guildPresencePersistMinInterval time.Duration
 }
 
 func optionsFromConfig(cfg config.ServiceConfig) options {
@@ -828,6 +831,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		maxPacketBytes:         envInt("DNF_MAX_PACKET_BYTES", defaultMaxPacketBytes),
 		packetLogEnabled:       envBool("DNFBRIDGE_PACKET_LOG", false),
 		goldDiagnosticCharID:   envInt("DNFBRIDGE_GOLD_DIAGNOSTIC_CHARACTER", 0),
+		mileageShopEnabled:     envBool("DNFBRIDGE_MILEAGE_SHOP_ENABLED", false),
 		packetLogPath:          envString("DNFBRIDGE_PACKET_LOG_PATH", "logs/packet_log.txt"),
 		accountID:              envString("DNFBRIDGE_ACCOUNT_ID", ""),
 		accountPrefix:          envString("DNFBRIDGE_ACCOUNT_PREFIX", defaultAccountPrefix),
@@ -1062,6 +1066,8 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		readVerboseDiagnosticsDisabled()
 	opts.partyUDPSocketBufferBytes, opts.partyUDPSocketBufferEnvRaw, opts.partyUDPSocketBufferEnvBad =
 		readPartyUDPSocketBufferBytes()
+	opts.guildPresenceCoalesceWindow = readGuildPresenceCoalesceWindow()
+	opts.guildPresencePersistMinInterval = readGuildPresencePersistMinInterval()
 	opts.partyPeerSelfEndpoint = readPartyPeerSelfEndpointMode(
 		envString(partyPeerSelfEndpointEnv, ""))
 	// CS op2 端口字节序（2026-09-25 本轮厂商实测配对）：**默认 be**（端口大端、同一结构里

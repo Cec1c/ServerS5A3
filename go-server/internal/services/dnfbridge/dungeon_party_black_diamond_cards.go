@@ -39,6 +39,9 @@ func (s *Service) freezePartyBlackDiamondCards(session *gameSession, runtime *ru
 		if _, present := instance.members[owner]; !present {
 			continue
 		}
+		if r := instance.memberRuntimes[owner]; r != nil && r.lukeRepeat {
+			continue
+		}
 		bundle, err := roll(owner)
 		if err != nil {
 			return err

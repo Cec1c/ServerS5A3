@@ -37,6 +37,7 @@ class RecommendedInstanceTemplateTests(unittest.TestCase):
         for expected in (
             "DNFBRIDGE_DUNGEON_TOURNAMENT=vendor\n",
             "DNFBRIDGE_JOUST_EVENT_ENABLED=false\n",
+            "DNFBRIDGE_MILEAGE_SHOP_ENABLED=off\n",
             "DNFBRIDGE_BUFF_GROUP_SYNC=on\n",
             "DNFBRIDGE_BUFF_SWAP_REAPPLY=on\n",
             "DNFBRIDGE_DISJOINT_EPIC_DISPLAY=paired-v1\n",

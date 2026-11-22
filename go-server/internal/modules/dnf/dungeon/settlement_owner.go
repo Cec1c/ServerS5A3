@@ -15,6 +15,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/experiencebuff"
 	"longheng.io/server/internal/modules/dnf/guild"
 	"longheng.io/server/internal/modules/dnf/honor"
+	"longheng.io/server/internal/modules/dnf/mileage"
 	"longheng.io/server/internal/modules/dnf/onlineevent"
 	"longheng.io/server/internal/modules/dnf/progression"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -34,6 +35,7 @@ type WeeklyClearContract struct {
 }
 
 type SettlementCommand struct {
+	MileageEnabled                              bool
 	WeddingCapsule                              *wedding.CapsuleRules
 	BattlePassDungeonKind                       uint32
 	BattlePassNoCoinClear, BattlePassSRankClear bool
@@ -313,6 +315,23 @@ func (o *Owner) CommitSettlement(ctx context.Context, cmd SettlementCommand) (Se
 			// 已提交旧局不得在后续一局之后重放成新的冒险团累计。
 			if !created {
 				return ErrSettlementStateInvalid
+			}
+			if cmd.MileageEnabled {
+				account, found, err := tx.Account.Load(ctx, cmd.AccountID)
+				if err != nil {
+					return err
+				}
+				if !found || account.AccountID != cmd.AccountID {
+					return ErrSettlementStateInvalid
+				}
+				account = dnfrepo.CloneAccount(account)
+				if err := mileage.AccrueClear(&account, now, true); err != nil {
+					return err
+				}
+				account.UpdatedAt = now
+				if err := tx.Account.Save(ctx, account); err != nil {
+					return err
+				}
 			}
 			dnfrepo.AddBattlePassCounter(&character, 0, -1, 1, now)
 			if cmd.WeddingCapsule != nil {

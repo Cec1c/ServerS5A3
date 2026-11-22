@@ -375,3 +375,39 @@ func TestGuildBroadcastCoalescesActiveSessionsAndSharesReadCache(t *testing.T) {
 		t.Fatalf("full character batches=%d want 1 shared hydration across 7 peers", fullBatches)
 	}
 }
+
+func TestGuildPresenceReadCacheSharesChunkedRosterAndInvalidates(t *testing.T) {
+	now := time.Date(2026, 11, 21, 21, 10, 0, 0, time.UTC)
+	g := &dnfguild.Guild{ID: 1, Name: "SharedChunkGuild", Level: 12, MemberLimit: 5000, Members: make(map[string]dnfguild.Member, 650)}
+	for i := 1; i <= 650; i++ {
+		id := fmt.Sprintf("%d", i)
+		g.Members[id] = dnfguild.Member{CharacterID: id, AccountID: "acc:" + id, Name: "M" + id, Level: 90, Grade: 4}
+	}
+	online := map[string]byte{"1": 11}
+	cache := &guildPresenceReadCache{g: g}
+	s := &Service{}
+	first := cache.sharedRosterChunks(s, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, online, now, 1)
+	if len(first) != 3 || first[0].opcode != uint16(dnfenum.CmdPacketGuildAllMemberList) || first[1].opcode != uint16(dnfenum.CmdPacketGuildAllMemberListNext) || first[2].opcode != uint16(dnfenum.CmdPacketGuildAllMemberListNext) {
+		t.Fatalf("unexpected chunk split len=%d", len(first))
+	}
+	second := cache.sharedRosterChunks(s, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, online, now, 1)
+	if len(second) != len(first) || &second[0] != &first[0] {
+		t.Fatal("expected sharedRosterChunks cache hit to reuse identical chunk slice")
+	}
+	otherOp := cache.sharedRosterChunks(s, g, uint16(dnfenum.CmdPacketGuildMemerList), true, false, online, now, 1)
+	if len(otherOp) != 3 || otherOp[0].opcode != uint16(dnfenum.CmdPacketGuildMemerList) || &otherOp[0] == &first[0] {
+		t.Fatal("expected distinct opcode key to rebuild chunk slice")
+	}
+	later := cache.sharedRosterChunks(s, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, online, now.Add(time.Second), 1)
+	if len(later) != 3 || &later[0] == &first[0] {
+		t.Fatal("expected new sample timestamp to rebuild chunk slice")
+	}
+	g2 := *g
+	unmatched := cache.sharedRosterChunks(s, &g2, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, online, now, 1)
+	if len(unmatched) != 3 || &unmatched[0] == &first[0] {
+		t.Fatal("expected distinct guild snapshot pointer to bypass stale chunk cache")
+	}
+	if nilOut := (*guildPresenceReadCache)(nil).sharedRosterChunks(s, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, online, now, 1); len(nilOut) != 3 {
+		t.Fatalf("nil cache fallback len=%d want 3", len(nilOut))
+	}
+}

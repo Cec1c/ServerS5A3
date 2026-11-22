@@ -191,6 +191,11 @@ func parseCurrentCeraShopPurchaseRequest(body []byte) (currentCeraShopPurchaseRe
 }
 
 func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byte, sequences ...*uint64) error {
+	// Native header byte0 selects mileage currency independently of byte4's
+	// avatar coupon mode. Never fall through to ordinary Cera checkout.
+	if len(body) > 0 && body[0] == 1 {
+		return s.handleCurrentMileagePurchase(session, body, sequences)
+	}
 	request, err := parseCurrentCeraShopPurchaseRequest(body)
 	if err != nil {
 		s.logGameEvent(session, "game-cera-shop-purchase-rejected", "body_len", len(body), "body_hex", currentCeraSelectionBodyHex(body), "reason", err)
@@ -390,6 +395,9 @@ func (s *Service) handleCurrentCeraShopPurchase(session *gameSession, body []byt
 		}
 	}
 	if err := s.sendGameUpperRawClass(session, currentCeraShopUpdateMsgID, buildCurrentCeraShopWalletBody(result.CeraAfter, result.WalletAfter.TokenCera, result.WalletAfter.HappyTokenCera), 0); err != nil {
+		return err
+	}
+	if err := s.sendCurrentMileageState(session); err != nil {
 		return err
 	}
 	if request.FestivalRequestID != "" {
@@ -628,6 +636,14 @@ func (s *Service) commitCurrentCeraShopPurchase(
 	if err != nil {
 		return currentCeraShopCommitResult{}, errCurrentCeraShopOwnerUnavailable
 	}
+	var mileageCashLimit uint32
+	if s.options.mileageShopEnabled {
+		mileageCatalog, err := parseCurrentMileageCatalog(catalog.source)
+		if err != nil {
+			return currentCeraShopCommitResult{}, err
+		}
+		mileageCashLimit = mileageCatalog.CashLimit
+	}
 	var ceraOnlyCost, tokenOnlyCost int64
 	for _, purchase := range purchases {
 		definition, e := catalog.items.ResolveItem(purchase.Product.ItemID)
@@ -652,7 +668,7 @@ func (s *Service) commitCurrentCeraShopPurchase(
 		if accountCargoUpgrades != 1 || len(purchases) != 1 {
 			return currentCeraShopCommitResult{}, fmt.Errorf("%w: account cargo upgrade must be purchased alone", errCurrentCeraShopProductUnavailable)
 		}
-		return commitCurrentCeraShopAccountCargoUpgrade(ctx, checkoutOwner, accountID, characterID, purchases[0], int64(totalCost), s.gameplayNow(), ceraOnlyCost, tokenOnlyCost)
+		return commitCurrentCeraShopAccountCargoUpgrade(ctx, checkoutOwner, accountID, characterID, purchases[0], int64(totalCost), s.gameplayNow(), ceraOnlyCost, tokenOnlyCost, int64(mileageCashLimit))
 	}
 	includeSkills := len(purchases) == 1 && purchases[0].SkillTreeExpansion
 	var skillOptions skillcmd.OwnerOptions
@@ -665,11 +681,12 @@ func (s *Service) commitCurrentCeraShopPurchase(
 	var result currentCeraShopCommitResult
 	checkoutNow := s.gameplayNow().UTC()
 	checkoutResult, err := checkoutOwner.Checkout(ctx, dnfcerashop.CheckoutCommand{
-		AccountID:     accountID,
-		CharacterID:   characterID,
-		SettingsScope: dnfrepo.CharacterContainerStateScope(characterID),
-		Cost:          int64(totalCost),
-		PayPolicy:     dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: ceraOnlyCost, TokenOnlyCost: tokenOnlyCost,
+		MileageCashLimit: mileageCashLimit,
+		AccountID:        accountID,
+		CharacterID:      characterID,
+		SettingsScope:    dnfrepo.CharacterContainerStateScope(characterID),
+		Cost:             int64(totalCost),
+		PayPolicy:        dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: ceraOnlyCost, TokenOnlyCost: tokenOnlyCost,
 		UpdatedAt:     checkoutNow,
 		IncludeSkills: includeSkills,
 		Preflight: func(account *dnfrepo.AccountRecord) error {
@@ -1005,12 +1022,17 @@ func commitCurrentCeraShopAccountCargoUpgrade(
 	if len(restrictedCosts) >= 2 {
 		cashOnly, tokenOnly = restrictedCosts[0], restrictedCosts[1]
 	}
+	var mileageCashLimit uint32
+	if len(restrictedCosts) >= 3 && restrictedCosts[2] > 0 && restrictedCosts[2] <= 20000 {
+		mileageCashLimit = uint32(restrictedCosts[2])
+	}
 	checkout, err := owner.Checkout(ctx, dnfcerashop.CheckoutCommand{
-		AccountID:     accountID,
-		CharacterID:   characterID,
-		SettingsScope: dnfrepo.CharacterContainerStateScope(characterID),
-		Cost:          cost,
-		PayPolicy:     dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: cashOnly, TokenOnlyCost: tokenOnly,
+		MileageCashLimit: mileageCashLimit,
+		AccountID:        accountID,
+		CharacterID:      characterID,
+		SettingsScope:    dnfrepo.CharacterContainerStateScope(characterID),
+		Cost:             cost,
+		PayPolicy:        dnfcerashop.PayPolicyWaterfall, CeraOnlyCost: cashOnly, TokenOnlyCost: tokenOnly,
 		UpdatedAt: now,
 		Project: func(assets *dnfcerashop.CheckoutAssets) (dnfcerashop.CheckoutChanges, error) {
 			if assets == nil || assets.Account == nil || assets.Character == nil ||
