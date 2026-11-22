@@ -129,7 +129,7 @@ func TestDungeonDeathTimingDiagnosticUsesOriginalSlowThreshold(t *testing.T) {
 	if len(dungeonDeathTimingDiagnosticEvents(t, &logs)) != 0 {
 		t.Fatal("fast death emitted a timing diagnostic")
 	}
-	started := time.Now().Add(-200 * time.Millisecond)
+	started := time.Now().Add(-200*time.Millisecond)
 	slow := currentDungeonDeathTiming{started: started, last: started}
 	slow.finish(service, nil, 2)
 	events := dungeonDeathTimingDiagnosticEvents(t, &logs)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfonlineevent "longheng.io/server/internal/modules/dnf/onlineevent"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/repository/memory"
@@ -76,9 +77,7 @@ func TestPortedNPCGiftRealPVFSeriaAndWire(t *testing.T) {
 		conn.write.Reset()
 		body := []byte{0, 2, 0, 0, 0, 36, 0, 0}
 		binary.LittleEndian.PutUint16(body[6:], slot)
-		if err = s.handleCurrentReturneeNPCGift(session, body); err != nil {
-			t.Fatal(err)
-		}
+		dispatchReturneeNPCGift(t, s, session, body)
 		update, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 		if update.Header.MsgID != 14 {
 			t.Fatalf("expected item update, got %+v body=%x", update.Header, update.Body)
@@ -122,9 +121,7 @@ func TestPortedNPCGiftRealPVFSeriaAndWire(t *testing.T) {
 		conn.write.Reset()
 		body := []byte{0, 2, 0, 0, 0, tc.container, 0, 0}
 		binary.LittleEndian.PutUint16(body[6:], tc.slot)
-		if err = s.handleCurrentReturneeNPCGift(session, body); err != nil {
-			t.Fatal(err)
-		}
+		dispatchReturneeNPCGift(t, s, session, body)
 		update, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 		if update.Header.MsgID != 14 || len(update.Body) < 13 || binary.LittleEndian.Uint32(update.Body[5:]) != tc.wantItem || binary.LittleEndian.Uint32(update.Body[9:]) != 0 {
 			t.Fatalf("exhausted slot update=%x", update.Body)
@@ -161,9 +158,7 @@ func TestPortedNPCGiftRealPVFSeriaAndWire(t *testing.T) {
 			conn.write.Reset()
 			body := []byte{0, 0, 0, 0, 0, 36, 102, 1}
 			binary.LittleEndian.PutUint32(body[1:], tc.npc)
-			if err = s.handleCurrentReturneeNPCGift(session, body); err != nil {
-				t.Fatal(err)
-			}
+			dispatchReturneeNPCGift(t, s, session, body)
 			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
 			if ack.Header.MsgID != 812 || len(ack.Body) != 2 || ack.Body[0] != 0 || ack.Body[1] != tc.code || len(rest) != 0 {
 				t.Fatalf("failure ACK=%x extra=%x", ack.Body, rest)
@@ -173,5 +168,117 @@ func TestPortedNPCGiftRealPVFSeriaAndWire(t *testing.T) {
 				t.Fatal("failed gift consumed cubes")
 			}
 		})
+	}
+}
+
+func TestReturneeNPCGiftDispatchSelectedAndUnselected(t *testing.T) {
+	const messageID uint16 = 812
+	body := []byte{0, 2, 0, 0, 0, 36, 0, 0}
+	for _, tc := range []struct {
+		name     string
+		selected uint16
+		wantCode byte
+	}{
+		{name: "selected reaches gift handler", selected: 29, wantCode: 100},
+		{name: "unselected rejected before assets", selected: 0, wantCode: 17},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, session, repositories := newTownMoveTest(t)
+			seedReturneeNPCGiftDispatchAssets(t, repositories)
+			session.selectedCharacterID = tc.selected
+			session.townSceneReadyCharacterID = tc.selected
+			if tc.selected != 0 {
+				session.townPositionSnapshot = currentTownPositionSnapshot{
+					CharacterID: tc.selected, TownID: 38, AreaID: 1,
+					PositionX: 450, PositionY: 234, PositionValid: true,
+				}
+			}
+
+			conn := session.conn.(*bufferConn)
+			conn.write.Reset()
+			handled, err := service.handleAlignedGameCommand(session, byte(dnfenum.GameCmdCommand), messageID, body)
+			if err != nil || !handled {
+				t.Fatalf("handleAlignedGameCommand handled=%t err=%v", handled, err)
+			}
+			ack, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+			if ack.Header.MsgID != messageID || ack.Header.Classification != 1 || len(ack.Body) != 2 || ack.Body[0] != 0 || ack.Body[1] != tc.wantCode || len(rest) != 0 {
+				t.Fatalf("failure ACK=%+v body=%x rest=%x", ack.Header, ack.Body, rest)
+			}
+			assertReturneeNPCGiftDispatchAssetsUnchanged(t, repositories)
+		})
+	}
+}
+
+func TestReturneeNPCGiftDispatchRequiresCommand1AndType812(t *testing.T) {
+	const messageID uint16 = 812
+	body := []byte{0, 2, 0, 0, 0, 36, 0, 0}
+	for _, tc := range []struct {
+		name string
+		cmd  byte
+		typ  uint16
+	}{
+		{name: "notice command same type", cmd: byte(dnfenum.GameCmdNotice), typ: messageID},
+		{name: "other command class same type", cmd: 2, typ: messageID},
+		{name: "command other type", cmd: byte(dnfenum.GameCmdCommand), typ: 9999},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, session, repositories := newTownMoveTest(t)
+			seedReturneeNPCGiftDispatchAssets(t, repositories)
+			session.townPositionSnapshot = currentTownPositionSnapshot{
+				CharacterID: 29, TownID: 38, AreaID: 1,
+				PositionX: 450, PositionY: 234, PositionValid: true,
+			}
+
+			conn := session.conn.(*bufferConn)
+			conn.write.Reset()
+			handled, err := service.handleAlignedGameCommand(session, tc.cmd, tc.typ, body)
+			if err != nil || handled {
+				t.Fatalf("handleAlignedGameCommand handled=%t err=%v", handled, err)
+			}
+			if conn.write.Len() != 0 {
+				t.Fatalf("nonmatching command wrote %d bytes", conn.write.Len())
+			}
+			assertReturneeNPCGiftDispatchAssetsUnchanged(t, repositories)
+		})
+	}
+}
+
+func dispatchReturneeNPCGift(t *testing.T, service *Service, session *gameSession, body []byte) {
+	t.Helper()
+	handled, err := service.handleAlignedGameCommand(session, byte(dnfenum.GameCmdCommand), 812, body)
+	if err != nil || !handled {
+		t.Fatalf("returnee NPC gift handled=%t err=%v", handled, err)
+	}
+}
+
+func seedReturneeNPCGiftDispatchAssets(t *testing.T, repositories dnfrepo.Group) {
+	t.Helper()
+	character, found, err := repositories.Character.Load(context.Background(), "29")
+	if err != nil || !found {
+		t.Fatalf("load character found=%t err=%v", found, err)
+	}
+	character.Stats["npc_favor_2_gifts"] = 0
+	if err := repositories.Character.Save(context.Background(), character); err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.AccountInventory.Save(context.Background(), dnfrepo.AccountInventoryRecord{
+		AccountID: character.AccountID,
+		Slots: map[string]dnfrepo.ItemStack{
+			"0:0": {ItemID: 3036, Count: 600},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertReturneeNPCGiftDispatchAssetsUnchanged(t *testing.T, repositories dnfrepo.Group) {
+	t.Helper()
+	character, found, err := repositories.Character.Load(context.Background(), "29")
+	if err != nil || !found || character.Stats["npc_favor_2_gifts"] != 0 {
+		t.Fatalf("character mutated found=%t err=%v stats=%+v", found, err, character.Stats)
+	}
+	inventory, found, err := repositories.AccountInventory.Load(context.Background(), character.AccountID)
+	if err != nil || !found || inventory.Slots["0:0"].Count != 600 {
+		t.Fatalf("inventory mutated found=%t err=%v slots=%+v", found, err, inventory.Slots)
 	}
 }

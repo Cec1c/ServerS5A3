@@ -87,8 +87,8 @@ func TestDungeonRetainedRecordKeepsEverySurvivorAcrossConsecutiveDepartures(t *t
 				}
 				updates++
 			}
-			if updates != 1 {
-				t.Fatalf("expected dungeon-scoped retained record update only; got %d", updates)
+			if updates != 2 {
+				t.Fatalf("expected channel and dungeon record updates; got %d", updates)
 			}
 		}
 	}

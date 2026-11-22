@@ -46,6 +46,10 @@ func actualFinalAntonWeeklyFixture(t *testing.T) (*raidStartGuardFixture, runtim
 	}
 	b := &runtimeRaidBattle{InstanceID: "00112233445566778899aabbccddeeff", Mode: 1, Phase: 1, ChannelID: leader.channel.ID, ChannelType: leader.channel.Type, StartedAt: base, EnterAfter: base, Deadline: base.Add(time.Duration(config.PhaseLimitSeconds[1]) * time.Second), Configuration: config, Anton: anton, AntonRewards: &rewards, Dungeons: anton.Dungeons(), MemberAccounts: map[uint16]string{19: "account-1", 20: "account-20", 21: "account-21"}}
 	f.state.Started, f.state.Battle = true, b
+	// This fixture constructs an admitted phase directly. Preserve its entry
+	// group snapshot just as the production admission path does; reward owners
+	// must not reconstruct that identity from later live lobby seats.
+	b.MemberGroups = map[uint16]byte{19: 1, 20: 1, 21: 1}
 	var final runtimeRaidState
 	for n, id := range []uint32{219, 220, 220, 220, 220, 220} {
 		l, p := raidCompletedRuntimeFixture(t, leader, id), raidCompletedRuntimeFixture(t, peer, id)

@@ -1,6 +1,7 @@
 package dnfbridge
 
 import (
+	"bytes"
 	"encoding/binary"
 	"reflect"
 	"testing"
@@ -74,4 +75,51 @@ func TestRecruitingRaidExplicitPlacementSurvivesLiveSoloProjection(t *testing.T)
 	assertStarted(false)
 	f.leaveOrdinaryParty(t, f.member)
 	assertStarted(true)
+}
+
+func TestJoinedRaidMemberCanBeRepositionedBeforeStartWithoutTownRebind(t *testing.T) {
+	s, leader, member, lc, mc, state := prepareCurrentRaidInvitationTest(t)
+	if err := s.handleGameCommand(leader, 1, 10, currentRaidInviteFixture(member.selectedCharacterID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.handleGameCommand(member, 1, 11, currentRaidApprovalFixture(leader.selectedCharacterID)); err != nil {
+		t.Fatal(err)
+	}
+	live, ok := s.runtimeRaidForMember(member.selectedCharacterID)
+	if !ok || live.RaidKey != state.RaidKey || live.Started || live.Battle != nil {
+		t.Fatal("join did not preserve a pre-start raid")
+	}
+	// Management authority comes from the raid leader and current identity,
+	// not from both players sharing a town area.
+	s.onlinePlayers = nil
+	lc.write.Reset()
+	mc.write.Reset()
+	// No town transition or reconnect occurs here. The just-admitted member
+	// must be movable by the same leader immediately.
+	if err := s.handleGameCommand(
+		leader,
+		1,
+		uint16(dnfenum.CmdPacketRaidManagerWork),
+		buildRaidManagerWorkRequestForBridgeTest(0, uint32(member.selectedCharacterID), 2),
+	); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := s.runtimeRaidForMember(member.selectedCharacterID)
+	row, found := runtimeRaidMemberForTest(after, member.selectedCharacterID)
+	if !found || row.GroupIndex != 2 || !row.RecruitingPlacementExplicit || row.OrdinaryPartySolo || after.Started || after.Battle != nil {
+		t.Fatalf("pre-start manager placement=%+v started=%t battle=%t", row, after.Started, after.Battle != nil)
+	}
+	wantRoster, err := s.buildRuntimeRaidRosterBody(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, conn := range []*bufferConn{lc, mc} {
+		packet, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+		if len(rest) != 0 {
+			t.Fatal("manager placement emitted an unexpected second packet")
+		}
+		if packet.Header.Classification != 0 || packet.Header.MsgID != 591 || !bytes.Equal(packet.Body, wantRoster) {
+			t.Fatalf("manager placement roster differs: class=%d msg=%d body=%x want=%x", packet.Header.Classification, packet.Header.MsgID, packet.Body, wantRoster)
+		}
+	}
 }

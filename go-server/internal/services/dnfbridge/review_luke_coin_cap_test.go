@@ -15,8 +15,15 @@ import (
 )
 
 func reviewActualLukeCoinFixtureForDungeon(t *testing.T, withPeer bool, dungeonID uint32) (*raidStartGuardFixture, *gameSession, *runtimeDungeonState, *gameSession, time.Time) {
+	return reviewActualLukeCoinFixtureForDungeonWithSetup(t, withPeer, dungeonID, nil)
+}
+
+func reviewActualLukeCoinFixtureForDungeonWithSetup(t *testing.T, withPeer bool, dungeonID uint32, setup func(*raidStartGuardFixture, *gameSession)) (*raidStartGuardFixture, *gameSession, *runtimeDungeonState, *gameSession, time.Time) {
 	t.Helper()
 	f, s, phaseAt := normalLukeFixture(t)
+	if setup != nil {
+		setup(f, s)
+	}
 	if dungeonID == 5311 || dungeonID == 5063 || dungeonID == 5066 {
 		peer := f.session()
 		peer.selectedCharacterID, peer.accountID = 20, "account-20"

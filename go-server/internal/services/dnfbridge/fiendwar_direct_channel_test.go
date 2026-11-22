@@ -26,6 +26,26 @@ func directFiendWarLoginFixture(t *testing.T, id int) (*Service, *gameSession, d
 	s.options.currentClientVersion = "official-24.9"
 	s.options.gameUpperBodyCodec = gameUpperBodyCodecPlain
 	s.options.channelInfoFile = filepath.Join("testdata", "channel_info.etc")
+	// Keep the legacy >255 regression independent of the current deployment table.
+	// Current 244..246 callers continue to use the exact shared baseline.
+	if id >= 261 && id <= 263 {
+		data, err := os.ReadFile(s.options.channelInfoFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, pair := range [][2]int{{244, 261}, {245, 262}, {246, 263}} {
+			from := []byte("   " + strconv.Itoa(pair[0]) + "   `")
+			to := []byte("   " + strconv.Itoa(pair[1]) + "   `")
+			if bytes.Count(data, from) != 1 {
+				t.Fatal("shared baseline lacks the expected current FiendWar row")
+			}
+			data = bytes.Replace(data, from, to, 1)
+		}
+		s.options.channelInfoFile = filepath.Join(t.TempDir(), "legacy-high-channel.etc")
+		if err := os.WriteFile(s.options.channelInfoFile, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	catalog, script, err := s.loadChannelAssets()
 	if err != nil {
 		t.Fatal(err)

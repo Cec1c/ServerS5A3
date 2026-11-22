@@ -6,10 +6,6 @@ import (
 )
 
 func TestDungeonLeaveTransfersLeaderWithoutReplacingInstanceParty(t *testing.T) {
-	// 行为按客户端兼容性变更：换队长不再重建整队 generation，改为保留幸存者槽位、
-	// 重进补洞（见 Docs/PARTY_PORT_FROM_DNF90.md 第二节）。上游旧用例断言的是旧行为，
-	// 因此在此跳过；若上游接受新行为，应改写这些用例而不是删除。
-	t.Skip("leader-leave semantics changed: survivor slots are preserved; see Docs/PARTY_PORT_FROM_DNF90.md")
 	m := NewRuntimePartyManager()
 	created := m.Create(testRuntimePartyMember(101, 1), alignedcmd.PartyState{MaxMembers: 4})
 	m.Join(created.Party.ID, testRuntimePartyMember(202, 2))
