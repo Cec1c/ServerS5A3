@@ -65,11 +65,6 @@ func (s *Service) grantCurrentDungeonSelectedCardAssetsLocked(
 	if !reservation.grant {
 		return dungeonCardAssetGrantResult{}, result, false, nil
 	}
-	if runtime.lukeRepeat {
-		// A zero-reward flip only advances the ordinary result/exit handshake.
-		runtime.settlementCardRewardState.finishDelivery(reservation, true)
-		return dungeonCardAssetGrantResult{}, result, false, nil
-	}
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.CharacterAssets == nil {
 		runtime.settlementCardRewardState.finishDelivery(reservation, false)

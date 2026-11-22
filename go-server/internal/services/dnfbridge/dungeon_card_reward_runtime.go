@@ -30,15 +30,6 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	if runtime.settlementCardRewardState != nil {
 		return nil
 	}
-	if runtime.lukeRepeat {
-		// Preserve the ordinary result, retry and exit handshake with empty free and paid rows.
-		plan, err := newDungeonCardRewardPlan(dungeonCardPlanIdentity{CharacterID: strconv.Itoa(int(session.selectedCharacterID)), DungeonID: runtime.Dungeon.ID, MazeIndex: runtime.MazeIndex, RunSeed: runtime.Seed}, "luke_daily_repeat", dungeonCardRewardBundle{}, dungeonCardRewardBundle{})
-		if err != nil {
-			return err
-		}
-		runtime.settlementCardRewardState, err = newDungeonCardState(plan)
-		return err
-	}
 	monsterCatalog, err := s.dungeonMonsterCatalog()
 	if err != nil {
 		return err
@@ -112,12 +103,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 	}
 	rng := newCurrentDungeonDropLCG(runtime.Seed)
 	var visit *runtimeDungeonRoomVisit
-	if runtime.partyInstance != nil {
-		// Peers share the map seed, while only the drop owner advances the
-		// room stream. Freeze cards from a separate owner-specific stream so
-		// idle followers do not all receive the same free/paid reward pair.
-		rng = newCurrentDungeonDropLCG(runtime.Seed ^ (uint32(session.selectedCharacterID) * 0x9E3779B9) ^ 0x43415244)
-	} else if runtime.Session != nil {
+	if runtime.Session != nil {
 		if scene, ok := runtime.Session.Scene(); ok {
 			if ownedVisit, visitErr := runtime.currentDungeonRoomVisit(scene); visitErr == nil {
 				visit = ownedVisit

@@ -200,11 +200,6 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 		runtime.bossDieCheckResponseSent = true
 	}
 
-	// Optional native shop: a catalog or socket failure does not own the
-	// already-authoritative clear/result lifecycle.
-	if err := s.offerCurrentSecretShopLocked(session, runtime, snapshot.Scene); err != nil {
-		s.logGameEvent(session, "secret-shop-offer-deferred", "error", err)
-	}
 	if err := s.sendCurrentDungeonSettlementEntryLocked(
 		session,
 		runtime,
@@ -223,5 +218,5 @@ func (s *Service) completeCurrentDungeonBossDieCheckLocked(
 			"phase", state.Battle.Phase, "single", state.Battle.Single, "phase_completed", state.Battle.PhaseCompleted,
 			"progress_version", state.Battle.ProgressVersion, "source", "owned_completed_cmt_op117_settlement")
 	}
-	return s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, false)
+	return nil
 }
