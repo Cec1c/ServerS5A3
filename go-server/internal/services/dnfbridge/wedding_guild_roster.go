@@ -45,10 +45,6 @@ func (s *Service) primeCurrentWeddingGuildRoster(ctx context.Context, session *g
 	}
 	var published error
 	for _, member := range guild.SortedMembers(g) {
-		if ctx != nil && ctx.Err() != nil {
-			published = errors.Join(published, ctx.Err())
-			break
-		}
 		if member.CharacterID == viewer.CharacterID || member.CharacterID == strconv.FormatInt(state.PartnerID, 10) {
 			continue
 		}
@@ -57,8 +53,7 @@ func (s *Service) primeCurrentWeddingGuildRoster(ctx context.Context, session *g
 			published = errors.Join(published, e)
 			continue
 		}
-		peerCharID := uint16(n)
-		peer, online := s.onlineGameSessionCharacterSnapshot(peerCharID)
+		peer, online := s.onlineGameSessionCharacterSnapshot(uint16(n))
 		if !online || s.accountIDForSession(peer.session) != member.AccountID {
 			continue
 		}
@@ -66,22 +61,7 @@ func (s *Service) primeCurrentWeddingGuildRoster(ctx context.Context, session *g
 		if channel <= 0 || channel >= 255 {
 			continue
 		}
-		expectedPrime := weddingPrimedPeer{
-			viewerChar:    identity.character,
-			viewerGen:     identity.generation,
-			actorSession:  peer.session,
-			actorGen:      peer.generation,
-			actorChannel:  channel,
-			guildID:       g.ID,
-			appearanceRev: currentCrossSceneAppearanceRevision(peer.session),
-		}
-		session.guild.mu.Lock()
-		alreadyPrimed := session.guild.weddingPrimedPeers[peerCharID] == expectedPrime
-		session.guild.mu.Unlock()
-		if alreadyPrimed {
-			continue
-		}
-		access, e := s.loadCurrentGuildMemberProfileAccess(ctx, session, currentGuildMemberProfileRequest{channel: byte(channel), character: peerCharID, directory: s.currentSceneActorRoute()})
+		access, e := s.loadCurrentGuildMemberProfileAccess(ctx, session, currentGuildMemberProfileRequest{channel: byte(channel), character: uint16(n), directory: s.currentSceneActorRoute()})
 		if e != nil {
 			published = errors.Join(published, e)
 			continue
@@ -89,30 +69,7 @@ func (s *Service) primeCurrentWeddingGuildRoster(ctx context.Context, session *g
 		if access.guildID != g.ID || !s.boundGameSessionCharacterCurrent(identity) {
 			continue
 		}
-		delivered, writtenRev, sendErr := s.sendCurrentGuildMemberProfileWithPolicyDelivered(ctx, access, true)
-		if sendErr != nil {
-			published = errors.Join(published, sendErr)
-			continue
-		}
-		if delivered && s.boundGameSessionCharacterCurrent(identity) {
-			recorded := weddingPrimedPeer{
-				viewerChar:    identity.character,
-				viewerGen:     identity.generation,
-				actorSession:  access.actor.session,
-				actorGen:      access.actor.generation,
-				actorChannel:  int(access.request.channel),
-				guildID:       access.guildID,
-				appearanceRev: writtenRev,
-			}
-			session.guild.mu.Lock()
-			if !session.guild.presenceRefreshClosed {
-				if session.guild.weddingPrimedPeers == nil || len(session.guild.weddingPrimedPeers) >= 1024 {
-					session.guild.weddingPrimedPeers = make(map[uint16]weddingPrimedPeer, 32)
-				}
-				session.guild.weddingPrimedPeers[peerCharID] = recorded
-			}
-			session.guild.mu.Unlock()
-		}
+		published = errors.Join(published, s.sendCurrentGuildMemberProfileWithPolicy(ctx, access, true))
 	}
 	return published
 }

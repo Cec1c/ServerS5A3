@@ -870,3 +870,23 @@ func cloneMapSummons(in []MapSummon) []MapSummon {
 	}
 	return out
 }
+
+// IsCleared 零分配读取当前房间是否已清空（不深拷贝 Map 与 Actor 列表）。
+func (s *DungeonSession) IsCleared() bool {
+	if s == nil || s.run == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.scene.Cleared
+}
+
+// RunStatus 零分配读取当前副本运行状态（避免仅查 Status 时调用 Snapshot() 深拷贝整局地图）。
+func (s *DungeonSession) RunStatus() DungeonRunStatus {
+	if s == nil || s.run == nil {
+		return ""
+	}
+	s.run.mu.RLock()
+	defer s.run.mu.RUnlock()
+	return s.run.status
+}
