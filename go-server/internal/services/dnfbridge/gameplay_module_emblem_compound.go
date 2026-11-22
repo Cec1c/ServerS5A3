@@ -3,10 +3,12 @@ package dnfbridge
 import (
 	"context"
 	"math"
+	"strconv"
 	"strings"
 
 	dnfdisjoint "longheng.io/server/internal/modules/dnf/disjoint"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/jobmap"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -40,10 +42,13 @@ func (s *Service) handleCurrentEmblemCompound(session *gameSession, body []byte)
 		s.logGameEvent(session, "game-emblem-compound-rejected", "body_len", len(body), "reason", err)
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketCompoundEmblem), 4)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
 	catalog, err := s.currentPVFItemCatalog()
 	var result currentDisjointResult
+	if err == nil && currentEmblemCompoundInputsUseGradeFour(catalog, request.Inputs) {
+		err = catalog.currentWarmEmblemPlatinumBooster(len(request.Inputs))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
 	if err == nil {
 		result, err = s.commitCurrentEmblemCompound(ctx, session, catalog, request)
 	}
@@ -114,6 +119,7 @@ func (s *Service) commitCurrentEmblemCompound(ctx context.Context, session *game
 		Project: func(assets *dnfdisjoint.Assets) (dnfdisjoint.Changes, error) {
 			account := assets.AccountInventory
 			inventory := assets.Inventory
+			baseJob, baseJobValid := currentEmblemCompoundBaseJob(assets.Character)
 			minimumGrade := math.MaxInt
 			for slot, consumed := range consumedBySlot {
 				stack, exists := inventory.Slots[currentCeraShopInventorySlotKey(0, slot)]
@@ -140,7 +146,7 @@ func (s *Service) commitCurrentEmblemCompound(ctx context.Context, session *game
 			if !found || boosterID == 0 {
 				return dnfdisjoint.Changes{}, errCurrentDisjointRewardInvalid
 			}
-			reward, rewardErr := currentRollEmblemBoosterReward(catalog, boosterID)
+			reward, rewardErr := currentRollEmblemBoosterReward(catalog, boosterID, baseJob, baseJobValid)
 			if rewardErr != nil {
 				return dnfdisjoint.Changes{}, rewardErr
 			}
@@ -187,4 +193,36 @@ func (s *Service) commitCurrentEmblemCompound(ctx context.Context, session *game
 		return currentDisjointResult{}, currentDisjointMutationError(err)
 	}
 	return result, nil
+}
+
+func currentEmblemCompoundBaseJob(character *dnfrepo.CharacterRecord) (byte, bool) {
+	if character == nil {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(strings.TrimSpace(character.Job), 10, 8)
+	if err != nil || !jobmap.Valid(int(value)) {
+		return 0, false
+	}
+	return byte(value), true
+}
+
+func currentEmblemCompoundInputsUseGradeFour(catalog *pvfDungeonDropCatalog, inputs []currentEmblemCompoundInput) bool {
+	if catalog == nil || catalog.source == nil || len(inputs) == 0 {
+		return false
+	}
+	for _, input := range inputs {
+		definition, err := catalog.ResolveItem(input.ItemID)
+		if err != nil || definition.Kind != dungeonDropItemStackable {
+			return false
+		}
+		document, err := parseDungeonCardPVFDocument(catalog.source, definition.PVFPath)
+		if err != nil {
+			return false
+		}
+		grade, found := document.Int("grade")
+		if !found || grade != 4 {
+			return false
+		}
+	}
+	return true
 }

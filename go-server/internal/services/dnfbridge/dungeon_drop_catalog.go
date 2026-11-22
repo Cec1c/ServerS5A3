@@ -150,6 +150,9 @@ type pvfDungeonDropCatalog struct {
 	// 与当前PVF目录同生命周期，只缓存成功解析的静态分解规则。
 	disjointConfig     *currentDisjointPVFConfig
 	disjointEpicPieces *currentEpicPieceCatalog
+	// Emblem booster pools are static PVF metadata. Cache the analyzed rows once
+	// so a platinum synthesis does not reread roughly a thousand item documents.
+	emblemBoosterCache map[uint32]currentEmblemBoosterAnalysis
 
 	// 装备合成目录与本份PVF生命周期一致，独立于掉落概率和物品投影缓存。
 	equipmentCompoundCatalog *dnfequipmentcompound.Catalog
