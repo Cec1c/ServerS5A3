@@ -6,7 +6,7 @@
 - 上游基线：`ServerS5A3` `master`（本 PR 基于 `aac77691`）
 - 我方来源：`DNF90_Server` 分支 `baseline-perf-20261122`，标签 `baseline-20261122-perf2`（`394bc629`）
 - 客户端：DNF **V212**，服务端配置档 `DNFBRIDGE_CURRENT_CLIENT_VERSION=official-24.9`
-- PR 规模：**87 个文件，+3793 / −747**（相对上游 `aac77691`），分 5 个提交
+- PR 规模：**96 个文件，+4398 / −543**（相对上游 `aac77691`），分 8 个提交
 
 ---
 
@@ -19,6 +19,8 @@
 | `port(town)` | 回城/城镇：`dungeon_return_town`、`initial_town_*`、场景切换投影 | 9 |
 | `port(town-menu)` | 城镇同队队员右键菜单（补发 0x0007，带开关） | 3（+删 1） |
 | `port(misc)` | `DungeonSession` 零分配门面、进图放行计时、状态板类型、测试修正 | 6 |
+| `docs` | 本说明 + README 章节 + 运行时快照（脱敏） | 10 |
+| `test` | 与上游测试对齐（raid 签名 / guild 文件 / relay 测试 / 旧行为用例 Skip） | 6 |
 
 **没有移植**（与本 PR 目标无关，避免扩大面）：
 
