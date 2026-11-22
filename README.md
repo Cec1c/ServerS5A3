@@ -189,3 +189,31 @@ python3 -m unittest discover -s deploy/docker -p "test_*.py" -v
 本项目起源于 [16ww/servers5a3](https://gitgud.io/16ww/servers5a3)，当前公开权威仓库为 [GitHub Cec1c/ServerS5A3](https://github.com/Cec1c/ServerS5A3)，根目录构建脚本与产物目录组织参考了 [rewio/ServerS4A21](https://gitgud.io/rewio/ServerS4A21)。感谢上游作者与所有贡献者持续完善协议和玩法。
 
 本项目采用 **GNU General Public License v3.0（GPL-3.0-only）** 开源，完整条款见 [LICENSE](LICENSE)；第三方组件保留各自原有许可证与版权声明。
+
+---
+
+## 组队/结算/回城修复移植（来自 DNF90_Server）
+
+本仓库包含从 [DNF90_Server](https://github.com/tingfeng-h/DNF90_Server) 移植的一批客户端兼容修复，
+目标是让 V211 客户端（`DNFBRIDGE_CURRENT_CLIENT_VERSION=official-24.9`）在组队、结算翻牌、回城
+这几条链路上行为正确。
+
+详细说明（**移植步骤、冲突处理约定、每个问题的根因、运行时开关、验证方法**）见：
+[`Docs/PARTY_PORT_FROM_DNF90.md`](Docs/PARTY_PORT_FROM_DNF90.md)
+
+配套运行时配置（脱敏）见：`runtime-snapshot/20261122-upstream-test/`。
+
+### 快速索引
+
+| 问题 | 修复要点 | 开关 |
+|---|---|---|
+| 中途退图→回城踢人/血条残留 | 退图者 kind2 只在 owner=0；回城用 kind3 静默退役 | — |
+| 回城后红电脑 | 删除空 kind2 复位（避免 `wasBound 1→0` 触发 `closeAll`） | — |
+| 副本内退人后"已退出队伍" | 副本内不发空 kind2；中继只 sync | — |
+| 城镇反复踢人/重组 | mode15 双守卫、先建 CUser 再发 op11、清 portOwners | — |
+| 队友 actor 重复补投/战斗卡顿 | 关闭 ARQ1 重投链、op37 不重投、换房不重投 | `DNFBRIDGE_DUNGEON_PEER_RECOVERY` 等（默认 off） |
+| 进图/换房慢 | 放行期共享角色快照 + 缓存 + 分阶段计时 | — |
+| 打完 BOSS 不翻牌 | 结算/卡牌链路修复（上游原版在 V211 上失效） | — |
+| 选图→回城空血条 | 回城/城镇投影补齐 | — |
+| 城镇同队队员右键不弹菜单 | 补发 0x0007 选择通知 | `DNFBRIDGE_SAME_PARTY_TOWN_SELECTION_NOTICE`（默认 off，V211 建议 on） |
+

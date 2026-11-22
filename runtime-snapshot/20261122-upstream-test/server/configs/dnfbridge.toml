@@ -1,0 +1,45 @@
+[service]
+name = "dnfbridge"
+node_id = "dnfbridge-docker-1"
+environment = "local"
+public_addr = "<HOST_IP>:7001"
+private_addr = "10.253.90.10:18111"
+[cluster]
+id = "local"
+gid = 2
+virtual_gid = 2
+shard_id = 9999
+zone = "local"
+version = "local"
+data_version = "local"
+[admin]
+listen = "10.253.90.10:18111"
+token = "a78d8660ed0361f75016b27c951bb3758cc40aad4941d5b9483c0d8e543b23f1"
+[pvf]
+enabled = true
+path = "data/dnf/Script.pvf"
+max_bytes = 536870912
+preload_chunks = false
+[server_group]
+enabled = true
+store_kind = "file"
+plan_file = "configs/servergroup/plan.json"
+[topology]
+enabled = false
+[worker]
+size = 8
+queue = 256
+[profile_store]
+store_kind = "memory"
+[idempotency]
+kind = "memory"
+[registry]
+kind = "memory"
+[bus]
+kind = "memory"
+[cache]
+kind = "memory"
+[lock]
+kind = "memory"
+[presence]
+kind = "memory"

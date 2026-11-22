@@ -1,0 +1,32 @@
+{
+  "version": "dnf90-docker-v1",
+  "shards": [
+    {
+      "id": "9999",
+      "group_id": "logic-local-1",
+      "state": "open",
+      "open_at": "2026-01-01T00:00:00Z",
+      "public_open_at": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "groups": [
+    {
+      "id": "logic-local-1",
+      "service": "logic",
+      "member_id": "logic-local-1",
+      "state": "open"
+    }
+  ],
+  "routes": [
+    {
+      "feature": "dnf_repository",
+      "shard_id": "9999",
+      "group_id": "logic-local-1",
+      "state": "open",
+      "meta": {
+        "dnf.repository.write_database": "dnf_local",
+        "dnf.repository.read_database": "dnf_local"
+      }
+    }
+  ]
+}
