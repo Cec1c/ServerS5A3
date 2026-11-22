@@ -5,7 +5,7 @@
 
 - 上游基线：`ServerS5A3` `master`（本 PR 基于 `aac77691`）
 - 我方来源：`DNF90_Server` 分支 `baseline-perf-20261122`，标签 `baseline-20261122-perf2`（`394bc629`）
-- 客户端：DNF **V211**，服务端配置档 `DNFBRIDGE_CURRENT_CLIENT_VERSION=official-24.9`
+- 客户端：DNF **V212**，服务端配置档 `DNFBRIDGE_CURRENT_CLIENT_VERSION=official-24.9`
 - PR 规模：**87 个文件，+3793 / −747**（相对上游 `aac77691`），分 5 个提交
 
 ---
@@ -101,7 +101,7 @@
 
 - **现象**：BOSS 死亡后不弹翻牌，直接被路由回城。**纯上游代码同样复现**（非移植引入）。
 - **根因**：上游当前 master 的结算链路（BOSS 死亡结算 → 卡牌布局 → 选择 → 提交 → 城镇路由）
-  与 V211 客户端的翻牌流程不匹配；缺少本仓库对结算/卡牌这几处文件的修复，客户端不会进入
+  与 V212 客户端的翻牌流程不匹配；缺少本仓库对结算/卡牌这几处文件的修复，客户端不会进入
   翻牌阶段（`settlementCardLayoutSent` 永远为 false，结算直接放行城镇路由）。
 - **修复**：`dungeon_boss_die_settlement.go`、`dungeon_settlement*.go`、
   `dungeon_card_price.go`、`dungeon_card_reward_runtime.go`、`dungeon_hell_party_reward.go`、
@@ -204,11 +204,11 @@ go test ./internal/modules/dnf/party/ -count=1
 
 | 开关 | 默认 | 作用 | 建议 |
 |---|---|---|---|
-| `DNFBRIDGE_SAME_PARTY_TOWN_SELECTION_NOTICE` | `off` | 城镇同队队员点击补发 0x0007 选择通知（弹菜单） | V211 客户端 **on** |
+| `DNFBRIDGE_SAME_PARTY_TOWN_SELECTION_NOTICE` | `off` | 城镇同队队员点击补发 0x0007 选择通知（弹菜单） | V212 客户端 **on** |
 | `DNFBRIDGE_DUNGEON_PEER_RECOVERY` | `off` | ARQ1 延迟重投链（关闭可消除战斗规律性卡顿） | **off**（卡顿修复） |
 | `DNFBRIDGE_DUNGEON_PEER_OP37_RESEND` | `off` | 换房时重投 op37 | **off** |
 | `DNFBRIDGE_DUNGEON_PEER_ROOM_RESEND` | `off` | 换房重投同房间 peer actor | **off** |
-| `DNFBRIDGE_PARTY_CARD_FLIP_ROW_MODEL` | `vendor` | op71 行状态档位（`vendor`=队伍槽位 / `legacy`=恒 0） | V211 **vendor** |
+| `DNFBRIDGE_PARTY_CARD_FLIP_ROW_MODEL` | `vendor` | op71 行状态档位（`vendor`=队伍槽位 / `legacy`=恒 0） | V212 **vendor** |
 | `DNFBRIDGE_PARTY_UDP_RELAY_ENABLED` | `true` | 组队 UDP 中继 | on |
 | `DNFBRIDGE_CLIENT_ATTEST_FILE` | 空 | 客户端校验文件（`mode: off` 关闭校验） | 按需 |
 

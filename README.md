@@ -195,7 +195,7 @@ python3 -m unittest discover -s deploy/docker -p "test_*.py" -v
 ## 组队/结算/回城修复移植（来自 DNF90_Server）
 
 本仓库包含从 [DNF90_Server](https://github.com/tingfeng-h/DNF90_Server) 移植的一批客户端兼容修复，
-目标是让 V211 客户端（`DNFBRIDGE_CURRENT_CLIENT_VERSION=official-24.9`）在组队、结算翻牌、回城
+目标是让 V212 客户端（`DNFBRIDGE_CURRENT_CLIENT_VERSION=official-24.9`）在组队、结算翻牌、回城
 这几条链路上行为正确。
 
 详细说明（**移植步骤、冲突处理约定、每个问题的根因、运行时开关、验证方法**）见：
@@ -213,7 +213,7 @@ python3 -m unittest discover -s deploy/docker -p "test_*.py" -v
 | 城镇反复踢人/重组 | mode15 双守卫、先建 CUser 再发 op11、清 portOwners | — |
 | 队友 actor 重复补投/战斗卡顿 | 关闭 ARQ1 重投链、op37 不重投、换房不重投 | `DNFBRIDGE_DUNGEON_PEER_RECOVERY` 等（默认 off） |
 | 进图/换房慢 | 放行期共享角色快照 + 缓存 + 分阶段计时 | — |
-| 打完 BOSS 不翻牌 | 结算/卡牌链路修复（上游原版在 V211 上失效） | — |
+| 打完 BOSS 不翻牌 | 结算/卡牌链路修复（上游原版在 V212 上失效） | — |
 | 选图→回城空血条 | 回城/城镇投影补齐 | — |
-| 城镇同队队员右键不弹菜单 | 补发 0x0007 选择通知 | `DNFBRIDGE_SAME_PARTY_TOWN_SELECTION_NOTICE`（默认 off，V211 建议 on） |
+| 城镇同队队员右键不弹菜单 | 补发 0x0007 选择通知 | `DNFBRIDGE_SAME_PARTY_TOWN_SELECTION_NOTICE`（默认 off，V212 建议 on） |
 
