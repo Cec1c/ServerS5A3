@@ -284,9 +284,9 @@ func (s *Service) handleCurrentGuildMemberListObservedShared(session *gameSessio
 	}()
 	s.logInfo("dnfbridge guild roster request", "conn_id", session.connID,
 		"char_id", session.selectedCharacterID, "opcode", opcode)
-	session.guild.mu.Lock()
-	session.guild.memberListRequested = true
-	session.guild.mu.Unlock()
+	if source == "client" {
+		s.markCurrentGuildMemberListRequested(session)
+	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
@@ -378,16 +378,17 @@ func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {
 		if !ok || s.accountIDForSession(peer.session) != m.AccountID {
 			continue
 		}
-		peer.session.guild.mu.Lock()
-		requested := peer.session.guild.memberListRequested
-		peer.session.guild.mu.Unlock()
-		if !requested {
+		if !s.isCurrentGuildMemberListActive(peer.session) {
 			continue
 		}
-		// 优先投递到接收方自己的事件循环并复用共享读缓存，避免慢连接阻塞发起方事件循环；
-		// 通过独立 membership 令牌保留队列满重试恢复、membership 来源与非合并/不因副本跳过语义。
+		// 优先投递到接收方事件循环并复用共享读缓存，避免慢连接阻塞发起方，
+		// 同时纳入 250ms 防抖合并与副本战斗期延迟。
 		if peer.session.events != nil && peer.session.events.loop != nil {
 			s.requestCurrentGuildMembershipRefresh(peer, shared)
+			continue
+		}
+		if sessionInDungeon(peer.session) {
+			s.guildRosterCounter(guildRefreshDeferred, 1)
 			continue
 		}
 		if err := s.handleCurrentGuildMemberListObservedShared(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership", shared); err != nil {

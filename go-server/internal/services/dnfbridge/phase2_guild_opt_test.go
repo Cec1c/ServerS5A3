@@ -179,12 +179,9 @@ func (c *blockingWriteConn) SetWriteDeadline(time.Time) error { return nil }
 func (c *blockingWriteConn) LocalAddr() net.Addr              { return c.bufferConn.LocalAddr() }
 func (c *blockingWriteConn) RemoteAddr() net.Addr             { return c.bufferConn.RemoteAddr() }
 
-func TestPhase2BroadcastCurrentGuildMembersDispatchesAsyncPreservingMembershipSemantics(t *testing.T) {
+func TestPhase2BroadcastCurrentGuildMembersDispatchesAsyncAndDefersInDungeon(t *testing.T) {
 	s, peers, repos, _ := guildPresenceFixture(t)
-	// 即使开启 5s presence 合并延迟、最近刚刷新过、且处于副本状态，
-	// membership 广播仍必须立即在接收方事件循环执行且不阻塞发起方。
-	s.guildPresenceCoalesceDelay = 5 * time.Second
-	peers[0].guild.lastPresenceRefreshAt = time.Now()
+	// 1. 处于副本战斗期时，membership 广播必须延迟跳过，不抢占战斗 socket。
 	peers[0].guild.memberListRequested = true
 	peers[0].dungeon.runtime = &runtimeDungeonState{}
 
@@ -212,6 +209,20 @@ func TestPhase2BroadcastCurrentGuildMembersDispatchesAsyncPreservingMembershipSe
 	}
 	g := reg.Guilds[1]
 
+	s.broadcastCurrentGuildMembers(g, 2)
+	if err := s.callGameSession(ctx, peers[0], "drain-dungeon-membership", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-blockedConn.entered:
+		t.Fatal("membership refresh wrote to peer socket during dungeon combat")
+	default:
+	}
+
+	// 2. 回到城镇后，首次 membership 广播仍异步投递到接收方事件循环，不阻塞慢连接发起方。
+	peers[0].dungeon.mu.Lock()
+	peers[0].dungeon.runtime = nil
+	peers[0].dungeon.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.broadcastCurrentGuildMembers(g, 2)
@@ -226,7 +237,7 @@ func TestPhase2BroadcastCurrentGuildMembersDispatchesAsyncPreservingMembershipSe
 	select {
 	case <-blockedConn.entered:
 	case <-time.After(time.Second):
-		t.Fatal("peer event loop did not execute dispatched membership refresh immediately (even in dungeon)")
+		t.Fatal("peer event loop did not execute dispatched town membership refresh")
 	}
 }
 

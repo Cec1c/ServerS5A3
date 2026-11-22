@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfguild "longheng.io/server/internal/modules/dnf/guild"
@@ -177,8 +178,11 @@ func (s *Service) clearDepartedGuildSession(ctx context.Context, removed dnfguil
 	}
 	session.guild.mu.Lock()
 	clearCurrentGuildPresenceRefreshLocked(session)
+	clearCurrentGuildMembershipRefreshLocked(session)
 	session.guild.pendingName, session.guild.promotion = "", ""
 	session.guild.nameChecked, session.guild.createCommitted, session.guild.memberListRequested = false, false, false
+	session.guild.memberListRequestedAt = time.Time{}
+	session.guild.lastMembershipRefreshAt = time.Time{}
 	session.guild.lastCreate, session.guild.soloOperationID = nil, ""
 	session.guild.cargoLoadedGuild, session.guild.cargoLoadedGeneration, session.guild.cargoPending = 0, 0, 0
 	session.guild.mu.Unlock()
