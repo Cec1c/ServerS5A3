@@ -298,6 +298,26 @@ def private_ipv4(value):
     return str(address)
 
 
+def public_ipv4(value):
+    """Optional advertised address for NAT/port-mapped deployments; never used for binding."""
+    if type(value) is not str:
+        raise ValueError("public_host must be a global IPv4 literal string")
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ValueError:
+        raise ValueError("public_host must be a global IPv4 literal (the wire field is fixed-width)") from None
+    if not address.is_global or address.is_multicast:
+        raise ValueError("public_host must be a public global unicast IPv4 address")
+    return str(address)
+
+
+def advertised_host(config):
+    """Address announced to clients: public_host when set, otherwise the private bind address."""
+    if config.get("public_host") in (None, ""):
+        return config["host_ip"]
+    return public_ipv4(config["public_host"])
+
+
 def detect_ip():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
         connection.connect(("192.0.2.1", 9))  # Routing lookup; sends no packet.
@@ -382,6 +402,7 @@ def prepare(args):
     management_token(config)
     channel_source = selected_channel_table(config, getattr(args, "channel_info", None), existing)
     private_ipv4(config["host_ip"])
+    advertised_host(config)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((config["host_ip"], 0))
     for key in ("database_password", "root_password", "admin_token"):
@@ -448,6 +469,8 @@ def performance_resource_config(config):
 
 def generate(c, catalog):
     c = performance_resource_config(c)
+    if c.get("public_host") not in (None, ""):
+        public_ipv4(c["public_host"])
     owner_range = c.get("channel_directory_owner_range")
     if "channel_directory_owner_range" in c and owner_range not in ("off", "u8"):
         raise ValueError("channel_directory_owner_range must be off or u8")
@@ -530,7 +553,7 @@ def generate(c, catalog):
 name = "dnfbridge"
 node_id = "dnfbridge-docker-1"
 environment = "local"
-public_addr = "{c['host_ip']}:7001"
+public_addr = "{advertised_host(c)}:7001"
 private_addr = "{c['server_ip']}:18111"
 [cluster]
 id = "local"
@@ -593,7 +616,7 @@ create_databases = false
         "DNFBRIDGE_GUILD_CONTRIBUTION_POLICY": contribution_policy,
         "DNFBRIDGE_GUILD_HONGBAO_ENABLED": str(guild_hongbao).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
-        "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
+        "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": advertised_host(c),
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",
         "DNFBRIDGE_CHANNEL_INFO_BODY_MODE": "latest", "DNFBRIDGE_CHANNEL_SERVER_INDEX": "1",
         "DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": str(advertised_server), "DNF_SCRIPT_VERSION": "59",
