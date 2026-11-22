@@ -193,22 +193,41 @@ func (s *Service) writeGameUpperPacket(session *gameSession, inner []byte) error
 	})
 }
 
+// upperPacketWriteOutcome 明确区分上层报文的写出口状态：
+//   - upperPacketNotWritten：未写出（发生错误或短写）
+//   - upperPacketFiltered：被生产阻断名单或诊断过滤器屏蔽（返回 nil 但未写字节）
+//   - upperPacketBuffered：已编码并追加进批次缓冲，待后续 flush 才真正写出连接
+//   - upperPacketWritten：已直接写出到底层连接
+type upperPacketWriteOutcome uint8
+
+const (
+	upperPacketNotWritten upperPacketWriteOutcome = iota
+	upperPacketFiltered
+	upperPacketBuffered
+	upperPacketWritten
+)
+
 func (s *Service) writeGameUpperPacketLocked(session *gameSession, inner []byte) error {
+	_, err := s.writeGameUpperPacketLockedWithOutcome(session, inner)
+	return err
+}
+
+func (s *Service) writeGameUpperPacketLockedWithOutcome(session *gameSession, inner []byte) (upperPacketWriteOutcome, error) {
 	if session.channelExitWireClosed {
-		return nil
+		return upperPacketFiltered, nil
 	}
 	if classification, msgID, ok := upperPacketClassMsgID(inner); ok {
 		// 1) 厂商缺失包注入（诊断）：挂在锚点包前面，只走 core 通道。
 		if err := s.emitUpperVendorInjectionsLocked(session, msgID); err != nil {
-			return err
+			return upperPacketNotWritten, err
 		}
 		// 2) 生产阻断："厂商从不发送"的包（默认 455/102，见 vendor_absent_send_block.go）。
 		if s.blockVendorAbsentSend(session, classification, msgID, len(inner)) {
-			return nil
+			return upperPacketFiltered, nil
 		}
 		// 3) 诊断屏蔽（DNFBRIDGE_SUPPRESS_UPPER_SENDS）。
 		if s.suppressUpperSend(session, classification, msgID, len(inner)) {
-			return nil
+			return upperPacketFiltered, nil
 		}
 		// 4) 厂商字节回放（DNFBRIDGE_REPLAY_UPPER_FILE）：替换内层字节后继续走
 		//    同一条保护链路，绝不绕过 DPROTO。
@@ -216,7 +235,7 @@ func (s *Service) writeGameUpperPacketLocked(session *gameSession, inner []byte)
 			inner = vendor
 		}
 	}
-	return s.writeUpperPacketLockedCore(session, inner)
+	return s.writeUpperPacketLockedCoreWithOutcome(session, inner)
 }
 
 // writeUpperPacketLockedCore 是上层包唯一的写出口：审计 → DPROTO 保护 → 写连接。
@@ -226,9 +245,17 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 	if session.channelExitWireClosed {
 		return nil
 	}
+	_, err := s.writeUpperPacketLockedCoreWithOutcome(session, inner)
+	return err
+}
+
+func (s *Service) writeUpperPacketLockedCoreWithOutcome(session *gameSession, inner []byte) (upperPacketWriteOutcome, error) {
+	if session.channelExitWireClosed {
+		return upperPacketFiltered, nil
+	}
 	if session.nativeResultDelivery != nil && !s.nativeResultPacketCanWait(session, inner) {
 		if err := s.flushNativeResultDeliveryLocked(session, "其他功能报文"); err != nil {
-			return err
+			return upperPacketNotWritten, err
 		}
 	}
 	// 审计必须在 DPROTO 编码**之前**：一旦被 provider 保护，内层明文就只剩
@@ -244,23 +271,23 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 		}
 		encoded, err := session.dproto.EncodeServer(ctx, append([]byte(nil), inner...))
 		if err != nil {
-			return err
+			return upperPacketNotWritten, err
 		}
 		if len(encoded.Packet) == 0 {
-			return dproto.ErrEmptyProviderOutput
+			return upperPacketNotWritten, dproto.ErrEmptyProviderOutput
 		}
 		wire = encoded.Packet
 		protected = encoded.Protected
 		outer, err := dnfproto.ParseChannelPacketUnchecked(wire)
 		if err != nil {
-			return fmt.Errorf("validate dproto server output: %w", err)
+			return upperPacketNotWritten, fmt.Errorf("validate dproto server output: %w", err)
 		}
 		if protected {
 			if outer.Header.MsgID != dnfproto.DprotoServerEnvelopeOpcode {
-				return fmt.Errorf("protected server opcode %d: %w", outer.Header.MsgID, dnfproto.ErrDprotoEnvelopeOpcode)
+				return upperPacketNotWritten, fmt.Errorf("protected server opcode %d: %w", outer.Header.MsgID, dnfproto.ErrDprotoEnvelopeOpcode)
 			}
 		} else if !bytes.Equal(wire, inner) {
-			return errors.New("dnf dproto provider mutated an unprotected server packet")
+			return upperPacketNotWritten, errors.New("dnf dproto provider mutated an unprotected server packet")
 		}
 		s.logGameEvent(session, "game-dproto-server-encoded",
 			"inner_len", len(inner),
@@ -284,17 +311,20 @@ func (s *Service) writeUpperPacketLockedCore(session *gameSession, inner []byte)
 	if err == nil && n == len(wire) {
 		if b := session.channelSceneBatch; b != nil {
 			b.upper = append(b.upper, append([]byte(nil), inner...))
+			return upperPacketBuffered, nil
 		} else if b := session.nativeResultDelivery; b != nil {
 			b.upper = append(b.upper, append([]byte(nil), inner...))
+			return upperPacketBuffered, nil
 		} else {
 			noteSelectAckWrittenLocked(session, inner)
 			s.logCurrentSharedInventoryPacketWritten(session, inner)
 			s.logGoldDiagnosticPacketResult(session, inner, false)
+			return upperPacketWritten, nil
 		}
 	} else if session.channelSceneBatch == nil && session.nativeResultDelivery == nil {
 		s.logGoldDiagnosticPacketResult(session, inner, true)
 	}
-	return err
+	return upperPacketNotWritten, err
 }
 
 func (s *Service) writeDprotoProviderPacketsLocked(session *gameSession, packets [][]byte, owner string) error {

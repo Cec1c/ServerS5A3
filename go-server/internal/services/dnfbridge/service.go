@@ -339,6 +339,7 @@ type Service struct {
 	// runtime PVF）。存在的唯一理由：专家职业那条加载失败分支位于本加载之后，单测
 	// 必须能让本加载"成功"才能走到它（见 quest_finish_failure_reply_test.go）。
 	questFinishResourceLoader func(context.Context) (*progression.Tables, *pvfDungeonDropCatalog, error)
+	guildPresenceCoalesceDelay time.Duration
 }
 
 // ServiceOptions 描述 dnfbridge 对外注入的项目侧依赖。
@@ -407,6 +408,9 @@ func (s *Service) Start(ctx context.Context) error {
 		return err
 	}
 	if err := s.initializeGuildContributionProjection(ctx); err != nil {
+		return err
+	}
+	if err := s.archiveExpiredGuildHistory(ctx); err != nil {
 		return err
 	}
 	catalog, channelScript, err := s.loadChannelAssets()

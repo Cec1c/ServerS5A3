@@ -29,6 +29,7 @@ class RecommendedInstanceTemplateTests(unittest.TestCase):
             "client_version": "official-24.9",
             "buff_group_sync": "on",
         }
+        self.assertEqual(preset["tag_buff_group_sync"], "auto")
         merged = base | preset
         merged["runtime_compatibility"] = base.get("runtime_compatibility", {}) | preset.get("runtime_compatibility", {})
         with tempfile.TemporaryDirectory() as directory, patch.object(manage, "RUNTIME", Path(directory)):
@@ -37,6 +38,7 @@ class RecommendedInstanceTemplateTests(unittest.TestCase):
         for expected in (
             "DNFBRIDGE_DUNGEON_TOURNAMENT=vendor\n",
             "DNFBRIDGE_JOUST_EVENT_ENABLED=false\n",
+            "DNFBRIDGE_MILEAGE_SHOP_ENABLED=on\n",
             "DNFBRIDGE_BUFF_GROUP_SYNC=on\n",
             "DNFBRIDGE_BUFF_SWAP_REAPPLY=on\n",
             "DNFBRIDGE_DISJOINT_EPIC_DISPLAY=paired-v1\n",
@@ -51,6 +53,12 @@ class RecommendedInstanceTemplateTests(unittest.TestCase):
             "DNFBRIDGE_EQUIPMENT_SAVE_SCOPE=entry\n",
         ):
             self.assertIn(expected, env)
+
+    def test_recommendation_respects_nested_explicit_buff_mode(self):
+        preset = json.loads((manage.ROOT / "deploy/templates/docker-instance.recommended.json").read_text())
+        config = {"runtime_compatibility": {manage.BUFF_GROUP_SYNC_KEY: "off"}}
+        merged = manage.recommended_instance(config, preset)
+        self.assertEqual(manage.buff_group_sync_env(merged, manage.runtime_compatibility_env(merged)), "off")
 
     def test_v215_formal_client_sha_is_recognized_for_buff_group_sync(self):
         v215_sha = "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84"

@@ -27,6 +27,13 @@ type GuildUnitOfWork interface {
 	WithinGuild(context.Context, []GuildOwner, func(Group) error) error
 }
 
+// GuildPresenceUnitOfWork narrows presence-only updates to locking the guild
+// registry and verifying the character's existence/ownership/delete flag
+// without hydrating full character stats, location, and roster tables.
+type GuildPresenceUnitOfWork interface {
+	WithinGuildPresence(context.Context, GuildOwner, func(Group) error) error
+}
+
 // GuildTravelUnitOfWork commits a guild use and the locations of one ordinary
 // party (at most four characters). Other guild operations retain two owners.
 type GuildTravelUnitOfWork interface {
@@ -136,7 +143,7 @@ type guildDungeonEntrySettings struct {
 }
 
 func (r *guildDungeonEntrySettings) Load(ctx context.Context, scope string) (SettingsRecord, bool, error) {
-	if r.base == nil || (scope != GuildRegistryScope && scope != r.receiptScope) ||
+	if r.base == nil || (scope != GuildRegistryScope && scope != r.receiptScope && !ValidGuildArchiveScope(scope)) ||
 		!ValidGuildDungeonEntryReceiptScope(r.receiptScope) {
 		return SettingsRecord{}, false, ErrGuildTransaction
 	}
@@ -148,7 +155,7 @@ func (r *guildDungeonEntrySettings) Load(ctx context.Context, scope string) (Set
 }
 
 func (r *guildDungeonEntrySettings) Save(ctx context.Context, record SettingsRecord) error {
-	if r.base == nil || (record.Scope != GuildRegistryScope && record.Scope != r.receiptScope) ||
+	if r.base == nil || (record.Scope != GuildRegistryScope && record.Scope != r.receiptScope && !ValidGuildArchiveScope(record.Scope)) ||
 		!ValidGuildDungeonEntryReceiptScope(r.receiptScope) {
 		return ErrGuildTransaction
 	}
@@ -195,6 +202,18 @@ func (r *guildCharacters) Load(ctx context.Context, id string) (CharacterRecord,
 	}
 	return record, found, err
 }
+func (r *guildCharacters) LoadCharacterIdentity(ctx context.Context, id string) (CharacterIdentity, bool, error) {
+	account, ok := r.allowed[id]
+	if !ok {
+		return CharacterIdentity{}, false, ErrGuildTransaction
+	}
+	identity, found, err := LoadCharacterIdentity(ctx, r.base, id)
+	if err == nil && (!found || identity.CharacterID != id || identity.AccountID != account) {
+		return CharacterIdentity{}, false, ErrGuildTransaction
+	}
+	return identity, found, err
+}
+
 func (r *guildCharacters) Save(ctx context.Context, record CharacterRecord) error {
 	if account, ok := r.allowed[record.CharacterID]; !ok || account != record.AccountID {
 		return ErrGuildTransaction
@@ -212,7 +231,7 @@ func (*guildCharacters) NextNumericID(context.Context) (int, error) { return 0, 
 type guildSettings struct{ base SettingsRepository }
 
 func (r *guildSettings) Load(ctx context.Context, scope string) (SettingsRecord, bool, error) {
-	if scope != GuildRegistryScope {
+	if scope != GuildRegistryScope && !ValidGuildArchiveScope(scope) {
 		return SettingsRecord{}, false, ErrGuildTransaction
 	}
 	record, found, err := r.base.Load(ctx, scope)
@@ -222,7 +241,7 @@ func (r *guildSettings) Load(ctx context.Context, scope string) (SettingsRecord,
 	return record, found, err
 }
 func (r *guildSettings) Save(ctx context.Context, record SettingsRecord) error {
-	if record.Scope != GuildRegistryScope {
+	if record.Scope != GuildRegistryScope && !ValidGuildArchiveScope(record.Scope) {
 		return ErrGuildTransaction
 	}
 	return r.base.Save(ctx, record)

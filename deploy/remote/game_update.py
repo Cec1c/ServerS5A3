@@ -177,6 +177,72 @@ def target_env_bytes(before, mode, multiplier=None, percent=None, encoding=None)
     return b''.join(lines)
 
 
+def preserve_installed_optimization(instance, raw, manage):
+    """Project the installed phase-one settings without changing live values."""
+    import re
+    keys = {'DNFBRIDGE_MAP_CACHE', 'DNFBRIDGE_PVF_READ_CACHE_MIB',
+            'DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS', 'DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC'}
+    if b'\0' in raw or (raw and not raw.endswith(b'\n')):
+        raise ValueError('ambiguous installed environment')
+    entries = {}
+    for line in raw.splitlines():
+        if not line or line.startswith(b'#'): continue
+        key, sep, value = line.partition(b'=')
+        if not sep or not re.fullmatch(rb'[A-Za-z_][A-Za-z_0-9]*', key) or key in entries:
+            raise ValueError('ambiguous installed environment')
+        entries[key] = value
+    updated = dict(instance)
+    compatibility = dict(instance.get('runtime_compatibility', {}))
+    for key in keys:
+        if key.encode() in entries:
+            compatibility[key] = entries[key.encode()].decode('ascii')
+    if compatibility or 'runtime_compatibility' in instance:
+        updated['runtime_compatibility'] = compatibility
+    if b'GOMEMLIMIT' in entries:
+        value = entries[b'GOMEMLIMIT'].decode('ascii')
+        match = re.fullmatch(r'([1-9][0-9]{0,5})(MiB|GiB)', value)
+        if match is None:
+            raise ValueError('installed Go memory limit must be bounded MiB/GiB')
+        mib = int(match[1]) * (1024 if match[2] == 'GiB' else 1)
+        if not 128 <= mib <= 65536:
+            raise ValueError('installed Go memory limit outside 128 MiB to 64 GiB')
+        updated['go_memory_limit'] = value
+    manage.runtime_compatibility_env(updated)
+    return updated
+
+
+def installed_candidate_options(instance, raw, manage, executable):
+    updated = preserve_installed_optimization(instance, raw, manage)
+    if ('black_diamond_secret_shop' in updated or 'client_exe_sha256' in updated or
+            updated.get('buff_group_sync') == 'auto' or
+            updated.get('tag_buff_group_sync') in ('auto', 'on') or
+            updated.get('wedding_gender_policy') == 'deny_male_male' or
+            'DNFBRIDGE_BLACK_DIAMOND_SECRET_SHOP' in updated.get('runtime_compatibility', {})):
+        updated['client_exe_sha256'] = executable
+    return updated
+
+
+def checked_generated_environment(path, expected):
+    """Reject any changed key/value, then retain approved original byte ordering."""
+    import re
+    def entries(raw):
+        if b'\0' in raw or (raw and not raw.endswith(b'\n')):
+            raise ValueError('ambiguous generated environment file')
+        result = {}
+        for line in raw.splitlines():
+            if not line or line.startswith(b'#'): continue
+            key, separator, value = line.partition(b'=')
+            if not separator or not re.fullmatch(rb'[A-Za-z_][A-Za-z_0-9]*', key) or key in result:
+                raise ValueError('ambiguous generated environment file')
+            result[key] = value
+        return result
+    actual = path.read_bytes()
+    if entries(actual) != entries(expected):
+        raise AssertionError('unapproved server environment change')
+    # This writes only the preparation directory. Runtime files change in activate.
+    path.write_bytes(expected)
+
+
 def restore_game_configs(root, backup, atomic, extra=()):
     for rel in rollback_config_paths(extra):
         atomic(root / rel, (backup / rel).read_bytes())
@@ -346,6 +412,53 @@ def checked_edge_evidence(raw, expected_sha256, now):
     return value
 
 
+def checked_post_health_edge(raw, challenge, before, now):
+    """Accept one fresh, unchanged edge snapshot for this deployment."""
+    import datetime, hashlib, json
+    if len(raw) > 2 * 1024 * 1024:
+        raise ValueError('post-health edge response too large')
+    value = json.loads(raw)
+    if (not isinstance(value, dict) or set(value) != {'format', 'challenge', 'edge'} or
+            value['format'] != 1 or value['challenge'] != challenge):
+        raise ValueError('post-health edge challenge differs or refresh failed')
+    edge_raw = json.dumps(value['edge'], sort_keys=True, separators=(',', ':')).encode()
+    edge = checked_edge_evidence(edge_raw, hashlib.sha256(edge_raw).hexdigest(), now)
+    requested = datetime.datetime.fromisoformat(challenge['requestedAt'])
+    captured = datetime.datetime.fromisoformat(edge['checkedAt'])
+    if requested.tzinfo is None or not 0 <= (now - requested).total_seconds() <= 180 or captured < requested:
+        raise ValueError('edge snapshot was not captured after this health check')
+    old_state = {key: item for key, item in before.items() if key != 'checkedAt'}
+    new_state = {key: item for key, item in edge.items() if key != 'checkedAt'}
+    if old_state != new_state:
+        raise ValueError('edge publication, policy, configuration or management changed during startup')
+    return edge
+
+
+def await_post_health_edge(stage, challenge, before, clock=None, sleep=None, now=None):
+    """Keep the deployment lock while the controller supplies one proof."""
+    import datetime, json, time
+    clock = clock or time.monotonic
+    sleep = sleep or time.sleep
+    now = now or (lambda: datetime.datetime.now(datetime.timezone.utc))
+    request = stage / 'post-health-edge-request.json'
+    response = stage / 'post-health-edge-response.json'
+    if request.exists() or request.is_symlink() or response.exists() or response.is_symlink():
+        raise ValueError('post-health exchange already exists; do not replay')
+    with request.open('x', encoding='utf8') as stream:
+        json.dump(challenge, stream, sort_keys=True)
+    print('POST_HEALTH_EDGE_REFRESH ' + json.dumps(challenge, sort_keys=True), flush=True)
+    deadline = clock() + 120
+    while clock() < deadline:
+        if response.is_symlink():
+            raise ValueError('post-health response is a link')
+        if response.is_file():
+            if response.stat().st_size > 2 * 1024 * 1024:
+                raise ValueError('post-health edge response too large')
+            return checked_post_health_edge(response.read_bytes(), challenge, before, now())
+        sleep(0.25)
+    raise ValueError('post-health edge refresh timed out; preserve original attempt')
+
+
 def backup_game_context(root, hub, backup, config_hashes, edge_evidence=None, extra_paths=()):
     import shutil
     paths = list(dict.fromkeys([root / rel for rel in config_hashes] + list(extra_paths)))
@@ -468,7 +581,11 @@ def main():
                           'published': read(h / 'state.json')['published'], 'management': management,
                           'configHashes': {str(p): sha(p) for p in evidence_files}}))
         return
+    post_health_edge = None
+    post_health_challenge = None
     def edge():
+        if post_health_edge is not None:
+            return post_health_edge
         if args.edge_evidence is None: return None
         expected = r / 'runtime/game-update-edge' / (args.run_id + '.json')
         assert args.edge_evidence == expected and not expected.is_symlink(), 'Invalid edge evidence path'
@@ -710,7 +827,7 @@ def main():
             assert runtime_channel['port'] in channel_catalog['ports']
             channel_catalog['pvf_sha256'] = src['pvfSha256']
             write(s / 'channel-catalog.json', channel_catalog)
-        prepared = {'image': image['Id'], 'tag': tag, 'beforeImage': current['Image'], 'beforeTag': base, 'serverSha256': check, 'runtimeBaseImage': args.image_base, 'sourceDirectory': str(tree), 'sourceFiles': len(src['files'])}
+        prepared = {'preserveInstalledOptions': True, 'image': image['Id'], 'tag': tag, 'beforeImage': current['Image'], 'beforeTag': base, 'serverSha256': check, 'runtimeBaseImage': args.image_base, 'sourceDirectory': str(tree), 'sourceFiles': len(src['files'])}
         if runtime_channel is not None:
             prepared['runtimeChannel'] = {**runtime_channel, 'catalogSha256': sha(s / 'channel-catalog.json')}
         write(s / 'prepared-game.json', prepared)
@@ -725,6 +842,8 @@ def main():
         generated_catalog = read(s / 'channel-catalog.json') if runtime_channel is not None else prior_catalog
         spec = importlib.util.spec_from_file_location('manage', r / 'deploy/docker/manage.py')
         manage = importlib.util.module_from_spec(spec); spec.loader.exec_module(manage)
+        if prepared.get('preserveInstalledOptions'):
+            updated = installed_candidate_options(updated, (d / 'server.env').read_bytes(), manage, old['exeSha256'])
         uid, gid = map(int, prior['services']['server']['user'].split(':'))
         os.getuid = lambda: uid; os.getgid = lambda: gid
         manage.RUNTIME = s / 'generated'; manage.generate(updated, generated_catalog)
@@ -737,7 +856,8 @@ def main():
         assert read(s / 'generated/compose.json') == expected, 'compose differs beyond image'
         for rel in ['server.env', 'database.env'] + (['gm/config.json'] if 'gm' in container_names else []):
             if rel.endswith('.json'): assert read(s / 'generated' / rel) == read(d / rel)
-            elif rel == 'server.env': assert (s / 'generated' / rel).read_bytes() == target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent, config_encoding), 'unapproved server environment change'
+            elif rel == 'server.env':
+                checked_generated_environment(s / 'generated' / rel, target_env_bytes((d / rel).read_bytes(), config_mode, config_multiplier, config_percent, config_encoding))
             else: assert (s / 'generated' / rel).read_bytes() == (d / rel).read_bytes()
         write(s / 'generated/instance.json', updated)
         changed_keys = sorted(k for k in updated.keys() | instance.keys() if updated.get(k) != instance.get(k))
@@ -802,10 +922,16 @@ def main():
             assert sha(s / 'generated-channel-metadata.json') == prepared['runtimeChannel']['catalogSha256'], 'generated channel metadata changed'
         assert new == expected
         assert json.loads(run('docker', 'image', 'inspect', prepared['tag']))[0]['Id'] == prepared['image'], 'prepared image tag moved'
-        assert new_instance == target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent,
-                                                runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding), 'unapproved instance change'
+        expected_instance = target_instance(instance, prepared['tag'], config_mode, config_multiplier, config_percent,
+                                            runtime_channel['channel_source'] if runtime_channel is not None else None, config_encoding)
+        if prepared.get('preserveInstalledOptions'):
+            spec = importlib.util.spec_from_file_location('manage', r / 'deploy/docker/manage.py')
+            manage = importlib.util.module_from_spec(spec); spec.loader.exec_module(manage)
+            expected_instance = installed_candidate_options(expected_instance, (d / 'server.env').read_bytes(), manage, old['exeSha256'])
+        assert new_instance == expected_instance, 'unapproved instance change'
         assert (s / 'generated/server.env').read_bytes() == target_env_bytes((d / 'server.env').read_bytes(), config_mode, config_multiplier, config_percent, config_encoding)
         print('Verified database/config/image backups; switching game service only', flush=True)
+        pre_switch_edge = edge()
         try:
             if runtime_channel is not None:
                 atomic(channel_path(), (s / RUNTIME_CHANNEL_FILE).read_bytes())
@@ -840,6 +966,29 @@ def main():
                 assert all(f'{port}/tcp' in published_ports for port in prior_catalog['ports']), 'an original channel port disappeared'
                 with socket.create_connection((runtime_endpoint['bind'], runtime_channel['port']), timeout=3):
                     pass
+            if pre_switch_edge is not None:
+                import secrets
+                post_health_challenge = dict(
+                    format=1,
+                    nonce=secrets.token_hex(32),
+                    runId=args.run_id,
+                    sourceCommit=src['sourceCommit'],
+                    serverSha256=actual['sha256'],
+                    image=prepared['image'],
+                    preEdgeSha256=args.edge_evidence_sha256,
+                    transitionSha256=None,
+                    requestedAt=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                )
+                try:
+                    post_health_edge = await_post_health_edge(s, post_health_challenge, pre_switch_edge)
+                except Exception as error:
+                    write(s / 'post-health-edge-error.json', {
+                        'format': 1,
+                        'nonce': post_health_challenge['nonce'],
+                        'requestedAt': post_health_challenge['requestedAt'],
+                        'error': type(error).__name__,
+                    })
+                    raise
             assert management_snapshot()[0] == old.get('management', {'mode': 'container'})
             assert digest_json(publication()) == old['publishedSha256']
             for rel, digest in old['configHashes'].items():
@@ -862,6 +1011,10 @@ def main():
             receipt['sourceGitBundleSha256'] = src['sourceGitBundleSha256']
             if 'sourceRecovery' in src: receipt['sourceRecovery'] = src['sourceRecovery']
             receipt['authoritativePull'] = read(s / 'authority-deploy.json')
+            if post_health_challenge is not None:
+                receipt['preHealthEdgeSha256'] = args.edge_evidence_sha256
+                receipt['postHealthEdgeProofSha256'] = sha(s / 'post-health-edge-response.json')
+                receipt['postHealthEdgeRequestedAt'] = post_health_challenge['requestedAt']
             if src.get('integrationMode') == 'emergency-selected-mr':
                 receipt['integrationMode'] = src['integrationMode']
                 receipt['observedUpstream'] = src['observedUpstream']

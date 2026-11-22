@@ -12,14 +12,14 @@ import (
 const currentGuildChatType byte = 6
 
 // Matched NOTI65 / RVA 0x1c1b510 reads two additional display bytes for
-// type 6, followed by sender DSTR, channel u8, message DSTR, auxiliary DSTR.
+// type 6, followed by sender DSTR, sender server group u8, message DSTR, auxiliary DSTR.
 // No authoritative decoration awards exist yet: both display bytes stay zero.
 // Unlike NOTI12, this route does not need the sender in the recipient's scene.
-func buildCurrentGuildChatBody(channel byte, sender []byte, message []byte) []byte {
+func buildCurrentGuildChatBody(serverGroup byte, sender []byte, message []byte) []byte {
 	var w packetWriter
 	w.writeBytes([]byte{currentGuildChatType, 0, 0, 0})
 	w.writeRawDstr(sender)
-	w.writeByte(channel)
+	w.writeByte(serverGroup)
 	w.writeRawDstr(message)
 	w.writeRawDstr(nil)
 	return w.bytes()
@@ -82,8 +82,8 @@ func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16,
 		return reject("sender_membership_changed", nil)
 	}
 	name, encodeErr := simplifiedchinese.GB18030.NewEncoder().Bytes([]byte(character.Name))
-	channel, channelOK := currentSessionOwnerChannelField(session)
-	if encodeErr != nil || len(name) == 0 || len(name) > 30 || bytes.IndexByte(name, 0) >= 0 || !channelOK {
+	serverGroup, groupOK := currentChatCharacterServerGroup(character)
+	if encodeErr != nil || len(name) == 0 || len(name) > 30 || bytes.IndexByte(name, 0) >= 0 || !groupOK {
 		return reject("sender_display", encodeErr)
 	}
 	// The request's u16 comes from a client-side actor/target hint. It is not
@@ -108,11 +108,11 @@ func (s *Service) handleCurrentGuildChatMessage(session *gameSession, op uint16,
 	if err := s.sendCurrentGuildChatFrame(writeCtx, session, op, []byte{1}, 1); err != nil {
 		return err
 	}
-	notice := buildCurrentGuildChatBody(channel, name, request.Message)
+	notice := buildCurrentGuildChatBody(serverGroup, name, request.Message)
 	noticeOpcode := currentOfficialWhisperNotifyOpcode
 	if len(items) > 0 {
 		noticeOpcode = currentGuildItemHyperlinkNotifyOpcode
-		notice = buildCurrentGuildItemHyperlinkNoticeBody(channel, name, request.Message, items)
+		notice = buildCurrentGuildItemHyperlinkNoticeBody(serverGroup, name, request.Message, items)
 	}
 	if err := s.sendCurrentGuildChatFrame(writeCtx, session, noticeOpcode, notice, 0); err != nil {
 		return err

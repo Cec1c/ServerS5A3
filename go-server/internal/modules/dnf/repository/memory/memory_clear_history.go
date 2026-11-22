@@ -106,3 +106,17 @@ func (s *memoryCharStore) QueryClears(ctx context.Context, q moderation.Query) (
 	out.Rows = out.Rows[start:end]
 	return out, ctx.Err()
 }
+
+func (s *memoryCharStore) HasDungeonClearSince(ctx context.Context, character string, dungeon int64, since time.Time) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	s.clearMu.Lock()
+	defer s.clearMu.Unlock()
+	for _, clear := range s.clears {
+		if clear.CharacterID == character && clear.DungeonID == dungeon && !clear.FinishedAt.Before(since) {
+			return true, nil
+		}
+	}
+	return false, nil
+}

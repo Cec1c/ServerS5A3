@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,27 +38,42 @@ type currentGuildCreateInvitation struct {
 	operationID string
 }
 
+type weddingPrimedPeer struct {
+	viewerChar    uint16
+	viewerGen     uint64
+	actorSession  *gameSession
+	actorGen      uint64
+	actorChannel  int
+	guildID       uint32
+	appearanceRev uint64
+}
+
 type guildSessionState struct {
-	placement             currentGuildPlacementProjection
-	mu                    sync.Mutex
-	purchaseSequence      guildPurchaseSequence
-	teleport              *currentGuildTeleport
-	teleportLast          *currentGuildTeleport
-	pendingName           string
-	nameChecked           bool
-	promotion             string
-	createCommitted       bool
-	createInvitation      *currentGuildCreateInvitation
-	incomingInvitation    *currentGuildInvitation
-	outgoingInvitations   map[*currentGuildInvitation]struct{}
-	lastCreate            *dnfguild.CreateRequest
-	soloOperationID       string
-	memberListRequested   bool
-	presenceRefresh       *currentGuildPresenceRefresh
-	presenceRefreshClosed bool
-	cargoLoadedGuild      uint32
-	cargoLoadedGeneration uint64
-	cargoPending          uint32
+	placement                currentGuildPlacementProjection
+	mu                       sync.Mutex
+	purchaseSequence         guildPurchaseSequence
+	teleport                 *currentGuildTeleport
+	teleportLast             *currentGuildTeleport
+	pendingName              string
+	nameChecked              bool
+	promotion                string
+	createCommitted          bool
+	createInvitation         *currentGuildCreateInvitation
+	incomingInvitation       *currentGuildInvitation
+	outgoingInvitations      map[*currentGuildInvitation]struct{}
+	lastCreate               *dnfguild.CreateRequest
+	soloOperationID          string
+	memberListRequested      bool
+	presenceRefresh          *currentGuildPresenceRefresh
+	membershipRefresh        *currentGuildMembershipRefresh
+	membershipRefreshPending atomic.Bool
+	eventLoopCompletedSeq    atomic.Uint64
+	presenceRefreshClosed    bool
+	lastPresenceRefreshAt    time.Time
+	weddingPrimedPeers       map[uint16]weddingPrimedPeer
+	cargoLoadedGuild         uint32
+	cargoLoadedGeneration    uint64
+	cargoPending             uint32
 }
 
 func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) error {

@@ -132,12 +132,12 @@ func (s *Service) refreshCurrentGuildText(ctx context.Context, guildID uint32, s
 		if !online {
 			continue
 		}
-		if !notice && peer != source && peer.session.events != nil && peer.session.events.active.Load() {
+		if !notice && peer != source && peer.session.events != nil && peer.session.events.loop != nil {
 			peer.session.guild.mu.Lock()
 			requested := peer.session.guild.memberListRequested
 			peer.session.guild.mu.Unlock()
 			if requested {
-				s.requestCurrentGuildPresenceRefresh(peer, guildID, shared)
+				s.requestCurrentGuildMembershipRefresh(peer, shared)
 			}
 			continue
 		}

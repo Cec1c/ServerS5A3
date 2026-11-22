@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"longheng.io/server/internal/platform/eventloop"
@@ -39,6 +42,41 @@ func (s *Service) guildRosterCounter(kind int, n int64) {
 	}
 }
 
+const (
+	guildPresenceCoalesceWindowEnv      = "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS"
+	defaultGuildPresenceCoalesceWindow  = 250 * time.Millisecond
+	maxGuildPresenceCoalesceWindowMs    = 5000
+)
+
+func readGuildPresenceCoalesceWindow() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(guildPresenceCoalesceWindowEnv))
+	if raw == "" {
+		return defaultGuildPresenceCoalesceWindow
+	}
+	lower := strings.ToLower(raw)
+	if lower == "0" || lower == "off" || lower == "false" || lower == "none" {
+		return 0
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms < 0 || ms > maxGuildPresenceCoalesceWindowMs {
+		return defaultGuildPresenceCoalesceWindow
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func (s *Service) guildPresenceCoalesceWindow() time.Duration {
+	if s == nil {
+		return 0
+	}
+	if s.guildPresenceCoalesceDelay > 0 {
+		return s.guildPresenceCoalesceDelay
+	}
+	if s.guildPresenceCoalesceDelay < 0 {
+		return 0
+	}
+	return s.options.guildPresenceCoalesceWindow
+}
+
 // One token belongs to one socket/character/generation/guild. All mutable
 // fields use guild.mu; no storage, socket write or queue submission holds it.
 type currentGuildPresenceRefresh struct {
@@ -48,7 +86,8 @@ type currentGuildPresenceRefresh struct {
 	revision        uint64
 	queued, running bool
 	retries         int
-	timer           *time.Timer
+	timer           *time.Timer // queue-full retry timer
+	coalesceTimer   *time.Timer // bounded max-wait burst coalesce timer
 	stopContext     func() bool
 }
 
@@ -56,6 +95,9 @@ func clearCurrentGuildPresenceRefreshLocked(session *gameSession) {
 	if p := session.guild.presenceRefresh; p != nil {
 		if p.timer != nil {
 			p.timer.Stop()
+		}
+		if p.coalesceTimer != nil {
+			p.coalesceTimer.Stop()
 		}
 		if p.stopContext != nil {
 			p.stopContext()
@@ -70,7 +112,10 @@ func resetCurrentGuildPresenceRefresh(session *gameSession, closed bool) {
 	}
 	session.guild.mu.Lock()
 	clearCurrentGuildPresenceRefreshLocked(session)
+	clearCurrentGuildMembershipRefreshLocked(session)
 	session.guild.presenceRefreshClosed = closed
+	session.guild.lastPresenceRefreshAt = time.Time{}
+	session.guild.weddingPrimedPeers = nil
 	session.guild.mu.Unlock()
 }
 
@@ -118,14 +163,41 @@ func (s *Service) requestCurrentGuildPresenceRefresh(peer boundGameSessionCharac
 		p.shared = shared[0]
 	}
 	p.revision++
-	if p.queued || p.running || p.timer != nil {
+	if p.queued || p.running || p.timer != nil || p.coalesceTimer != nil {
 		session.guild.mu.Unlock()
 		s.guildRosterCounter(guildRefreshCoalesced, 1)
 		return
 	}
+	if window := s.guildPresenceCoalesceWindow(); window > 0 && session.events != nil && session.events.loop != nil && !session.guild.lastPresenceRefreshAt.IsZero() {
+		if remaining := window - time.Since(session.guild.lastPresenceRefreshAt); remaining > 0 {
+			p.retries = 0
+			p.coalesceTimer = s.armCurrentGuildPresenceCoalesceTimerLocked(session, p, remaining)
+			session.guild.mu.Unlock()
+			s.guildRosterCounter(guildRefreshCoalesced, 1)
+			return
+		}
+	}
 	p.retries, p.queued = 0, true
 	session.guild.mu.Unlock()
 	s.submitCurrentGuildPresenceRefresh(p)
+}
+
+func (s *Service) armCurrentGuildPresenceCoalesceTimerLocked(session *gameSession, p *currentGuildPresenceRefresh, delay time.Duration) *time.Timer {
+	return time.AfterFunc(delay, func() {
+		session.guild.mu.Lock()
+		if session.guild.presenceRefresh != p || session.guild.presenceRefreshClosed {
+			session.guild.mu.Unlock()
+			return
+		}
+		p.coalesceTimer = nil
+		if p.queued || p.running || p.timer != nil {
+			session.guild.mu.Unlock()
+			return
+		}
+		p.retries, p.queued = 0, true
+		session.guild.mu.Unlock()
+		s.submitCurrentGuildPresenceRefresh(p)
+	})
 }
 
 func (s *Service) submitCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh) {
@@ -183,6 +255,7 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 	shared := p.shared
 	session.guild.mu.Unlock()
 	s.guildRosterCounter(guildRefreshExecuted, 1)
+	executedRealRefresh := false
 	defer func() {
 		session.guild.mu.Lock()
 		if session.guild.presenceRefresh != p {
@@ -190,15 +263,25 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 			return
 		}
 		p.running = false
+		if executedRealRefresh {
+			session.guild.lastPresenceRefreshAt = time.Now()
+		}
 		followup := p.revision != revision
+		submitNow := false
 		if followup {
-			p.queued, p.retries = true, 0
+			p.retries = 0
+			if window := s.guildPresenceCoalesceWindow(); executedRealRefresh && window > 0 && session.events != nil && session.events.loop != nil {
+				p.coalesceTimer = s.armCurrentGuildPresenceCoalesceTimerLocked(session, p, window)
+			} else {
+				p.queued = true
+				submitNow = true
+			}
 		} else {
 			clearCurrentGuildPresenceRefreshLocked(session)
 		}
 		session.guild.mu.Unlock()
 		// One followup goes to the tail; never loop and starve ordinary events.
-		if followup {
+		if submitNow {
 			s.submitCurrentGuildPresenceRefresh(p)
 		}
 	}()
@@ -213,13 +296,12 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 		s.guildRosterCounter(guildRefreshDeferred, 1)
 		return nil
 	}
+	executedRealRefresh = true
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
-	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{p.peer})
-	if err != nil {
+	if !s.boundGameSessionCharacterCurrent(p.peer) {
 		return nil
 	}
-	defer release()
 	session.guild.mu.Lock()
 	requested := session.guild.memberListRequested
 	session.guild.mu.Unlock()
@@ -233,13 +315,269 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 	}
 	if requested {
 		var build, write time.Duration
-		err = s.sendCurrentGuildRosterDisplay(ctx, p.peer, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, "presence", true, &build, &write)
+		err = s.sendCurrentGuildRosterDisplayShared(ctx, p.peer, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, "presence", false, shared, &build, &write)
 	} else {
-		err = s.sendCurrentGuildManagementState(session, g)
+		online, sampledAt := shared.sharedOnlineChannels(s, g)
+		err = s.sendCurrentGuildManagementProjectionWithOnline(session, g, len(online), sampledAt, false)
 	}
 	if err != nil {
 		s.guildRosterCounter(guildRefreshFailed, 1)
 	}
 
+	return nil
+}
+
+const maxGuildMembershipRefreshRetries = 5
+
+var (
+	guildMembershipRetryBaseDelay        = 50 * time.Millisecond
+	testGuildMembershipBeforeExhaustHook func()
+)
+
+// 成员变更广播令牌：每个会话/角色/世代最多保留一个在途或待重试的 membership 刷新，
+// 不继承 presence 的合并延迟或副本跳过规则，仅在接收方事件队列满时做有界异步重试；
+// 主动退避耗尽后保留待刷新标记，待事件循环释放队列槽位后自动恢复投递。
+type currentGuildMembershipRefresh struct {
+	peer            boundGameSessionCharacter
+	shared          *guildPresenceReadCache
+	revision        uint64
+	queued, running bool
+	exhausted       bool
+	retries         int
+	timer           *time.Timer
+	stopContext     func() bool
+}
+
+func clearCurrentGuildMembershipRefreshLocked(session *gameSession) {
+	if p := session.guild.membershipRefresh; p != nil {
+		if p.timer != nil {
+			p.timer.Stop()
+		}
+		if p.stopContext != nil {
+			p.stopContext()
+		}
+	}
+	session.guild.membershipRefresh = nil
+	session.guild.membershipRefreshPending.Store(false)
+}
+
+func (s *Service) discardCurrentGuildMembershipRefresh(p *currentGuildMembershipRefresh) {
+	session := p.peer.session
+	session.guild.mu.Lock()
+	if session.guild.membershipRefresh == p {
+		clearCurrentGuildMembershipRefreshLocked(session)
+	}
+	session.guild.mu.Unlock()
+}
+
+func (s *Service) requestCurrentGuildMembershipRefresh(peer boundGameSessionCharacter, shared *guildPresenceReadCache) {
+	if peer.session == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.gameSessions[peer.character] != peer.session || peer.session.selectedCharacterID != peer.character || peer.session.characterGeneration != peer.generation {
+		s.mu.Unlock()
+		return
+	}
+	session := peer.session
+	session.guild.mu.Lock()
+	s.mu.Unlock()
+	if session.guild.presenceRefreshClosed || session.loginRevoked.Load() ||
+		(session.events != nil && !session.events.active.Load()) ||
+		(session.ctx != nil && session.ctx.Err() != nil) {
+		session.guild.mu.Unlock()
+		return
+	}
+	p := session.guild.membershipRefresh
+	if p == nil || p.peer != peer {
+		clearCurrentGuildMembershipRefreshLocked(session)
+		p = &currentGuildMembershipRefresh{peer: peer}
+		session.guild.membershipRefresh = p
+		if session.ctx != nil {
+			p.stopContext = context.AfterFunc(session.ctx, func() { s.discardCurrentGuildMembershipRefresh(p) })
+		}
+	}
+	p.shared = shared
+	p.revision++
+	if p.queued || p.running || p.timer != nil {
+		session.guild.mu.Unlock()
+		return
+	}
+	p.exhausted = false
+	session.guild.membershipRefreshPending.Store(false)
+	p.retries, p.queued = 0, true
+	session.guild.mu.Unlock()
+	s.submitCurrentGuildMembershipRefresh(p)
+}
+
+// resumePendingGuildMembershipRefresh 在接收方事件循环处理完任意事件、释放队列槽位后，
+// 唤醒因队列长期饱和而耗尽主动退避的 membership 待刷新令牌。
+func (s *Service) resumePendingGuildMembershipRefresh(session *gameSession) {
+	if s == nil || session == nil || !session.guild.membershipRefreshPending.Load() {
+		return
+	}
+	session.guild.mu.Lock()
+	p := session.guild.membershipRefresh
+	if p == nil || !p.exhausted || p.queued || p.running || p.timer != nil {
+		if p == nil || !p.exhausted {
+			session.guild.membershipRefreshPending.Store(false)
+		}
+		session.guild.mu.Unlock()
+		return
+	}
+	if session.guild.presenceRefreshClosed || session.loginRevoked.Load() ||
+		(session.events != nil && !session.events.active.Load()) ||
+		(session.ctx != nil && session.ctx.Err() != nil) {
+		clearCurrentGuildMembershipRefreshLocked(session)
+		session.guild.mu.Unlock()
+		return
+	}
+	p.exhausted = false
+	session.guild.membershipRefreshPending.Store(false)
+	p.retries, p.queued = 0, true
+	session.guild.mu.Unlock()
+	s.submitCurrentGuildMembershipRefresh(p)
+}
+
+func (s *Service) submitCurrentGuildMembershipRefresh(p *currentGuildMembershipRefresh) {
+	s.submitCurrentGuildMembershipRefreshWithRecheck(p, true)
+}
+
+func (s *Service) submitCurrentGuildMembershipRefreshWithRecheck(p *currentGuildMembershipRefresh, allowImmediateRecheck bool) {
+	if !s.boundGameSessionCharacterCurrent(p.peer) {
+		s.discardCurrentGuildMembershipRefresh(p)
+		return
+	}
+	session := p.peer.session
+	seqBefore := session.guild.eventLoopCompletedSeq.Load()
+	err := s.tryPostGameSessionCharacterEventWithDiscard(session, "guild-membership-refresh", p.peer.character, p.peer.generation,
+		func() error { return s.runCurrentGuildMembershipRefresh(p) },
+		func() { s.discardCurrentGuildMembershipRefresh(p) })
+	if err == nil {
+		return
+	}
+	if errors.Is(err, eventloop.ErrQueueFull) && testGuildMembershipBeforeExhaustHook != nil {
+		session.guild.mu.Lock()
+		isExhaustAttempt := session.guild.membershipRefresh == p && p.retries >= maxGuildMembershipRefreshRetries
+		session.guild.mu.Unlock()
+		if isExhaustAttempt {
+			testGuildMembershipBeforeExhaustHook()
+		}
+	}
+	session.guild.mu.Lock()
+	if session.guild.membershipRefresh != p {
+		session.guild.mu.Unlock()
+		return
+	}
+	p.queued = false
+	if !errors.Is(err, eventloop.ErrQueueFull) ||
+		session.guild.presenceRefreshClosed || session.loginRevoked.Load() ||
+		(session.events != nil && !session.events.active.Load()) ||
+		(session.ctx != nil && session.ctx.Err() != nil) {
+		clearCurrentGuildMembershipRefreshLocked(session)
+		session.guild.mu.Unlock()
+		s.logGameEvent(session, "game-guild-member-refresh-failed", "error", err)
+		return
+	}
+	if p.retries >= maxGuildMembershipRefreshRetries {
+		// 先发布待唤醒状态再核对 eventLoopCompletedSeq（Dekker Store-Load 屏障）：
+		// - 若 seq 未变化，队列在 pending 发布前无任何事件完成，队列中必有未完成事件在结束时唤醒；
+		// - 若 seq 已变化，队列可能在发布前已排空，立即回收并再试一次（若仍满则挂单次可取消兜底定时器防自旋）。
+		p.exhausted = true
+		session.guild.membershipRefreshPending.Store(true)
+		if session.guild.eventLoopCompletedSeq.Load() != seqBefore {
+			p.exhausted = false
+			session.guild.membershipRefreshPending.Store(false)
+			if allowImmediateRecheck {
+				p.queued = true
+				session.guild.mu.Unlock()
+				s.submitCurrentGuildMembershipRefreshWithRecheck(p, false)
+				return
+			}
+			fallbackDelay := guildMembershipRetryBaseDelay * time.Duration(1<<maxGuildMembershipRefreshRetries)
+			p.timer = time.AfterFunc(fallbackDelay, func() {
+				session.guild.mu.Lock()
+				if session.guild.membershipRefresh != p || session.guild.presenceRefreshClosed ||
+					session.loginRevoked.Load() ||
+					(session.events != nil && !session.events.active.Load()) ||
+					(session.ctx != nil && session.ctx.Err() != nil) {
+					if session.guild.membershipRefresh == p {
+						clearCurrentGuildMembershipRefreshLocked(session)
+					}
+					session.guild.mu.Unlock()
+					return
+				}
+				p.timer, p.queued = nil, true
+				session.guild.mu.Unlock()
+				s.submitCurrentGuildMembershipRefreshWithRecheck(p, true)
+			})
+			session.guild.mu.Unlock()
+			return
+		}
+		session.guild.mu.Unlock()
+		s.logGameEvent(session, "game-guild-member-refresh-deferred", "error", err)
+		return
+	}
+	delay := guildMembershipRetryBaseDelay * time.Duration(1<<p.retries)
+	p.retries++
+	p.timer = time.AfterFunc(delay, func() {
+		session.guild.mu.Lock()
+		if session.guild.membershipRefresh != p || session.guild.presenceRefreshClosed ||
+			session.loginRevoked.Load() ||
+			(session.events != nil && !session.events.active.Load()) ||
+			(session.ctx != nil && session.ctx.Err() != nil) {
+			if session.guild.membershipRefresh == p {
+				clearCurrentGuildMembershipRefreshLocked(session)
+			}
+			session.guild.mu.Unlock()
+			return
+		}
+		p.timer, p.queued = nil, true
+		session.guild.mu.Unlock()
+		s.submitCurrentGuildMembershipRefresh(p)
+	})
+	session.guild.mu.Unlock()
+}
+
+func (s *Service) runCurrentGuildMembershipRefresh(p *currentGuildMembershipRefresh) error {
+	session := p.peer.session
+	session.guild.mu.Lock()
+	if session.guild.membershipRefresh != p {
+		session.guild.mu.Unlock()
+		return nil
+	}
+	p.queued, p.running = false, true
+	revision := p.revision
+	shared := p.shared
+	session.guild.mu.Unlock()
+	defer func() {
+		session.guild.mu.Lock()
+		if session.guild.membershipRefresh != p {
+			session.guild.mu.Unlock()
+			return
+		}
+		p.running = false
+		followup := p.revision != revision
+		submitNow := false
+		if followup && !session.guild.presenceRefreshClosed && !session.loginRevoked.Load() &&
+			(session.events == nil || session.events.active.Load()) &&
+			(session.ctx == nil || session.ctx.Err() == nil) {
+			p.retries = 0
+			p.queued = true
+			submitNow = true
+		} else {
+			clearCurrentGuildMembershipRefreshLocked(session)
+		}
+		session.guild.mu.Unlock()
+		if submitNow {
+			s.submitCurrentGuildMembershipRefresh(p)
+		}
+	}()
+	if !s.boundGameSessionCharacterCurrent(p.peer) {
+		return nil
+	}
+	if err := s.handleCurrentGuildMemberListObservedShared(session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership", shared); err != nil {
+		s.logGameEvent(session, "game-guild-member-refresh-failed", "error", err)
+	}
 	return nil
 }

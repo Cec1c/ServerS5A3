@@ -3,6 +3,8 @@
   "body_codec": "plaintext",
   "client_body_codec": "plaintext",
   "buff_group_sync": "on",
+  "tag_buff_group_sync": "auto",
+  "black_diamond_secret_shop": "auto",
   "buff_swap_reapply": "on",
   "dungeon_tournament": "vendor",
   "joust_event_enabled": false,
@@ -27,8 +29,8 @@
   },
   "packet_log": false,
   "runtime_compatibility": {
-    "DNFBRIDGE_BUFF_GROUP_SYNC": "on",
     "DNFBRIDGE_EXPERIMENTAL_PEAK": "on",
+    "DNFBRIDGE_MILEAGE_SHOP_ENABLED": "on",
     "DNFBRIDGE_MYSQL_INSERT_BATCH": "200",
     "DNFBRIDGE_INVENTORY_SAVE_SCOPE": "slot",
     "DNFBRIDGE_EQUIPMENT_SAVE_SCOPE": "entry",

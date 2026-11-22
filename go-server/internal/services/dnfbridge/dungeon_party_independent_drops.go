@@ -6,6 +6,7 @@ type dungeonDropRecipient struct {
 	CharacterID uint16
 	ActorKey    uint16
 	AccountID   string
+	LukeRepeat  bool
 	Session     *gameSession
 }
 
@@ -13,6 +14,7 @@ type dungeonDropRecipient struct {
 // are fixed by login before dungeon entry. Dead members remain participants.
 func partyDungeonDropRecipients(runtime *runtimeDungeonState, characterID uint16, actorKey uint16) []dungeonDropRecipient {
 	self := dungeonDropRecipient{CharacterID: characterID, ActorKey: actorKey, AccountID: currentDungeonDropAccountID(runtime)}
+	self.LukeRepeat = runtime != nil && runtime.lukeRepeat
 	recipients := []dungeonDropRecipient{self}
 	if runtime == nil || runtime.partyInstance == nil || !abyssPartyDropOwnerModeFromEnv().perMember() {
 		return recipients
@@ -27,7 +29,8 @@ func partyDungeonDropRecipients(runtime *runtimeDungeonState, characterID uint16
 		if member == nil {
 			continue
 		}
-		recipients = append(recipients, dungeonDropRecipient{CharacterID: id, ActorKey: currentSceneActorObjectKey(id), AccountID: member.accountID, Session: member})
+		peerRuntime := instance.memberRuntimes[id]
+		recipients = append(recipients, dungeonDropRecipient{LukeRepeat: peerRuntime != nil && peerRuntime.lukeRepeat, CharacterID: id, ActorKey: currentSceneActorObjectKey(id), AccountID: member.accountID, Session: member})
 	}
 	return recipients
 }
@@ -55,6 +58,7 @@ func (s *Service) planPartyDungeonMonsterDrops(session *gameSession, runtime *ru
 	var all []currentDungeonDeathDropWire
 	for _, recipient := range recipients {
 		view := *runtime
+		view.lukeRepeat = recipient.LukeRepeat
 		if (dimensionMatched || s.currentPortedActivityEnabled(1054)) && recipient.CharacterID != session.selectedCharacterID {
 			character, err := s.loadDimensionDropCharacter(recipient.CharacterID)
 			if err != nil {

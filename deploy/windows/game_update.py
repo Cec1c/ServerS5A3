@@ -310,6 +310,13 @@ def checked_recovered_base(source, recovered, snapshot):
             "verifiedFiles": len(files), "gitAncestryRecovered": False, "allFilesMatched": True}
 
 
+def worker_supports_post_health(code):
+    """Historical workers remain usable until the remote exchange is present."""
+    return (b'POST_HEALTH_EDGE_REFRESH ' in code and
+            b'def await_post_health_edge(' in code and
+            b'await_post_health_edge(s,' in code)
+
+
 class Update:
     def __init__(self, profile, run_id):
         check_profile(profile)
@@ -355,12 +362,21 @@ class Update:
         return {"path": source, "already_applied": live_channel == spec["sha256"],
                 "manifest": {key: value for key, value in spec.items() if key != "source"}}
 
-    def ssh(self, argv, code=None, capture=True):
+    def ssh(self, argv, code=None, capture=True, timeout=None):
         return subprocess.run(["ssh", *SSH_OPTIONS, self.profile["ssh_alias"], shlex.join(argv)],
                               input=code, stdout=subprocess.PIPE if capture else None,
-                              stderr=subprocess.PIPE if capture else None, check=True)
+                              stderr=subprocess.PIPE if capture else None, check=True, timeout=timeout)
+
+    def worker_transport(self, mode, argv, capture, edge_evidence_sha):
+        if (mode == 'deploy' and edge_evidence_sha is not None and
+                worker_supports_post_health(self.worker_code)):
+            from post_health_edge import run as run_with_post_health_edge
+            return run_with_post_health_edge(
+                self, argv, capture, edge_evidence_sha, SSH_OPTIONS)
+        return self.ssh(argv, self.worker_code, capture=capture)
 
     def worker(self, mode, capture=True):
+        edge_evidence_sha = None
         argv = ["sudo", "-n", "python3", "-", mode, "--root", self.profile["remote_root"],
                 "--project", self.profile["compose_project"], "--run-id", self.run_id,
                 "--image-base", self.profile["runtime_base_image"]]
@@ -374,15 +390,16 @@ class Update:
             argv += ["--authority-nonce", receipt["nonce"], "--authority-proof-sha256", hashlib.sha256(raw).hexdigest()]
         if 'edge_ssh_alias' in self.profile:
             edge_args = ['sudo', '-n', 'python3', '-', 'edge-snapshot', '--root', self.profile.get('edge_remote_root', self.profile['remote_root'])]
-            result = subprocess.run(['ssh', *SSH_OPTIONS, self.profile['edge_ssh_alias'], shlex.join(edge_args)], input=self.worker_code, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            result = subprocess.run(['ssh', *SSH_OPTIONS, self.profile['edge_ssh_alias'], shlex.join(edge_args)], input=self.worker_code, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=600)
             value = json.loads(result.stdout)
             if value.get('format') != 1: raise ValueError('Invalid edge snapshot')
             raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+            edge_evidence_sha = hashlib.sha256(raw).hexdigest()
             path = self.profile['remote_root'] + '/runtime/game-update-edge/' + self.run_id + '.json'
             code = "from pathlib import Path; import os,sys; os.umask(0o077); p=Path(" + repr(path) + "); p.parent.mkdir(exist_ok=True); assert not p.is_symlink(); t=p.with_suffix('.new'); assert not t.exists(); t.write_bytes(sys.stdin.buffer.read()); os.replace(t,p)"
             self.ssh(['sudo', '-n', 'python3', '-c', code], raw)
-            argv += ['--edge-evidence', path, '--edge-evidence-sha256', hashlib.sha256(raw).hexdigest()]
-        return self.ssh(argv, self.worker_code, capture=capture)
+            argv += ['--edge-evidence', path, '--edge-evidence-sha256', edge_evidence_sha]
+        return self.worker_transport(mode, argv, capture, edge_evidence_sha)
 
     def probe(self, log):
         command = [part.format(root=str(ROOT), run_dir=str(self.stage)) for part in self.profile["probe_command"]]

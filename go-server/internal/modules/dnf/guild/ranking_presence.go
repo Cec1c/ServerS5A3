@@ -30,6 +30,23 @@ func (m *Member) observeRankingPresence(at time.Time) {
 	m.RankingPresence = &observation
 }
 
+// HasRankingPresenceFor reports whether the member's persisted RankingPresence
+// already records the ranking month and weekly login bucket for at.
+func (m Member) HasRankingPresenceFor(at time.Time) bool {
+	if at.IsZero() || m.RankingPresence == nil {
+		return false
+	}
+	month := RankingMonthStart(at)
+	if !m.RankingPresence.Month.Equal(month) {
+		return false
+	}
+	week := rankingWeekIndex(at)
+	if week < 0 || week >= 6 {
+		return false
+	}
+	return m.RankingPresence.Weeks&(1<<week) != 0
+}
+
 func rankingWeeklyPresence(m Member, online bool, now time.Time) (float64, error) {
 	month := RankingMonthStart(now)
 	var observed uint8

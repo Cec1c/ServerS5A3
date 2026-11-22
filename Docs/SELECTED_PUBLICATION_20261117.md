@@ -47,7 +47,7 @@ Docker实例在放入配套客户端后可显式配置：
 }
 ```
 
-`tag_buff_group_sync` 接受 `off/auto/on`，默认off；auto对旧客户端保持旧格式，显式on拒绝不具备接收器的EXE。婚姻默认 `opposite_only`，`deny_male_male` 要求配套婚姻请求EXE。通过原始进程环境启用时，部署者仍须保证整个频道内的客户端和资源已配对；配置开关不提供逐连接版本协商。
+`tag_buff_group_sync` 接受 `off/auto/on`。新建配套 Docker 实例和推荐模板使用 `auto`，旧实例省略此字段时仍沿用旧格式。自动模式只为已经开启普通双组且通过本机 EXE 配对验证的实例启用帝国双组，显式 `on` 要求配套接收器。婚姻默认 `opposite_only`，`deny_male_male` 要求配套婚姻请求EXE。通过原始进程环境启用时，部署者仍须保证整个频道内的客户端和资源已配对；配置开关不提供逐连接版本协商。
 
 ## UDP容量
 

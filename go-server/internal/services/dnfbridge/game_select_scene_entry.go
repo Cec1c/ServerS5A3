@@ -139,20 +139,9 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 		"slot", slot,
 		"char_id", charID,
 		"packet_count", len(packets))
-	accountCera := uint32(0)
-	premiumEntries := []byte{0}
+	accountCera, premiumEntries := uint32(0), []byte{0}
 	if repos, ok := s.repositoryGroup(); ok {
-		if balance := s.loadCurrentAccountCera(ctx, repos, session); balance > 0 {
-			if balance > int64(^uint32(0)) {
-				balance = int64(^uint32(0))
-			}
-			accountCera = uint32(balance)
-		}
-		if repos.Account != nil {
-			if account, found, err := repos.Account.Load(ctx, s.accountIDForSession(session)); err == nil && found {
-				premiumEntries = currentSelectAckPremiumEntries(account, time.Now().UTC())
-			}
-		}
+		accountCera, premiumEntries = loadCurrentSelectAccountProjection(ctx, repos.Account, s.accountIDForSession(session), time.Now().UTC())
 	}
 	batched, batchErr := s.beginCurrentOrdinaryChannelSceneBatch(session)
 	timing.batched = batched
@@ -441,4 +430,24 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 		"reason", "preview_eviction_then_final_actor_binding_before_op27_and_full_state_after_op29",
 		"deferred_sequence", "validated_op16_op9_kind3_preview_remove_then_op5_final_mode0_actor_binding_mode1_op27_op28_op29_full_mode1_mode3")
 	return nil
+}
+
+func loadCurrentSelectAccountProjection(ctx context.Context, accounts dnfrepo.AccountRepository, accountID string, now time.Time) (uint32, []byte) {
+	accountCera := uint32(0)
+	premiumEntries := []byte{0}
+	if accounts == nil {
+		return accountCera, premiumEntries
+	}
+	account, found, err := accounts.Load(ctx, accountID)
+	if err != nil || !found {
+		return accountCera, premiumEntries
+	}
+	if balance := currentAccountCera(account); balance > 0 {
+		if balance > int64(^uint32(0)) {
+			balance = int64(^uint32(0))
+		}
+		accountCera = uint32(balance)
+	}
+	premiumEntries = currentSelectAckPremiumEntries(account, now)
+	return accountCera, premiumEntries
 }

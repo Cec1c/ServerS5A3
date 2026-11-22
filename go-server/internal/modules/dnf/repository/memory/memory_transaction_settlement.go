@@ -165,24 +165,19 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		mailboxTx = &memoryMailboxTransaction{characterID: characterID, record: repository.CloneMailbox(mailbox), exists: mailboxExists}
 	}
 	var comboSettingsTx *memorySettlementSettingsTransaction
-	guildSettingsTx := map[string]*memorySettingsTransaction{}
-	settingsScopes := []string{receiptScope}
-	if registry {
-		settingsScopes = append([]string{repository.GuildRegistryScope}, settingsScopes...)
-	}
-	settingsBefore := map[string]repository.SettingsRecord{}
-	settingsExisted := map[string]bool{}
+	var guildSettingsSet *memoryGuildSettingsTxSet
 	if owner != nil {
 		if u.settings == nil {
 			return repository.ErrGuildTransaction
 		}
-		for _, scope := range settingsScopes {
-			record, found, err := u.settings.Load(ctx, scope)
-			if err != nil {
+		guildSettingsSet = newMemoryGuildSettingsTxSet(u.settings, registry)
+		if registry {
+			if err := guildSettingsSet.preload(ctx, repository.GuildRegistryScope); err != nil {
 				return err
 			}
-			settingsBefore[scope], settingsExisted[scope] = record, found
-			guildSettingsTx[scope] = &memorySettingsTransaction{scope: scope, record: repository.CloneSettings(record), exists: found}
+		}
+		if err := guildSettingsSet.preload(ctx, receiptScope); err != nil {
+			return err
 		}
 	} else if u.settings != nil {
 		comboSettingsTx = &memorySettlementSettingsTransaction{
@@ -201,7 +196,7 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 		Skill:            skillTx,
 	}
 	if owner != nil {
-		txGroup.Settings = memorySettlementSettings(guildSettingsTx)
+		txGroup.Settings = guildSettingsSet
 		if mailboxTx != nil {
 			txGroup.Mailbox = mailboxTx
 		}
@@ -284,13 +279,16 @@ func (u *memoryCharacterSettlementUnitOfWork) withinSettlement(ctx context.Conte
 	}
 	// The shared aggregate mutex remains held until these durable records commit.
 	if owner != nil {
-		for _, scope := range settingsScopes {
-			tx := guildSettingsTx[scope]
+		for _, scope := range guildSettingsSet.order {
+			tx := guildSettingsSet.txs[scope]
 			if tx == nil || !tx.dirty {
 				continue
 			}
+			restoreScope := scope
+			restoreBefore := guildSettingsSet.before[scope]
+			restoreExisted := guildSettingsSet.existed[scope]
 			undo = append(undo, func() error {
-				return restoreSettingsRecord(u.settings, scope, settingsBefore[scope], settingsExisted[scope], true)
+				return restoreSettingsRecord(u.settings, restoreScope, restoreBefore, restoreExisted, true)
 			})
 			if err := u.settings.Save(ctx, tx.record); err != nil {
 				return err
@@ -370,7 +368,7 @@ func restoreQuestRecordIfDirty(
 	return deleter.Delete(context.Background(), characterID)
 }
 
-// Only the two explicitly loaded settings records are accessible.
+// Only explicitly preloaded settings records are accessible.
 type memorySettlementSettings map[string]*memorySettingsTransaction
 
 func (s memorySettlementSettings) Load(ctx context.Context, scope string) (repository.SettingsRecord, bool, error) {

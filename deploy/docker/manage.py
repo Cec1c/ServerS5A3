@@ -11,6 +11,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "runtime" / "docker"
@@ -55,16 +56,20 @@ def checked_channel_catalog(catalog, channel_path):
     return catalog
 
 BUFF_GROUP_SYNC_KEY = "DNFBRIDGE_BUFF_GROUP_SYNC"
+RAID_SHOP_CLIENTS = frozenset((
+    "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
+    "e3e1b2bb2fdf689a82216923d1516505c606cc4ec56cfc81fa1bab527dd52ef8",
+    "fb2db71ee7cb4956e91891eea9731a2999cbb3694e681801e139239833458927",
+    "21a9ed0b0c86e8e3a95f7b6c84270025c91219d3df3e9143bdd6629264c9166e",
+))
 TAG_BUFF_CLIENTS = frozenset((
     "40657c19955dc2f594fc2221ef91044170d86406ba6fd193cdb1839877f28cb0",
     "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
-    "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
-))
+)) | RAID_SHOP_CLIENTS
 WEDDING_FEMALE_CLIENTS = frozenset((
     "f16d3bf48b6b802378fb066eaab96add8132c6406d7941a6d8d60328e47f6d8b",
     "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
-    "a853463e2e6b05b6a0f779a8fa27c0787432331b29c517d331574820d3cf43cf",
-))
+)) | RAID_SHOP_CLIENTS
 BUFF_GROUP_CLIENTS = {
     "69ea3a8b38d70af340baed28ec03e88162e7d3e434f5f99c9d5b71dafc12f544": "on",  # V212
     "a28601e349a65a1ec0356995b693a326620d81887031c17b76b5b73daaeb5216": "on",  # V213
@@ -74,9 +79,23 @@ BUFF_GROUP_CLIENTS = {
     "bc613e368e8fd49c50c35163f2ed8a28564fc23342701a5a6c22b839f3bf6b7a": "off",  # legacy v56
 }
 
+BLACK_DIAMOND_SECRET_SHOP_KEY = "DNFBRIDGE_BLACK_DIAMOND_SECRET_SHOP"
+BLACK_DIAMOND_SECRET_SHOP_CLIENTS = frozenset((
+    "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84",
+    "40657c19955dc2f594fc2221ef91044170d86406ba6fd193cdb1839877f28cb0",
+    "f16d3bf48b6b802378fb066eaab96add8132c6406d7941a6d8d60328e47f6d8b",
+    "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4",
+)) | RAID_SHOP_CLIENTS
+
 RUNTIME_COMPATIBILITY_VALUES = {
     "DNFBRIDGE_BUFF_GROUP_SYNC": ("off", "on"),
     "DNFBRIDGE_EXPERIMENTAL_PEAK": ("off", "on"),
+    "DNFBRIDGE_MILEAGE_SHOP_ENABLED": ("off", "on"),
+    BLACK_DIAMOND_SECRET_SHOP_KEY: ("off", "on"),
+    "DNFBRIDGE_MAP_CACHE": ("true", "false", "on", "off"),
+    "DNFBRIDGE_PVF_READ_CACHE_MIB": None,
+    "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS": None,
+    "DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC": None,
     "DNFBRIDGE_MYSQL_INSERT_BATCH": None,
     "DNFBRIDGE_INVENTORY_SAVE_SCOPE": ("collection", "slot"),
     "DNFBRIDGE_EQUIPMENT_SAVE_SCOPE": ("collection", "entry"),
@@ -108,18 +127,6 @@ def party_udp_relay_port_count(config):
     return value
 
 
-def reviewed_client_sha256(config):
-    directory = config.get("client_dir")
-    executable = Path(directory) / "DNF.exe" if isinstance(directory, str) else None
-    if executable is None or not executable.is_file():
-        raise ValueError("paired client option requires DNF.exe in client_dir")
-    with executable.open("rb") as handle:
-        digest = hashlib.sha256()
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-        return digest.hexdigest()
-
-
 def selected_client_protocol_env(config, buff_group_sync):
     mode = config.get("tag_buff_group_sync", "off")
     if type(mode) is not str or mode not in ("off", "auto", "on"):
@@ -129,15 +136,19 @@ def selected_client_protocol_env(config, buff_group_sync):
         raise ValueError("wedding_gender_policy must be opposite_only or deny_male_male")
     env = {"DNFBRIDGE_TAG_BUFF_GROUP_SYNC": "off",
            "DNFBRIDGE_WEDDING_GENDER_POLICY": policy}
-    if mode != "off" or policy == "deny_male_male":
-        if config.get("client_version", "official-24.9") != "official-24.9":
+    explicit_pairing = mode == "on" or policy == "deny_male_male"
+    if config.get("client_version", "official-24.9") != "official-24.9":
+        if explicit_pairing:
             raise ValueError("selected client options require official-24.9")
-        identity = reviewed_client_sha256(config)
-        if mode == "on" and identity not in TAG_BUFF_CLIENTS:
-            raise ValueError("tag Buff groups require the exact paired receiver")
-        if mode != "off" and identity in TAG_BUFF_CLIENTS:
+        return env
+    if explicit_pairing or (mode == "auto" and buff_group_sync == "on"):
+        identity = client_executable_sha256(config)
+        if mode == "on":
+            if identity not in TAG_BUFF_CLIENTS:
+                raise ValueError("tag Buff groups require the exact paired receiver")
             if buff_group_sync != "on":
                 raise ValueError("tag Buff groups require buff_group_sync on")
+        if mode != "off" and identity in TAG_BUFF_CLIENTS and buff_group_sync == "on":
             env["DNFBRIDGE_TAG_BUFF_GROUP_SYNC"] = "on"
         if policy == "deny_male_male" and identity not in WEDDING_FEMALE_CLIENTS:
             raise ValueError("wedding gender policy requires the exact paired client")
@@ -158,8 +169,26 @@ def runtime_compatibility_env(config):
             raise ValueError(f"runtime_compatibility value must be a string: {key}")
         allowed = RUNTIME_COMPATIBILITY_VALUES[key]
         if allowed is None:
-            if not re.fullmatch(r"[0-9]+", value) or not 1 <= int(value) <= 1000:
-                raise ValueError("DNFBRIDGE_MYSQL_INSERT_BATCH must be an integer from 1 to 1000")
+            if key == "DNFBRIDGE_MYSQL_INSERT_BATCH":
+                if not re.fullmatch(r"[0-9]+", value) or not 1 <= int(value) <= 1000:
+                    raise ValueError("DNFBRIDGE_MYSQL_INSERT_BATCH must be an integer from 1 to 1000")
+            elif key == "DNFBRIDGE_PVF_READ_CACHE_MIB":
+                if value not in ("off", "none", "unbounded") and (
+                    not re.fullmatch(r"[0-9]+", value) or not 0 <= int(value) <= 4096
+                ):
+                    raise ValueError("DNFBRIDGE_PVF_READ_CACHE_MIB must be off/none/unbounded or an integer from 0 to 4096")
+            elif key == "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS":
+                if value not in ("off", "false", "none") and (
+                    not re.fullmatch(r"[0-9]+", value) or not 0 <= int(value) <= 5000
+                ):
+                    raise ValueError("DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS must be off/false/none or an integer from 0 to 5000")
+            elif key == "DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC":
+                if value not in ("off", "false", "none") and (
+                    not re.fullmatch(r"[0-9]+", value) or not 0 <= int(value) <= 3600
+                ):
+                    raise ValueError("DNFBRIDGE_GUILD_PRESENCE_PERSIST_MIN_INTERVAL_SEC must be off/false/none or an integer from 0 to 3600")
+            else:
+                raise ValueError(f"runtime_compatibility contains unsupported key: {key}")
         elif value not in allowed:
             raise ValueError(f"runtime_compatibility value is not allowed: {key}={value}")
         validated[key] = value
@@ -181,16 +210,57 @@ def buff_group_sync_env(config, compatibility):
         return mode  # Old instance files retain their unconfigured behavior.
     if config.get("client_version", "official-24.9") != "official-24.9":
         return "off"
-    client_dir = config.get("client_dir")
-    if not client_dir:
+    identity = client_executable_sha256(config)
+    if identity is None:
+        if config.get("client_dir"):
+            raise ValueError("buff_group_sync auto requires DNF.exe in client_dir; select on for V212+ or off for a legacy client")
         return "on"  # A fresh server-only installation targets the current public client.
-    executable = Path(client_dir) / "DNF.exe"
-    if not executable.is_file():
-        raise ValueError("buff_group_sync auto requires DNF.exe in client_dir; select on for V212+ or off for a legacy client")
-    mode = BUFF_GROUP_CLIENTS.get(digest(executable))
+    mode = BUFF_GROUP_CLIENTS.get(identity)
     if mode is None:
         raise ValueError("buff_group_sync auto does not recognize DNF.exe; select the verified on/off client protocol explicitly")
     return mode
+
+
+def client_executable_sha256(config):
+    configured = config.get("client_exe_sha256")
+    if configured is not None and (not isinstance(configured, str)
+                                   or not re.fullmatch(r"[0-9a-f]{64}", configured)):
+        raise ValueError("client_exe_sha256 must be a lowercase SHA256")
+    # A deployment-generated identity describes the EXE being activated. The
+    # optional local client_dir may still point at an older checkout and must
+    # not veto a reviewed paired update or its rollback.
+    if configured is not None:
+        return configured
+    client_dir = config.get("client_dir")
+    if client_dir:
+        executable = Path(client_dir) / "DNF.exe"
+        if executable.is_file():
+            return digest(executable)
+    return None
+
+
+def black_diamond_secret_shop_env(config, compatibility):
+    """Resolve off/on solely from an exact reviewed client identity."""
+    configured = config.get("black_diamond_secret_shop")
+    relevant = (configured is not None or "client_exe_sha256" in config or
+                BLACK_DIAMOND_SECRET_SHOP_KEY in compatibility)
+    if not relevant:
+        return None
+    mode = "auto" if configured is None else configured
+    if mode not in ("auto", "on", "off"):
+        raise ValueError("black_diamond_secret_shop must be auto, on or off")
+    explicit = compatibility.get(BLACK_DIAMOND_SECRET_SHOP_KEY)
+    if explicit is not None and explicit not in ("off", "on"):
+        raise ValueError("DNFBRIDGE_BLACK_DIAMOND_SECRET_SHOP must be off or on")
+    if explicit is not None:
+        if mode in ("on", "off") and mode != explicit:
+            raise ValueError("black_diamond_secret_shop conflicts with runtime_compatibility")
+        mode = explicit
+    client_version = config.get("client_version", "official-24.9")
+    executable_sha256 = client_executable_sha256(config)
+    if mode == "off" or client_version != "official-24.9":
+        return "off"
+    return "on" if executable_sha256 in BLACK_DIAMOND_SECRET_SHOP_CLIENTS else "off"
 
 
 def run(*args, capture=False):
@@ -218,6 +288,26 @@ def private_ipv4(value):
                ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")):
         raise ValueError("Use an RFC1918 private LAN IPv4 for this local profile")
     return str(address)
+
+
+def advertised_ipv4(value):
+    if not isinstance(value, str):
+        raise ValueError("public_host must be a public IPv4 literal")
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ValueError:
+        raise ValueError("public_host must be a public IPv4 literal") from None
+    if not address.is_global or address.is_multicast or address.is_reserved:
+        raise ValueError("public_host must be a globally routable unicast IPv4 address")
+    return str(address)
+
+
+def player_endpoints(config, catalog):
+    """Resolve the addresses used by Compose, the channel directory and deployment readback."""
+    bind = private_ipv4(config["host_ip"])
+    public = config.get("public_host")
+    advertised = bind if public in (None, "") else advertised_ipv4(public)
+    return bind, advertised, 7001
 
 
 def detect_ip():
@@ -264,11 +354,30 @@ def check_network(config):
                     raise ValueError(f"Docker subnet overlaps {network['Name']}; edit instance.json")
 
 
+def recommended_instance(config, preset):
+    """Fill missing instance fields and compatibility entries, preserving operator values."""
+    defaults = dict(preset)
+    default_compatibility = defaults.pop("runtime_compatibility")
+    compatibility = runtime_compatibility_env(config)
+    if BUFF_GROUP_SYNC_KEY in compatibility:
+        defaults.pop("buff_group_sync", None)
+    return {
+        **defaults,
+        **config,
+        "runtime_compatibility": {**default_compatibility, **compatibility},
+    }
+
+
 def prepare(args):
     instance = RUNTIME / "instance.json"
     existing = instance.exists()
+    apply_recommended = getattr(args, "apply_recommended", False)
+    if not existing or apply_recommended:
+        preset = json.loads((ROOT / "deploy/templates/docker-instance.recommended.json").read_text(encoding="utf8"))
     if existing:
-        config = json.loads(instance.read_text(encoding="utf-8"))
+        previous_instance = instance.read_bytes()
+        persisted = json.loads(previous_instance.decode("utf-8"))
+        config = dict(persisted)
         if args.host_ip:
             config["host_ip"] = private_ipv4(args.host_ip)
         if args.client_dir:
@@ -279,22 +388,46 @@ def prepare(args):
             "host_ip": private_ipv4(args.host_ip) if args.host_ip else detect_ip(),
             "subnet": "10.253.90.0/24", "server_ip": "10.253.90.2", "database_ip": "10.253.90.3",
             "database_password": secrets.token_hex(24), "root_password": secrets.token_hex(24),
-            "admin_token": secrets.token_hex(32), "joust_event_enabled": True,
+            "admin_token": secrets.token_hex(32), "joust_event_enabled": preset["joust_event_enabled"],
             "client_dir": str(Path(args.client_dir).resolve()) if args.client_dir else "",
             "body_codec": "plaintext", "client_body_codec": "plaintext",
             "default_group_login_only": True,
             "client_version": "official-24.9",
             "buff_group_sync": "auto",
+            "black_diamond_secret_shop": "auto",
         }
+    if getattr(args, "public_host", None) is not None:
+        config["public_host"] = args.public_host
     if getattr(args, "buff_group_sync", None) is not None:
         config["buff_group_sync"] = args.buff_group_sync
+    if getattr(args, "black_diamond_secret_shop", None) is not None:
+        config["black_diamond_secret_shop"] = args.black_diamond_secret_shop
+    if args.client_dir:
+        executable = Path(config["client_dir"]) / "DNF.exe"
+        if not executable.is_file():
+            raise ValueError("--client-dir must contain DNF.exe")
+        config["client_exe_sha256"] = digest(executable)
     compatibility = runtime_compatibility_env(config)
+    if apply_recommended and "buff_group_sync" not in config and BUFF_GROUP_SYNC_KEY not in compatibility:
+        config["buff_group_sync"] = "auto"
     buff_group_sync = buff_group_sync_env(config, compatibility)
+    client_sha256 = config.get("client_exe_sha256")
+    if BUFF_GROUP_CLIENTS.get(client_sha256) == "off" and (
+            buff_group_sync == "on" or compatibility.get("DNFBRIDGE_MILEAGE_SHOP_ENABLED") == "on"):
+        raise ValueError("legacy DNF.exe requires buff_group_sync and DNFBRIDGE_MILEAGE_SHOP_ENABLED off")
+    confirmed_official_client = (config.get("client_version", "official-24.9") == "official-24.9"
+                                 and BUFF_GROUP_CLIENTS.get(client_sha256) == "on")
+    if (buff_group_sync == "on" and not existing) or (
+            apply_recommended and (buff_group_sync == "on" or confirmed_official_client)):
+        config = recommended_instance(config, preset)
+    elif apply_recommended:
+        raise ValueError("--apply-recommended requires a paired official client")
     if not existing and config["buff_group_sync"] == "auto":
         config["buff_group_sync"] = buff_group_sync
     management_token(config)
     channel_source = selected_channel_table(config, getattr(args, "channel_info", None), existing)
-    private_ipv4(config["host_ip"])
+    player_endpoints(config, {})
+    selected_client_protocol_env(config, buff_group_sync)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((config["host_ip"], 0))
     for key in ("database_password", "root_password", "admin_token"):
@@ -331,8 +464,13 @@ def prepare(args):
     (assets / channel_file).chmod(0o644)
     catalog["pvf_sha256"] = digest(target)
     write(assets / "manifest.json", json.dumps(catalog, indent=2) + "\n")
-    write(instance, json.dumps(config, indent=2) + "\n")
+    if existing and apply_recommended and config != persisted:
+        with tempfile.NamedTemporaryFile(dir=RUNTIME, prefix="instance.before-recommended-",
+                                         suffix=".json", delete=False) as previous:
+            previous.write(previous_instance)
+        print(f"Saved previous instance configuration: {previous.name}")
     generate(config, catalog)
+    write(instance, json.dumps(config, indent=2) + "\n")
     print(f"Prepared {catalog['channels']} real channels; configuration: {instance}")
 
 
@@ -434,6 +572,7 @@ def generate(c, catalog):
     if "town_display_only" in c and (type(town_display_only) is not str or town_display_only not in ("off", "on")):
         raise ValueError("town_display_only must be off or on")
     game_token = management_token(c)
+    bind_host, advertised_host, bootstrap_port = player_endpoints(c, catalog)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
         directory.mkdir(parents=True, exist_ok=True)
@@ -443,7 +582,7 @@ def generate(c, catalog):
 name = "dnfbridge"
 node_id = "dnfbridge-docker-1"
 environment = "local"
-public_addr = "{c['host_ip']}:7001"
+public_addr = "{advertised_host}:{bootstrap_port}"
 private_addr = "{c['server_ip']}:18111"
 [cluster]
 id = "local"
@@ -506,7 +645,7 @@ create_databases = false
         "DNFBRIDGE_GUILD_CONTRIBUTION_POLICY": contribution_policy,
         "DNFBRIDGE_GUILD_HONGBAO_ENABLED": str(guild_hongbao).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
-        "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
+        "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": advertised_host,
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",
         "DNFBRIDGE_CHANNEL_INFO_BODY_MODE": "latest", "DNFBRIDGE_CHANNEL_SERVER_INDEX": "1",
         "DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": str(advertised_server), "DNF_SCRIPT_VERSION": "59",
@@ -535,6 +674,9 @@ create_databases = false
     if percent is not None:
         env["DNFBRIDGE_MAIN_QUEST_EXP_PERCENT"] = str(percent)
     env.update(compatibility_env)
+    shop = black_diamond_secret_shop_env(c, compatibility_env)
+    if shop is not None:
+        env[BLACK_DIAMOND_SECRET_SHOP_KEY] = shop
     if buff_group_sync is not None:
         env[BUFF_GROUP_SYNC_KEY] = buff_group_sync
     if encoding is not None:
@@ -561,8 +703,8 @@ create_databases = false
                        "depends_on": {"db": {"condition": "service_healthy"}}, "mem_limit": c.get("server_memory_limit", "4g"), "logging": logging,
                        "networks": {"private": {"ipv4_address": c["server_ip"]}},
                        "ports": [f"127.0.0.1:{p}:{p}/tcp" for p in (7001, 17002, 18111)] +
-                                [f"{c['host_ip']}:{p}:{p}/tcp" for p in catalog["ports"]] +
-                                [f"{c['host_ip']}:30000-{29999 + relay_count}:30000-{29999 + relay_count}/udp"],
+                                [f"{bind_host}:{p}:{p}/tcp" for p in catalog["ports"]] +
+                                [f"{bind_host}:30000-{29999 + relay_count}:30000-{29999 + relay_count}/udp"],
                        "healthcheck": {"test": ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", f"http://{c['server_ip']}:17002/api/status"],
                                        "start_period": "180s", "interval": "10s", "timeout": "5s", "retries": 12}},
         },
@@ -584,7 +726,11 @@ def main():
     parser.add_argument("action", choices=("prepare", "build", "up", "down", "status", "logs"))
     parser.add_argument("--pvf")
     parser.add_argument("--host-ip")
+    parser.add_argument("--public-host", help="Player-facing public IPv4; pass an empty value to use the private host address")
+    parser.add_argument("--apply-recommended", action="store_true",
+                        help="Fill settings missing from an existing paired instance using the recommended template")
     parser.add_argument("--client-dir")
+    parser.add_argument("--black-diamond-secret-shop", choices=("auto", "on", "off"))
     parser.add_argument("--buff-group-sync", choices=("auto", "on", "off"),
                         help="Fresh installs select V212+ automatically; use off only for a legacy client")
     parser.add_argument("--channel-info", help="Explicit path to the common 120-channel baseline; fresh installs use the bundled table")

@@ -110,3 +110,13 @@ func (s *mysqlCharStore) QueryClears(ctx context.Context, q moderation.Query) (m
 	}
 	return out, rows.Err()
 }
+
+func (s *mysqlCharStore) HasDungeonClearSince(ctx context.Context, character string, dungeon int64, since time.Time) (bool, error) {
+	table, err := s.router.writeTable("clear_history", character)
+	if err != nil {
+		return false, err
+	}
+	var cleared bool
+	err = s.router.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+table+" WHERE character_id=? AND dungeon_id=? AND finished_at>=?)", character, dungeon, since.UTC()).Scan(&cleared)
+	return cleared, err
+}

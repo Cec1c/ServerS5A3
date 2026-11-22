@@ -116,6 +116,22 @@ func CommitTeleport(ctx context.Context, uow r.GuildUnitOfWork, q TeleportQuery,
 			result = old
 			return nil
 		}
+		archived, archivedFound, archiveErr := LoadArchivedReceipt(ctx, tx.Settings, q.RequestID)
+		if archiveErr != nil {
+			return archiveErr
+		}
+		if archivedFound {
+			if archived.Kind != ArchivedReceiptKindTeleport || archived.Teleport == nil {
+				return ErrPurchaseIdentity
+			}
+			old := *archived.Teleport
+			want.At = old.At
+			if !teleportReceiptEqual(want, old) {
+				return ErrPurchaseIdentity
+			}
+			result = old
+			return nil
+		}
 		benefit := g.Benefits[7]
 		if benefit.Type != 7 || benefit.Value == 0 || !benefit.ExpiresAt.IsZero() {
 			return ErrTeleportUnavailable
@@ -142,6 +158,9 @@ func CommitTeleport(ctx context.Context, uow r.GuildUnitOfWork, q TeleportQuery,
 			reg.Teleports = make(map[string]TeleportReceipt)
 		}
 		reg.Teleports[q.RequestID] = result
+		if _, err := archiveExpiredTeleports(ctx, tx.Settings, &reg, now, guildInlineArchiveBatch); err != nil {
+			return err
+		}
 		if !q.Revalidate() {
 			return ErrTeleportUnavailable
 		}
