@@ -60,10 +60,14 @@ func (mode partyPeerEndpointsAfterRosterMode) repeats() bool {
 // readPartyPeerEndpointsAfterRosterMode 解析 DNFBRIDGE_PARTY_PEER_ENDPOINTS_AFTER_ROSTER。
 // **默认 off**：空/未设置/非法值都是现行为，只有显式写 `repeat` 才补发第二次 op11。
 func readPartyPeerEndpointsAfterRosterMode(value string) partyPeerEndpointsAfterRosterMode {
-	if strings.EqualFold(strings.TrimSpace(value), partyPeerEndpointsAfterRosterValueRepeat) {
-		return partyPeerEndpointsAfterRosterRepeat
+	// 默认档改为 repeat：op9 建好 CUser 槽位后再补发一次 op11，
+	// 否则首次组队时端点可能落在临时对象上，客户端握手超时变成防火墙报错。
+	// 显式写 off/legacy/default 时回到"只发一次"的旧行为。
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case partyPeerEndpointsAfterRosterValueOff, "legacy", "default", "current", "before", "before_only":
+		return partyPeerEndpointsAfterRosterOff
 	}
-	return partyPeerEndpointsAfterRosterOff
+	return partyPeerEndpointsAfterRosterRepeat
 }
 
 // partyPeerEndpointsAfterRoster 返回当前 Service 的归一化档位（零值 options 的

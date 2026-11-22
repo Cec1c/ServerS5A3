@@ -672,24 +672,8 @@ func (s *Service) registerHellPartyRewardDrops(
 	if runtime == nil || len(selected) == 0 {
 		return nil, nil
 	}
-	if currentDungeonGroundDropsDisabled(runtime) {
+	if currentTeamRaidGroundDropsDisabled(runtime) {
 		return nil, nil
-	}
-	if runtime.raidEntry != nil && runtime.raidEntry.singleLukeMode {
-		kept := make([]hellPartyRewardItem, 0, len(selected))
-		for _, item := range selected {
-			definition, err := request.dropCatalog.ResolveItem(item.ItemID)
-			if err != nil {
-				return nil, err
-			}
-			if !singleLukeMaterialSuppressed(runtime, definition) {
-				kept = append(kept, item)
-			}
-		}
-		selected = kept
-		if len(selected) == 0 {
-			return nil, nil
-		}
 	}
 	owner := runtime.DropOwner
 	if owner == nil {

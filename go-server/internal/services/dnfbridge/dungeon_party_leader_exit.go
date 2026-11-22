@@ -208,9 +208,11 @@ func (s *Service) disbandRuntimePartyOnDungeonLeaderExit(
 	online := make([]*gameSession, 0, len(members))
 	for _, member := range members {
 		identity, ok := s.onlineGameSessionCharacterSnapshot(member.UserID)
-		if !ok || identity.generation != beforeMemberGeneration(before, member.UserID) {
+		if !ok || identity.session == nil {
 			continue
 		}
+		// 代次不同只说明该成员在离队前后重连过（切场景重连很常见），解散帧
+		// 仍然发给他当前这条会话；此前按代次跳过会让客户端队伍框残留。
 		s.clearRuntimePartyProjection(member.UserID, identity.generation)
 		online = append(online, identity.session)
 	}

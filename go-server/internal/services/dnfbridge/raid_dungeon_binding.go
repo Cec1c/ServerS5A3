@@ -228,13 +228,20 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 		// The eight raid numbers are permanent seats, not the temporary combat
 		// party. Freeze that party's identity separately for encounter cleanup.
 		if entry.fiendWarParty == nil {
-			if snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(session.selectedCharacterID, session.characterGeneration); found {
+			snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(session.selectedCharacterID, session.characterGeneration)
+			{
 				ids := make([]uint16, 0, len(snapshot.Members))
 				for _, member := range snapshot.Members {
 					ids = append(ids, member.UserID)
 				}
-				if sameRaidParticipants(ids, entry.Participants) {
+				s.logGameEvent(session, "game-fiendwar-party-bind-probe",
+					"char_id", session.selectedCharacterID, "found", found,
+					"party_members", len(ids), "participants", len(entry.Participants),
+					"match", found && sameRaidParticipants(ids, entry.Participants),
+					"generation", session.characterGeneration)
+				if found && sameRaidParticipants(ids, entry.Participants) {
 					entry.fiendWarParty = &snapshot
+
 				}
 			}
 		}
@@ -270,6 +277,13 @@ func (s *Service) freezeCurrentRaidDungeonGroupEntry(session *gameSession, runti
 			copy.fiendWarOrigin.CharacterID = target.session.selectedCharacterID
 		}
 		target.runtime.raidEntry = &copy
+		if b.FiendWar != nil {
+			// 这里是 entry 真正挂到每个成员运行态的收口点：按队伍 ID 记下快照，
+			// 之后无论回程走服务端提交点还是客户端切场景重连，都能收口。
+			if snapshot, found := s.runtimePartyManagerForService().SnapshotByUser(target.session.selectedCharacterID, 0); found {
+				s.rememberFiendWarEncounterParty(copy.RaidKey, snapshot, false)
+			}
+		}
 		if b.Mode == 1 && !b.Single {
 			freezeCurrentAntonMapReturnOwner(target.session, target.runtime)
 		}

@@ -1,0 +1,12 @@
+[repository]
+enabled = true
+mysql_dsn = "dnf:CHANGE_ME@tcp(10.253.90.2:3306)/dnf_local?parseTime=true&charset=utf8mb4,utf8"
+mysql_max_open_conns = 32
+mysql_max_idle_conns = 8
+mysql_conn_max_lifetime_seconds = 300
+shard_id = "9999"
+table_prefix = "dnf"
+server_group_plan_file = "configs/servergroup/plan.json"
+auto_create_schema = true
+csharp_legacy_schema = true
+create_databases = false

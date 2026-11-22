@@ -26,6 +26,10 @@ func (s *Service) persistCurrentDungeonRoomClearQuestLocked(session *gameSession
 		session.dungeon.runtime != runtime || !dungeonRuntimeOwnsCharacter(runtime, session.selectedCharacterID) {
 		return nil
 	}
+	// 零分配门面短路：房间未清空或运行状态非 Active 时不触发 Snapshot() 全量深拷贝。
+	if !runtime.Session.IsCleared() || runtime.Session.RunStatus() != worldmap.DungeonRunActive {
+		return nil
+	}
 	snapshot := runtime.Session.Snapshot()
 	scene := snapshot.Scene
 	if snapshot.Run.Status != worldmap.DungeonRunActive || snapshot.Run.DungeonID != runtime.Dungeon.ID ||

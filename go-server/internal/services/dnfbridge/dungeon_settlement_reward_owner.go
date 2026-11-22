@@ -30,7 +30,7 @@ var (
 const (
 	// Type 29 / item 193 are auction-discount tickets, not Black Diamond.
 	currentDungeonBlackDiamondPremiumType int64 = premium.TypeBlackDiamond
-	currentDungeonBlackDiamondBonusRate         = 0.05
+	currentDungeonBlackDiamondBonusRate         = 0.10
 )
 
 type currentDungeonSettlementRewardResources struct {
@@ -550,7 +550,7 @@ func currentDungeonScoreBonusExp(base uint32, resources currentDungeonSettlement
 	return uint32(bonus)
 }
 
-// currentBlackDiamondBonusExp returns +5% clear experience when the account
+// currentBlackDiamondBonusExp returns +10% clear experience when the account
 // has an active Black Diamond entitlement. Auction coupons do not qualify.
 func (s *Service) currentBlackDiamondBonusExp(ctx context.Context, accountID string, base uint32) uint32 {
 	if s == nil || base == 0 || strings.TrimSpace(accountID) == "" {
@@ -755,7 +755,6 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		}
 	}
 	result, err := owner.CommitSettlement(ctx, dnfdungeon.SettlementCommand{
-		MileageEnabled:         s.options.mileageShopEnabled,
 		WeddingCapsule:         capsule,
 		BattlePassDungeonKind:  currentBattlePassAdaptedDungeonKind(runtime),
 		BattlePassNoCoinClear:  currentBattlePassDungeonClear(runtime) && !runtime.battlePassCoinUsed,
@@ -792,9 +791,6 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 		return currentDungeonSettlementCommitResult{}, err
 	}
 	runtime.settlementLuckyStar = result.LuckyStar
-	if err := s.sendCurrentMileageState(session); err != nil {
-		s.logGameEvent(session, "game-mileage-clear-state-deferred", "error", err)
-	}
 	if capsule != nil {
 		if err := s.sendCurrentWeddingCapsuleGauge(session, result.Character); err != nil {
 			s.logGameEvent(session, "game-wedding-capsule-gauge-projection-deferred", "error", err)

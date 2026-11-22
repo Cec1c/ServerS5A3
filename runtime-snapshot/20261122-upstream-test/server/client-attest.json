@@ -1,0 +1,12 @@
+{
+  "mode": "off",
+  "versions": [
+    {
+      "label": "v211-cpp-20261120-x86",
+      "exe": "b4b36b10b58a7962a09c9265df8190ed45ae3dac974956217c29cda890537e10",
+      "pvf": "d505f28ed6a71606970bc7dc887315832a66aa56152bfa6745ad331eefb7dcaf",
+      "launcher": "13736a1ca69795016cf79d6c81412e512e95bc7789d42ee14a682e3c4a0237e4",
+      "note": "32 位登录器；多开钩子改为恢复后安装 + Toolhelp 兜底"
+    }
+  ]
+}

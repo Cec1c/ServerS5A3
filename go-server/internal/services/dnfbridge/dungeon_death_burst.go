@@ -11,7 +11,9 @@ import (
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-const currentDungeonDeathBurstLimit = 32
+// 单次会话事件最多连续消费 8 只怪物死亡，剩余击杀由外层读流循环继续接续处理，
+// 在保持 op39/op38 包序、升级边界与经验合并语义完全不变的前提下避免清房瞬间长时间阻塞事件循环与集中分配。
+const currentDungeonDeathBurstLimit = 20
 
 // 与NPC已有读块收集共用拆包边界；坏帧或EOF交回原循环，先处理此前完整请求。
 func (s *Service) collectCurrentDungeonDeathReadyPackets(session *gameSession, ahead *nativeResultReadAhead,
@@ -36,7 +38,9 @@ func (s *Service) collectCurrentDungeonDeathReadyPacketsBudget(session *gameSess
 		if chunk.err != nil {
 			return packets, remaining, &chunk
 		}
-		joined := append(append([]byte(nil), remaining...), chunk.data...)
+		joined := make([]byte, len(remaining)+len(chunk.data))
+		copy(joined, remaining)
+		copy(joined[len(remaining):], chunk.data)
 		more, tail, skipped, err := dnfproto.SplitLatestGameStream(joined, s.options.maxPacketBytes)
 		if err != nil || skipped != 0 {
 			return packets, remaining, &chunk
@@ -101,7 +105,7 @@ func currentDungeonDeathBurstSpan(packets []dnfproto.LatestGameStreamPacket) int
 func (s *Service) currentDungeonDeathBurstEnabled(session *gameSession) bool {
 	runtime := session.dungeon.runtime
 	return s.options.currentClientVersion == "official-24.9" && runtime != nil && runtime.Room != nil &&
-		runtime.Tournament == nil && runtime.raidEntry == nil && runtime.guildPractice == nil && !currentFriendlyGuildPractice(runtime)
+		runtime.Tournament == nil && runtime.guildPractice == nil && !currentFriendlyGuildPractice(runtime)
 }
 
 func (s *Service) activeCurrentDungeonDeathBurst(session *gameSession, runtime *runtimeDungeonState) *currentDungeonDeathBurst {
@@ -154,8 +158,13 @@ func (s *Service) handleCurrentDungeonDeathBurstWithContinuation(session *gameSe
 ) (consumed int, resultErr error) {
 	runtime := session.dungeon.runtime
 	if s.currentDungeonDeathBurstEnabled(session) && (len(packets) > 1 || next != nil) {
+		initCap := len(packets)
+		if initCap < 4 {
+			initCap = 4
+		}
 		session.dungeonDeathBurst = &currentDungeonDeathBurst{runtime: runtime, room: runtime.Room,
 			character: session.selectedCharacterID, generation: session.characterGeneration,
+			pending: make([]currentDungeonDeathBurstAward, 0, initCap),
 			projectedEXP: statU32(runtime.Character, "exp", 0), deferRewards: true}
 		defer func() {
 			// 即使某次死亡通知写失败，已确认的死亡仍须执行原经验提交。

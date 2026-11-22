@@ -21,6 +21,8 @@ import (
 )
 
 type gameSession struct {
+	fiendWarPartyClearOnTownSceneReady bool
+	dungeonReturnAliasRetirePending uint32
 	blackDiamondCoinQueued     atomic.Bool                   // bounded selected-owner delivery event
 	npcShopDiagnostics         currentNPCShopDiagnosticState // separately locked, bounded per connection
 	accountFriendPresence      accountFriendPresenceKey      // guarded by Service.mu
@@ -510,6 +512,7 @@ type gameSession struct {
 // by party.RuntimePartyManager; this cache exists solely to shape the current
 // EXE's existing party packets.
 type partySessionState struct {
+	clientBinding partyClientBindingState
 	mu    sync.Mutex
 	state alignedcmd.PartyState
 }

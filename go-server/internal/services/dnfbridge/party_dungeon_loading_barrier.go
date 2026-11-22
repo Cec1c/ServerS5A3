@@ -158,7 +158,8 @@ type partyDungeonLoadingCycle struct {
 	// admissions coalesces work waiting for capacity or execution. Placement-only
 	// and finish-tail requests are separate phases: a timeout may place a member
 	// before that member has sent op37. Protected by partyDungeonLoadingMu.
-	admissions map[partyDungeonLoadingAdmissionKey]*partyDungeonLoadingAdmission
+	admissions         map[partyDungeonLoadingAdmissionKey]*partyDungeonLoadingAdmission
+	characterSnapshots *partyLoadingCharacterSnapshotCache
 }
 
 type partyDungeonLoadingAdmissionKey struct {
@@ -580,11 +581,19 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 	for id, owner := range expected.owners {
 		owners[id] = owner
 	}
+	if expected.characterSnapshots == nil {
+		expected.characterSnapshots = newPartyLoadingCharacterSnapshotCache(len(members))
+	}
+	snapshots := expected.characterSnapshots
 	if expected.preparing == nil {
 		expected.preparing = make(map[uint16]*partyLoadingPreparation)
 		for _, id := range members {
 			if owner, ok := owners[id]; ok && owner.session != nil && owner.runtime != nil {
-				expected.preparing[id] = &partyLoadingPreparation{owner: owner, wantTail: releaseTail[id]}
+				expected.preparing[id] = &partyLoadingPreparation{
+					owner:              owner,
+					wantTail:           releaseTail[id],
+					characterSnapshots: snapshots,
+				}
 			}
 		}
 		expected.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() { s.checkPartyLoadingPreparation(partyID, expected, "prepare_watchdog") })
@@ -595,6 +604,8 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 		}
 	}
 	s.partyDungeonLoadingMu.Unlock()
+	// 在工作线程并发预热全队角色+装备快照，避免 4 条事件循环同时阻塞于重复 MySQL 查询。
+	s.prewarmPartyLoadingCharacterSnapshots(snapshots, members, owners)
 	// Each member keeps its own session loop, bounded dispatch wait and the existing
 	// cycle/owner guard. Only the wait for the previous member is removed: the
 	// callbacks are submitted to their own loops at the same time instead of one
@@ -659,6 +670,7 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 		if retiredPlan {
 			return nil
 		}
+		releaseStarted := time.Now()
 		if plan != nil && phase == 0 {
 			s.partyDungeonLoadingMu.Lock()
 			prepared := plan.ready || expected.activationScheduled
@@ -669,21 +681,40 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 			}
 			session.partyLoadingPrepared = plan
 			defer func() { session.partyLoadingPrepared = nil }()
+			t0 := time.Now()
 			err := s.restoreCurrentRaidSessionProjection(session, "shared_loading_prepare")
+			restoreMS := time.Since(t0).Milliseconds()
+			t1 := time.Now()
 			if err == nil {
 				err = s.sendPendingPostStartMapPlayerPlacement(session, "party_dungeon_shared_loading_barrier")
 			}
+			placementMS := time.Since(t1).Milliseconds()
+			t2 := time.Now()
 			if err == nil && prepareTail {
 				plan.finishBody, err = s.prepareCurrentFinishLoadingCharacterStateSnapshot(session, "shared_loading_prepare")
 			}
+			prepareTailMS := time.Since(t2).Milliseconds()
 			if err != nil {
 				session.partyLoadingPrepared = nil
-				s.logGameEvent(session, "game-party-loading-prepare-failed", "char_id", charID, "error", err)
+				s.logGameEvent(session, "game-party-loading-prepare-failed", "char_id", charID,
+					"restore_ms", restoreMS, "placement_ms", placementMS, "prepare_tail_ms", prepareTailMS, "error", err)
 				return err
+			}
+			totalMS := time.Since(releaseStarted).Milliseconds()
+			plan.prepareRestoreMS = restoreMS
+			plan.preparePlacementMS = placementMS
+			plan.prepareTailMS = prepareTailMS
+			plan.prepareTotalMS = totalMS
+			if totalMS >= 100 {
+				s.logGameEvent(session, "game-party-dungeon-loading-prepare-timing",
+					"party_id", partyID, "char_id", charID, "trigger", trigger,
+					"restore_ms", restoreMS, "placement_ms", placementMS,
+					"prepare_tail_ms", prepareTailMS, "total_ms", totalMS)
 			}
 			s.markPartyLoadingPrepared(partyID, expected, charID, plan, trigger)
 			return nil
 		}
+		tAct := time.Now()
 		if plan != nil {
 			session.partyLoadingPrepared = plan
 			defer func() { session.partyLoadingPrepared = nil }()
@@ -695,10 +726,15 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 				}
 			}
 		}
+		activationMS := time.Since(tAct).Milliseconds()
+		tPlace := time.Now()
 		err := s.sendPendingPostStartMapPlayerPlacement(session, "party_dungeon_shared_loading_barrier")
+		placementMS := time.Since(tPlace).Milliseconds()
+		tTail := time.Now()
 		if err == nil && wantTail {
 			err = s.sendCurrentFinishLoadingReleaseTail(session, "request37_after_upper_status")
 		}
+		tailMS := time.Since(tTail).Milliseconds()
 		slot := byte(0)
 		if index, indexed := runtimePartyMemberIndex(charID, s.runtimePartyStateForSession(session)); indexed {
 			slot = index
@@ -713,8 +749,19 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 			"local_slot", slot,
 			"trigger", trigger,
 			"release_tail", wantTail,
+			"activation_ms", activationMS,
+			"placement_ms", placementMS,
+			"tail_ms", tailMS,
+			"total_ms", time.Since(releaseStarted).Milliseconds(),
 			"packet_order", "op120-each-stable-slot-op3-all-op37-op30-op19-op14",
 			"reason", "vendor_releases_every_member_only_after_the_last_op37_arrived",
+		}
+		if plan != nil {
+			fields = append(fields,
+				"prepare_restore_ms", plan.prepareRestoreMS,
+				"prepare_placement_ms", plan.preparePlacementMS,
+				"prepare_tail_ms", plan.prepareTailMS,
+				"prepare_total_ms", plan.prepareTotalMS)
 		}
 		if err != nil {
 			fields = append(fields, "error", err)

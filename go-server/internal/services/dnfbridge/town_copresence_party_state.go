@@ -122,6 +122,8 @@ func (s *Service) shouldSkipTownCopresencePartyFrame(target, actor *gameSession)
 	if target.selectedCharacterID == 0 || target.selectedCharacterID == actor.selectedCharacterID {
 		return false
 	}
+	// 不再因为 dungeonReturnAliasRetirePending 就整体跳过：那会让回城广播
+	// 漏掉对"已退队散人"的 kind3 清理，残留记录会继续占着 [actor+0x4C8]。
 	if !townCopresenceSkipSamePartyFrameEnabled() && !(strings.TrimSpace(os.Getenv(townCopresenceSkipSamePartyFrameEnv)) == "" && s.options.currentClientVersion == "official-24.9") {
 		return false
 	}

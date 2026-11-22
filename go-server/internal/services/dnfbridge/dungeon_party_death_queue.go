@@ -157,6 +157,39 @@ func (s *Service) runPartyDeathQueue(peer *gameSession) {
 	s.submitPartyDeathQueue(peer)
 }
 
+// drainAllPartyDeaths 在处理过图(op45)或首领结算(op70)之前同步排空所有待应用的
+// 队友击杀状态。客户端已经通过 drainPartyDeathVisuals 看到开门并发送 op45，
+// 而 partyDeathStateOnly 仍排在事件队列后面时会误判"房间未清空"而拒收过图。
+func (s *Service) drainAllPartyDeaths(peer *gameSession) {
+	if s == nil || peer == nil {
+		return
+	}
+	s.drainPartyDeathVisuals(peer)
+	q := &peer.partyDeaths
+	for {
+		q.mu.Lock()
+		if q.closed || len(q.items) == 0 {
+			q.queued = false
+			q.mu.Unlock()
+			return
+		}
+		d := q.items[0]
+		version := q.version
+		q.mu.Unlock()
+		_ = s.deliverPartyDungeonDeath(d)
+		q.mu.Lock()
+		if !q.closed && q.version == version && len(q.items) > 0 {
+			q.bytes -= len(d.body)
+			q.items[0] = partyDungeonDeathDelivery{}
+			q.items = q.items[1:]
+			if len(q.items) == 0 {
+				q.items = nil
+			}
+		}
+		q.mu.Unlock()
+	}
+}
+
 // Called only on the recipient's session owner, between complete events.
 // A visual notice has no experience, quest or room-transition side effects.
 // Do not make it wait for one mailbox wakeup per older progression event.

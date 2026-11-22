@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 )
@@ -129,13 +130,6 @@ func (s *Service) sendCurrentTownPostTransitionPlayerState(session *gameSession,
 		return err
 	}
 	s.resendTownCopresenceAfterTownPostTransition(session, source+"_town_copresence_resend")
-	// Completed dungeon returns publish this actor chain before the client sends
-	// its normal op37 request. Defer the mailbox resync to that real op37 ACK-only
-	// branch; treating the server-side state write as client scene readiness would
-	// recreate the early-notification race this candidate is intended to avoid.
-	if session != nil && !session.returnTownFinishLoadingAckOnly {
-		s.resyncMailboxAlarmAfterSceneReady(session, source)
-	}
 	return nil
 }
 
@@ -180,12 +174,18 @@ func (s *Service) sendCurrentTownPostTransitionPlayerStateLocked(session *gameSe
 	generation := session.townPostTransition.generation
 
 	if session.townPostTransition.stage < currentTownPostTransitionMode0Sent {
-		if err := s.sendSelectedActorMode0AppearanceRefresh(
-			session,
-			"town_post_transition",
-			source+"_mode0_native_owner",
-		); err != nil {
-			return err
+		// 选图界面返回城镇时，local_actor 及其 [local_actor+0x5738] 技能容器自登录 op124 起
+		// 已存在；重复下发 mode0 会让原版 DNF.exe 经 sub_2009160 -> 22BF930 -> 24DC280
+		// 重跑技能挂载，在城镇里开启红眼《血之狂暴》并清空 descriptor+31C 血条。
+		// 仅在转职体验场返回或测试显式要求时发送本机 mode0，常规回城跳过。
+		if source == "发送普通城镇新代" || strings.HasPrefix(source, "test_") || strings.HasPrefix(source, "p161_") || strings.HasPrefix(source, "p05_") {
+			if err := s.sendSelectedActorMode0AppearanceRefresh(
+				session,
+				"town_post_transition",
+				source+"_mode0_native_owner",
+			); err != nil {
+				return err
+			}
 		}
 		session.townPostTransition.stage = currentTownPostTransitionMode0Sent
 	}

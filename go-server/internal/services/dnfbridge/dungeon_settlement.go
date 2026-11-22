@@ -59,9 +59,6 @@ func (s *Service) sendCurrentDungeonSettlementEntryLocked(
 	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "normal_settlement_entry")
 	s.cancelCurrentCrystalContractTimerLocked(session, runtime, "normal_settlement_entry")
-	if err := s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, false); err != nil {
-		return err
-	}
 	if runtime.settlementEntrySent {
 		s.logGameEvent(session, "game-dungeon-settlement-entry-replay",
 			"char_id", session.selectedCharacterID,
@@ -186,7 +183,6 @@ func (s *Service) handleDungeonSetPlayResult(session *gameSession, body []byte) 
 			"reason", "settlement_handshake_not_ready")
 		return nil
 	}
-	s.retryPendingCurrentSecretShopLocked(session, runtime, snapshot.Scene)
 	// Only an enrolled semester run has this journal barrier. The accepted
 	// boss receipt remains stable so an op46 retry can finish the same PhaseA.
 	if runtime.semesterRun != nil && !runtime.clearMapCompletionPhaseAPersisted {

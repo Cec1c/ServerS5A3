@@ -425,6 +425,21 @@ func (s *Service) reconcileManagedPriorPartyLeave(prior *party.RuntimePartyResul
 	previous := *prior.Previous
 	s.logRuntimePartyMembershipRemoved("prior_party_leave_on_join_or_create", movedUser, 0, previous, *prior)
 	if prior.Disbanded || prior.Party.ID == 0 {
+		for _, member := range previous.Members {
+			if member.UserID != 0 && member.UserID != movedUser {
+				s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+			}
+		}
+		if prior.Retired != nil {
+			for _, member := range prior.Retired.Members {
+				if member.UserID != 0 && member.UserID != movedUser {
+					s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+					if target, online := s.onlineGameSession(member.UserID); online && target != nil {
+						_ = s.sendRuntimePartyDeparture(target, prior.Retired.StateFor(member.UserID))
+					}
+				}
+			}
+		}
 		s.closeRuntimePartyUDPRelay(int(previous.ID))
 		return nil
 	}
@@ -435,12 +450,21 @@ func (s *Service) reconcileManagedPriorPartyLeave(prior *party.RuntimePartyResul
 			if member.UserID == movedUser {
 				continue
 			}
+			if nextState.PartyID <= 0 {
+				s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+			}
 			session, online := s.onlineGameSession(member.UserID)
-			if !online {
+			if !online || session == nil {
 				continue
 			}
-			if err := s.sendRuntimePartySnapshot(session, alignedcmd.PartyState{}); err != nil {
-				return err
+			if nextState.PartyID <= 0 {
+				if err := s.sendRuntimePartyDeparture(session, prior.Retired.StateFor(member.UserID)); err != nil {
+					return err
+				}
+			} else {
+				if err := s.sendRuntimePartySnapshot(session, alignedcmd.PartyState{}); err != nil {
+					return err
+				}
 			}
 		}
 		s.syncRuntimePartyUDPRelay(nextState)
@@ -569,7 +593,12 @@ func (s *Service) leaveManagedRuntimeParty(identity boundGameSessionCharacter, s
 		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "party_manager_unavailable"}, false
 	}
 	if _, found := manager.SnapshotByUser(identity.character, identity.generation); !found {
-		s.bootstrapManagedRuntimePartyForSession(identity.session)
+		// 仅当中央管理器完全没有任何队伍且非 detach 路径时才不做处理；
+		// 绝不在离队/摘除路径中用残留缓存调用 bootstrapManagedRuntimePartyForSession 复活已解散的队伍。
+		if _, anyFound := manager.SnapshotByUser(identity.character, 0); !anyFound {
+			s.clearRuntimePartyProjection(identity.character, identity.generation)
+			return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "not_in_party"}, false
+		}
 	}
 	before, _ := manager.SnapshotByUser(identity.character, 0)
 	result := manager.Leave(identity.character, identity.generation)
@@ -579,6 +608,18 @@ func (s *Service) leaveManagedRuntimeParty(identity boundGameSessionCharacter, s
 	s.logRuntimePartyMembershipRemoved(source, identity.character, identity.generation, before, result)
 	s.clearRuntimePartyProjection(identity.character, identity.generation)
 	if result.Disbanded || result.Party.ID == 0 {
+		for _, member := range before.Members {
+			if member.UserID != 0 && member.UserID != identity.character {
+				s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+			}
+		}
+		if result.Retired != nil {
+			for _, member := range result.Retired.Members {
+				if member.UserID != 0 && member.UserID != identity.character {
+					s.clearRuntimePartyProjection(member.UserID, member.SessionGeneration)
+				}
+			}
+		}
 		return alignedcmd.PartyState{}, result, true
 	}
 	return s.publishRuntimePartyMembershipSnapshot(result.Party), result, true

@@ -3,6 +3,7 @@ package dnfbridge
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
@@ -162,6 +163,11 @@ func (s *Service) sendCurrentPreDungeonContextPlayerState(session *gameSession, 
 	if session.selectedCharacterID == 0 {
 		return fmt.Errorf("pre-dungeon-context player state requires selected character")
 	}
+	if partyEntryActorBatchEnabled() && s.options.currentClientVersion == "official-24.9" {
+		if _, indexed := runtimePartyMemberIndexForSession(session); indexed {
+			return s.sendCurrentPartyEntryActorBindingBatch(session, source)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -264,12 +270,30 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 		return fmt.Errorf("post-start-map player state requires selected character")
 	}
 
+	placementStarted := time.Now()
+	placementMarks := struct {
+		selectChar, inventory, mid, partyFrame int64
+	}{}
+	defer func() {
+		if total := time.Since(placementStarted).Milliseconds(); total >= 150 {
+			s.logGameEvent(session, "game-post-start-map-placement-timing",
+				"char_id", session.selectedCharacterID, "source", source,
+				"select_char_ms", placementMarks.selectChar,
+				"inventory_ms", placementMarks.inventory,
+				"mid_ms", placementMarks.mid,
+				"party_frame_ms", placementMarks.partyFrame,
+				"total_ms", total)
+		}
+	}()
+
 	// This scene bootstrap loads several authoritative repository snapshots;
 	// it is not a single mutation. In the live tower entry, writing op13 alone
 	// outlasted the mutation deadline and expired the later mode1/quest reads.
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
+	selectCharStarted := time.Now()
 	charID, charName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
+	placementMarks.selectChar = time.Since(selectCharStarted).Milliseconds()
 	if charID == 0 {
 		charID = session.selectedCharacterID
 	}
@@ -390,9 +414,12 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 	// Install the complete container snapshot only after the selected actor and
 	// its container managers exist. This changes inventory ownership only; the
 	// dungeon scene/camera packet sequence remains untouched.
+	inventoryStarted := time.Now()
 	if err := s.sendCurrentProfessionTrialInventoryBootstrap(session, runtime, scene, source+"_after_actor_before_player_object"); err != nil {
 		return err
 	}
+	placementMarks.inventory = time.Since(inventoryStarted).Milliseconds()
+	midStarted := time.Now()
 	// The container bootstrap owns its own bounded snapshot context and socket
 	// writes. Its elapsed time must not consume the following actor/quest reads.
 	cancel()
@@ -473,7 +500,10 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 		return err
 	}
 
+	placementMarks.mid = time.Since(midStarted).Milliseconds()
+	partyFrameStarted := time.Now()
 	partyState := runtimePartyStateSnapshot(session)
+	placementMarks.partyFrame = time.Since(partyFrameStarted).Milliseconds()
 	_, partyMemberIndexed := runtimePartyMemberIndex(charID, partyState)
 	if partyMemberIndexed {
 		if err := s.sendRuntimePartyRealtimeInfoLocal(session, partyState); err != nil {
