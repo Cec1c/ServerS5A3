@@ -123,7 +123,7 @@ cd ServerS5A3
 - 登录器与 GM：[基础登录器 / PurpleMagic / 自己指定的工具]
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
-首次 prepare 默认选择仓库统一的 120 频道外部表；如从其他路径读取，文件须与仓库 ETC 逐字节相同。
+首次 prepare 默认选择仓库统一的 120 频道外部表；如从其他路径读取，文件须与仓库 ETC 逐字节相同。使用 Docs/BUFF_GROUP_DEPLOYMENT.md 的配对资源，并传 --client-dir 指向服务端可读的 EXE 目录。
 首次 prepare 后将 deploy/templates/docker-instance.recommended.json 合并进 runtime/docker/instance.json（保留自动生成的本机IP、数据库密码和令牌）：确保 dungeon_tournament="vendor"（开启青龙/黄龙/魂大会刷怪）、buff_group_sync="on"、buff_swap_reapply="on"、disjoint_epic_display="paired-v1"、town_display_only="on"、公会功能及 runtime_compatibility 推荐项全部生效。
 赛马活动2365保持关闭（joust_event_enabled=false），检查配置、持久化覆盖与重启后的生效值；按 Docs/DOCKER_RUNTIME_REFERENCE.md 核对运行中 DNF90Server 进程的真实环境变量，并列出其余活动的实际开启状态。
 有旧数据时先备份并验证，再部署本次服务。

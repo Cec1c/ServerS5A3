@@ -40,11 +40,38 @@ class FreshBuffConfiguration(unittest.TestCase):
             self.assertEqual(config["buff_group_sync"], "on")
             env = (runtime / "server.env").read_text()
             self.assertIn("DNFBRIDGE_BUFF_GROUP_SYNC=on\n", env)
+            self.assertEqual(config["tag_buff_group_sync"], "auto")
+            self.assertIn("DNFBRIDGE_BUFF_SWAP_REAPPLY=on\n", env)
+            self.assertIn("DNFBRIDGE_MILEAGE_SHOP_ENABLED=on\n", env)
+            self.assertIn("DNFBRIDGE_TAG_BUFF_GROUP_SYNC=off\n", env)
             spec = json.loads((runtime / "compose.json").read_text())
             self.assertEqual(spec["services"]["server"]["env_file"], ["server.env"])
             self.assertEqual(spec["services"]["db"]["volumes"], ["database:/var/lib/mysql"])
             self.prepare(root, args)
             self.assertEqual((runtime / "instance.json").read_bytes(), original)
+
+    def test_fresh_v216_enables_empire_buff_groups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pvf = root / "fixture.pvf"
+            pvf.write_bytes(b"isolated mocked PVF")
+            executable = root / "DNF.exe"
+            executable.write_bytes(b"isolated client identity fixture")
+            reviewed = "58e51fba3258a9499e77caedaea16a6d9f38904054e10edd91564e24894547c4"
+            digest = manage.digest
+            with patch.object(manage, "digest", side_effect=lambda path: reviewed if Path(path) == executable else digest(path)):
+                runtime = self.prepare(root, self.args(pvf, str(root)))
+                env = (runtime / "server.env").read_text()
+                self.assertIn("DNFBRIDGE_TAG_BUFF_GROUP_SYNC=on\n", env)
+                self.assertIn("DNFBRIDGE_MILEAGE_SHOP_ENABLED=on\n", env)
+            config = json.loads((runtime / "instance.json").read_text())
+            config["runtime_compatibility"]["DNFBRIDGE_MILEAGE_SHOP_ENABLED"] = "off"
+            config["tag_buff_group_sync"] = "off"
+            (runtime / "instance.json").write_text(json.dumps(config))
+            self.prepare(root, self.args(pvf))
+            env = (runtime / "server.env").read_text()
+            self.assertIn("DNFBRIDGE_MILEAGE_SHOP_ENABLED=off\n", env)
+            self.assertIn("DNFBRIDGE_TAG_BUFF_GROUP_SYNC=off\n", env)
 
     def test_known_client_pairs_select_the_matching_protocol(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -69,7 +96,10 @@ class FreshBuffConfiguration(unittest.TestCase):
             with patch.object(manage, "digest", side_effect=lambda path: legacy if Path(path) == exe else digest(path)):
                 runtime = self.prepare(root, self.args(pvf, str(client)))
             self.assertEqual(json.loads((runtime / "instance.json").read_text())["buff_group_sync"], "off")
-            self.assertIn("DNFBRIDGE_BUFF_GROUP_SYNC=off\n", (runtime / "server.env").read_text())
+            env = (runtime / "server.env").read_text()
+            self.assertIn("DNFBRIDGE_BUFF_GROUP_SYNC=off\n", env)
+            self.assertNotIn("DNFBRIDGE_MILEAGE_SHOP_ENABLED=on\n", env)
+            self.assertIn("DNFBRIDGE_TAG_BUFF_GROUP_SYNC=off\n", env)
 
     def test_existing_unconfigured_and_explicit_off_are_preserved(self):
         for settings in ({}, {"runtime_compatibility": {manage.BUFF_GROUP_SYNC_KEY: "off"}},

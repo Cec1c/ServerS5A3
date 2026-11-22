@@ -126,16 +126,14 @@ def party_udp_relay_port_count(config):
     return value
 
 
-def reviewed_client_sha256(config):
+def reviewed_client_sha256(config, *, optional=False):
     directory = config.get("client_dir")
     executable = Path(directory) / "DNF.exe" if isinstance(directory, str) else None
     if executable is None or not executable.is_file():
+        if optional:
+            return None
         raise ValueError("paired client option requires DNF.exe in client_dir")
-    with executable.open("rb") as handle:
-        digest = hashlib.sha256()
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-        return digest.hexdigest()
+    return digest(executable)
 
 
 def selected_client_protocol_env(config, buff_group_sync):
@@ -147,15 +145,19 @@ def selected_client_protocol_env(config, buff_group_sync):
         raise ValueError("wedding_gender_policy must be opposite_only or deny_male_male")
     env = {"DNFBRIDGE_TAG_BUFF_GROUP_SYNC": "off",
            "DNFBRIDGE_WEDDING_GENDER_POLICY": policy}
-    if mode != "off" or policy == "deny_male_male":
-        if config.get("client_version", "official-24.9") != "official-24.9":
+    explicit_pairing = mode == "on" or policy == "deny_male_male"
+    if config.get("client_version", "official-24.9") != "official-24.9":
+        if explicit_pairing:
             raise ValueError("selected client options require official-24.9")
-        identity = reviewed_client_sha256(config)
-        if mode == "on" and identity not in TAG_BUFF_CLIENTS:
-            raise ValueError("tag Buff groups require the exact paired receiver")
-        if mode != "off" and identity in TAG_BUFF_CLIENTS:
+        return env
+    if explicit_pairing or (mode == "auto" and buff_group_sync == "on"):
+        identity = reviewed_client_sha256(config, optional=not explicit_pairing)
+        if mode == "on":
+            if identity not in TAG_BUFF_CLIENTS:
+                raise ValueError("tag Buff groups require the exact paired receiver")
             if buff_group_sync != "on":
                 raise ValueError("tag Buff groups require buff_group_sync on")
+        if mode != "off" and identity in TAG_BUFF_CLIENTS and buff_group_sync == "on":
             env["DNFBRIDGE_TAG_BUFF_GROUP_SYNC"] = "on"
         if policy == "deny_male_male" and identity not in WEDDING_FEMALE_CLIENTS:
             raise ValueError("wedding gender policy requires the exact paired client")
@@ -379,6 +381,10 @@ def prepare(args):
     buff_group_sync = buff_group_sync_env(config, compatibility)
     if not existing and config["buff_group_sync"] == "auto":
         config["buff_group_sync"] = buff_group_sync
+    if not existing and buff_group_sync == "on":
+        config["buff_swap_reapply"] = "on"
+        config["tag_buff_group_sync"] = "auto"
+        config.setdefault("runtime_compatibility", {}).setdefault("DNFBRIDGE_MILEAGE_SHOP_ENABLED", "on")
     management_token(config)
     channel_source = selected_channel_table(config, getattr(args, "channel_info", None), existing)
     private_ipv4(config["host_ip"])

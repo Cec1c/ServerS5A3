@@ -65,6 +65,8 @@ python -c "import json,pathlib;p=pathlib.Path('runtime/docker/instance.json');r=
 | `body_codec` / `client_body_codec` | `"plaintext"` | `DNFBRIDGE_GAME_UPPER_*_BODY_CODEC=plaintext` | 上下行明文包体编解码（配合生成器固定的 `HEADER=server16`、`DPROTO_MODE=legacy_patch`） |
 | `buff_group_sync` | `"on"` | `DNFBRIDGE_BUFF_GROUP_SYNC=on` | V212–V215+ 双组 8 字节 1426 Buff 换装登记协议；未开时双组登记不保存、切图被清空（旧 v56 客户端须设为 `"off"`，详见 [Buff 部署说明](BUFF_GROUP_DEPLOYMENT.md)） |
 | `buff_swap_reapply` | `"on"` | `DNFBRIDGE_BUFF_SWAP_REAPPLY=on` | 登记 Buff 换装栏物品变动后按选定技能即时重算生效 |
+| `tag_buff_group_sync` | `"auto"` | `DNFBRIDGE_TAG_BUFF_GROUP_SYNC` | 已启用普通双组且 `client_dir` 中的 EXE 通过配对核验时开启帝国双组 |
+| `runtime_compatibility.DNFBRIDGE_MILEAGE_SHOP_ENABLED` | `"on"` | `DNFBRIDGE_MILEAGE_SHOP_ENABLED=on` | 启用原生积分账本和商城。客户端须接收余额通知 427 |
 | `disjoint_epic_display` | `"paired-v1"` | `DNFBRIDGE_DISJOINT_EPIC_DISPLAY=paired-v1` | 配套 V210+ 客户端正常弹出史诗分解无色/史诗灵魂结算结果框 |
 | `town_display_only` | `"on"` | `DNFBRIDGE_TOWN_DISPLAY_ONLY=on` | 配套 V211+ 客户端启用共享城镇非队友轻量外观初始化，大幅降低主城同屏重加载开销 |
 | `channel_directory_owner_range` | `"u8"` | `DNFBRIDGE_CHANNEL_DIRECTORY_OWNER_RANGE=u8` | 保证 120 频道目录（含 187 帝国、191–197 PVP 等 >127 频道号）按无符号字节正确表达 |
@@ -139,6 +141,8 @@ keys = (
     "DNFBRIDGE_JOUST_EVENT_ENABLED",
     "DNFBRIDGE_BUFF_GROUP_SYNC",
     "DNFBRIDGE_BUFF_SWAP_REAPPLY",
+    "DNFBRIDGE_TAG_BUFF_GROUP_SYNC",
+    "DNFBRIDGE_MILEAGE_SHOP_ENABLED",
     "DNFBRIDGE_DISJOINT_EPIC_DISPLAY",
     "DNFBRIDGE_TOWN_DISPLAY_ONLY",
     "DNFBRIDGE_EXPERIMENTAL_PEAK",
