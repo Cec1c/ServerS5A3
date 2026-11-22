@@ -11,6 +11,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "runtime" / "docker"
@@ -126,16 +127,6 @@ def party_udp_relay_port_count(config):
     return value
 
 
-def reviewed_client_sha256(config, *, optional=False):
-    directory = config.get("client_dir")
-    executable = Path(directory) / "DNF.exe" if isinstance(directory, str) else None
-    if executable is None or not executable.is_file():
-        if optional:
-            return None
-        raise ValueError("paired client option requires DNF.exe in client_dir")
-    return digest(executable)
-
-
 def selected_client_protocol_env(config, buff_group_sync):
     mode = config.get("tag_buff_group_sync", "off")
     if type(mode) is not str or mode not in ("off", "auto", "on"):
@@ -151,7 +142,7 @@ def selected_client_protocol_env(config, buff_group_sync):
             raise ValueError("selected client options require official-24.9")
         return env
     if explicit_pairing or (mode == "auto" and buff_group_sync == "on"):
-        identity = reviewed_client_sha256(config, optional=not explicit_pairing)
+        identity = client_executable_sha256(config)
         if mode == "on":
             if identity not in TAG_BUFF_CLIENTS:
                 raise ValueError("tag Buff groups require the exact paired receiver")
@@ -219,13 +210,12 @@ def buff_group_sync_env(config, compatibility):
         return mode  # Old instance files retain their unconfigured behavior.
     if config.get("client_version", "official-24.9") != "official-24.9":
         return "off"
-    client_dir = config.get("client_dir")
-    if not client_dir:
+    identity = client_executable_sha256(config)
+    if identity is None:
+        if config.get("client_dir"):
+            raise ValueError("buff_group_sync auto requires DNF.exe in client_dir; select on for V212+ or off for a legacy client")
         return "on"  # A fresh server-only installation targets the current public client.
-    executable = Path(client_dir) / "DNF.exe"
-    if not executable.is_file():
-        raise ValueError("buff_group_sync auto requires DNF.exe in client_dir; select on for V212+ or off for a legacy client")
-    mode = BUFF_GROUP_CLIENTS.get(digest(executable))
+    mode = BUFF_GROUP_CLIENTS.get(identity)
     if mode is None:
         raise ValueError("buff_group_sync auto does not recognize DNF.exe; select the verified on/off client protocol explicitly")
     return mode
@@ -300,6 +290,26 @@ def private_ipv4(value):
     return str(address)
 
 
+def advertised_ipv4(value):
+    if not isinstance(value, str):
+        raise ValueError("public_host must be a public IPv4 literal")
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ValueError:
+        raise ValueError("public_host must be a public IPv4 literal") from None
+    if not address.is_global or address.is_multicast or address.is_reserved:
+        raise ValueError("public_host must be a globally routable unicast IPv4 address")
+    return str(address)
+
+
+def player_endpoints(config, catalog):
+    """Resolve the addresses used by Compose, the channel directory and deployment readback."""
+    bind = private_ipv4(config["host_ip"])
+    public = config.get("public_host")
+    advertised = bind if public in (None, "") else advertised_ipv4(public)
+    return bind, advertised, 7001
+
+
 def detect_ip():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
         connection.connect(("192.0.2.1", 9))  # Routing lookup; sends no packet.
@@ -344,11 +354,30 @@ def check_network(config):
                     raise ValueError(f"Docker subnet overlaps {network['Name']}; edit instance.json")
 
 
+def recommended_instance(config, preset):
+    """Fill missing instance fields and compatibility entries, preserving operator values."""
+    defaults = dict(preset)
+    default_compatibility = defaults.pop("runtime_compatibility")
+    compatibility = runtime_compatibility_env(config)
+    if BUFF_GROUP_SYNC_KEY in compatibility:
+        defaults.pop("buff_group_sync", None)
+    return {
+        **defaults,
+        **config,
+        "runtime_compatibility": {**default_compatibility, **compatibility},
+    }
+
+
 def prepare(args):
     instance = RUNTIME / "instance.json"
     existing = instance.exists()
+    apply_recommended = getattr(args, "apply_recommended", False)
+    if not existing or apply_recommended:
+        preset = json.loads((ROOT / "deploy/templates/docker-instance.recommended.json").read_text(encoding="utf8"))
     if existing:
-        config = json.loads(instance.read_text(encoding="utf-8"))
+        previous_instance = instance.read_bytes()
+        persisted = json.loads(previous_instance.decode("utf-8"))
+        config = dict(persisted)
         if args.host_ip:
             config["host_ip"] = private_ipv4(args.host_ip)
         if args.client_dir:
@@ -359,7 +388,7 @@ def prepare(args):
             "host_ip": private_ipv4(args.host_ip) if args.host_ip else detect_ip(),
             "subnet": "10.253.90.0/24", "server_ip": "10.253.90.2", "database_ip": "10.253.90.3",
             "database_password": secrets.token_hex(24), "root_password": secrets.token_hex(24),
-            "admin_token": secrets.token_hex(32), "joust_event_enabled": True,
+            "admin_token": secrets.token_hex(32), "joust_event_enabled": preset["joust_event_enabled"],
             "client_dir": str(Path(args.client_dir).resolve()) if args.client_dir else "",
             "body_codec": "plaintext", "client_body_codec": "plaintext",
             "default_group_login_only": True,
@@ -367,27 +396,38 @@ def prepare(args):
             "buff_group_sync": "auto",
             "black_diamond_secret_shop": "auto",
         }
+    if getattr(args, "public_host", None) is not None:
+        config["public_host"] = args.public_host
     if getattr(args, "buff_group_sync", None) is not None:
         config["buff_group_sync"] = args.buff_group_sync
     if getattr(args, "black_diamond_secret_shop", None) is not None:
         config["black_diamond_secret_shop"] = args.black_diamond_secret_shop
     if args.client_dir:
         executable = Path(config["client_dir"]) / "DNF.exe"
-        if executable.is_file():
-            config["client_exe_sha256"] = digest(executable)
-        else:
-            config.pop("client_exe_sha256", None)
+        if not executable.is_file():
+            raise ValueError("--client-dir must contain DNF.exe")
+        config["client_exe_sha256"] = digest(executable)
     compatibility = runtime_compatibility_env(config)
+    if apply_recommended and "buff_group_sync" not in config and BUFF_GROUP_SYNC_KEY not in compatibility:
+        config["buff_group_sync"] = "auto"
     buff_group_sync = buff_group_sync_env(config, compatibility)
+    client_sha256 = config.get("client_exe_sha256")
+    if BUFF_GROUP_CLIENTS.get(client_sha256) == "off" and (
+            buff_group_sync == "on" or compatibility.get("DNFBRIDGE_MILEAGE_SHOP_ENABLED") == "on"):
+        raise ValueError("legacy DNF.exe requires buff_group_sync and DNFBRIDGE_MILEAGE_SHOP_ENABLED off")
+    confirmed_official_client = (config.get("client_version", "official-24.9") == "official-24.9"
+                                 and BUFF_GROUP_CLIENTS.get(client_sha256) == "on")
+    if (buff_group_sync == "on" and not existing) or (
+            apply_recommended and (buff_group_sync == "on" or confirmed_official_client)):
+        config = recommended_instance(config, preset)
+    elif apply_recommended:
+        raise ValueError("--apply-recommended requires a paired official client")
     if not existing and config["buff_group_sync"] == "auto":
         config["buff_group_sync"] = buff_group_sync
-    if not existing and buff_group_sync == "on":
-        config["buff_swap_reapply"] = "on"
-        config["tag_buff_group_sync"] = "auto"
-        config.setdefault("runtime_compatibility", {}).setdefault("DNFBRIDGE_MILEAGE_SHOP_ENABLED", "on")
     management_token(config)
     channel_source = selected_channel_table(config, getattr(args, "channel_info", None), existing)
-    private_ipv4(config["host_ip"])
+    player_endpoints(config, {})
+    selected_client_protocol_env(config, buff_group_sync)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((config["host_ip"], 0))
     for key in ("database_password", "root_password", "admin_token"):
@@ -424,8 +464,13 @@ def prepare(args):
     (assets / channel_file).chmod(0o644)
     catalog["pvf_sha256"] = digest(target)
     write(assets / "manifest.json", json.dumps(catalog, indent=2) + "\n")
-    write(instance, json.dumps(config, indent=2) + "\n")
+    if existing and apply_recommended and config != persisted:
+        with tempfile.NamedTemporaryFile(dir=RUNTIME, prefix="instance.before-recommended-",
+                                         suffix=".json", delete=False) as previous:
+            previous.write(previous_instance)
+        print(f"Saved previous instance configuration: {previous.name}")
     generate(config, catalog)
+    write(instance, json.dumps(config, indent=2) + "\n")
     print(f"Prepared {catalog['channels']} real channels; configuration: {instance}")
 
 
@@ -527,6 +572,7 @@ def generate(c, catalog):
     if "town_display_only" in c and (type(town_display_only) is not str or town_display_only not in ("off", "on")):
         raise ValueError("town_display_only must be off or on")
     game_token = management_token(c)
+    bind_host, advertised_host, bootstrap_port = player_endpoints(c, catalog)
     server = RUNTIME / "server"
     for directory in (server / "logs", server / "configs/dnf", server / "configs/servergroup"):
         directory.mkdir(parents=True, exist_ok=True)
@@ -536,7 +582,7 @@ def generate(c, catalog):
 name = "dnfbridge"
 node_id = "dnfbridge-docker-1"
 environment = "local"
-public_addr = "{c['host_ip']}:7001"
+public_addr = "{advertised_host}:{bootstrap_port}"
 private_addr = "{c['server_ip']}:18111"
 [cluster]
 id = "local"
@@ -599,7 +645,7 @@ create_databases = false
         "DNFBRIDGE_GUILD_CONTRIBUTION_POLICY": contribution_policy,
         "DNFBRIDGE_GUILD_HONGBAO_ENABLED": str(guild_hongbao).lower(),
         "DNFBRIDGE_CHANNEL_LISTEN": c["server_ip"] + ":7001",
-        "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": c["host_ip"],
+        "DNFBRIDGE_GAME_LISTEN_HOST": c["server_ip"], "DNFBRIDGE_SERVER_IP": advertised_host,
         "DNFBRIDGE_CHANNEL_INFO_PATH": "data/dnf/" + c.get("channel_file", "channel_info.etc"), "DNFBRIDGE_PVF_PATH": "data/dnf/Script.pvf",
         "DNFBRIDGE_CHANNEL_INFO_BODY_MODE": "latest", "DNFBRIDGE_CHANNEL_SERVER_INDEX": "1",
         "DNFBRIDGE_CHANNEL_ADVERTISE_SERVER_INDEX": str(advertised_server), "DNF_SCRIPT_VERSION": "59",
@@ -657,8 +703,8 @@ create_databases = false
                        "depends_on": {"db": {"condition": "service_healthy"}}, "mem_limit": c.get("server_memory_limit", "4g"), "logging": logging,
                        "networks": {"private": {"ipv4_address": c["server_ip"]}},
                        "ports": [f"127.0.0.1:{p}:{p}/tcp" for p in (7001, 17002, 18111)] +
-                                [f"{c['host_ip']}:{p}:{p}/tcp" for p in catalog["ports"]] +
-                                [f"{c['host_ip']}:30000-{29999 + relay_count}:30000-{29999 + relay_count}/udp"],
+                                [f"{bind_host}:{p}:{p}/tcp" for p in catalog["ports"]] +
+                                [f"{bind_host}:30000-{29999 + relay_count}:30000-{29999 + relay_count}/udp"],
                        "healthcheck": {"test": ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", f"http://{c['server_ip']}:17002/api/status"],
                                        "start_period": "180s", "interval": "10s", "timeout": "5s", "retries": 12}},
         },
@@ -680,6 +726,9 @@ def main():
     parser.add_argument("action", choices=("prepare", "build", "up", "down", "status", "logs"))
     parser.add_argument("--pvf")
     parser.add_argument("--host-ip")
+    parser.add_argument("--public-host", help="Player-facing public IPv4; pass an empty value to use the private host address")
+    parser.add_argument("--apply-recommended", action="store_true",
+                        help="Fill settings missing from an existing paired instance using the recommended template")
     parser.add_argument("--client-dir")
     parser.add_argument("--black-diamond-secret-shop", choices=("auto", "on", "off"))
     parser.add_argument("--buff-group-sync", choices=("auto", "on", "off"),

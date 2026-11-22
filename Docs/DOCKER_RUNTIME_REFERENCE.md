@@ -2,7 +2,7 @@
 
 [返回项目首页](../README.md) · [构建与部署指南](BUILD_AND_DEPLOY.md) · [推荐实例配置预设包](../deploy/templates/docker-instance.recommended.json) · [脱敏 server.env 参考](../deploy/templates/docker-server.redacted.env)
 
-把本页说明连同 [`docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 和 [`docker-server.redacted.env`](../deploy/templates/docker-server.redacted.env) 一起交给部署 Agent（或自行合并到 `runtime/docker/instance.json`），即可一次性开启与当前公开客户端（V212–V215+）配套的游戏协议、青龙/黄龙/魂大会刷怪、双组 Buff、史诗分解结果弹窗、城镇轻量同屏、公会系统及数据库增量保存开关。本页参考值已于 **2026-11-16** 对照正式服现役配置与公开源码生成器 `deploy/docker/manage.py` 完整复核。
+配套新实例的协议、玩法与数据库兼容缺省值来自 [`docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json)。`prepare` 根据实例和客户端身份生成运行配置，`up` 会先执行同一准备步骤。
 
 > [!IMPORTANT]
 > **`runtime/docker/server.env` 与 `compose.json` 是每次 `prepare` / `up` 自动重生成的产物，请勿直接手改 `server.env`。** 所有持久开关统一写在 `runtime/docker/instance.json` 中，再运行 `sh deploy/docker/manage.sh prepare` 或 `up` 生成。直接裸跑 `DNF90Server` 二进制而未加载这些环境变量，会导致青龙/黄龙大会进图零怪直接通关、双组 Buff 不保存、公会与深渊异常等大量“假 BUG”。
@@ -23,37 +23,22 @@ runtime/docker/
 
 使用 `--runtime-dir` 时，上述路径相对所选目录。数据库卷、随机生成的密码与管理令牌仅保存在目标机器本地，切勿上传到公开仓库或 Issue。
 
-## 一键合入官方推荐配置包（首次 `prepare` 后必做）
+## 推荐配置与公网通告
 
-首次执行 `prepare`（指定 `--pvf`，频道表默认使用仓库统一的 120 条记录）后，`manage.py` 会在 `runtime/docker/instance.json` 中生成本机私网 IP、随机数据库密码与管理令牌，但**默认不会自动打开大会、公会与大部分 `runtime_compatibility` 开关，且赛马 `joust_event_enabled` 仍默认为 `true`**。
+首次 `prepare` 为配套新实例自动应用推荐配置，包括三大会刷怪、公会、积分、双组 Buff、分解结果和城镇显示。赛马 2365 的新实例默认值为关闭。已识别的 v56 仍采用旧协议设置。旧库的 2365 管理保存值优先，按[活动开关说明](BUILD_AND_DEPLOY.md#已有服检查保存值实际生效值和目录)核对并关闭。
 
-在启动容器前，在仓库根目录运行下面这段 Python 命令，即可把 [`deploy/templates/docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 安全合并进 `runtime/docker/instance.json`（完整保留本机 IP、密码、频道表路径与已有兼容项）：
+配套旧实例可以补齐缺失字段。普通双组已开启或 EXE 摘要已识别为支持双组时，顶层和 `runtime_compatibility` 中已显式填写的值都会保留。发生迁移时，准备程序在运行目录写入 `instance.before-recommended-*.json`。该备份包含实例凭据。需要回退时，用该文件恢复 `instance.json`，再重新准备和启动。
 
 ```sh
-python3 - <<'PY'
-import json
-from pathlib import Path
-
-inst_path = Path("runtime/docker/instance.json")
-rec_path = Path("deploy/templates/docker-instance.recommended.json")
-inst = json.loads(inst_path.read_text(encoding="utf-8"))
-rec = json.loads(rec_path.read_text(encoding="utf-8"))
-compat = {**inst.get("runtime_compatibility", {}), **rec.get("runtime_compatibility", {})}
-merged = {**inst, **rec, "runtime_compatibility": compat}
-inst_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-PY
-
-sh deploy/docker/manage.sh prepare
+sh deploy/docker/manage.sh prepare --apply-recommended
+sh deploy/docker/manage.sh up
 ```
 
-Windows PowerShell / CMD 环境只需将上面的 `python3 - <<'PY' ... PY` 替换为单行命令：
+更换客户端时重新传 `--client-dir`，由准备程序读取新的 `DNF.exe` 摘要。目录缺少 EXE 时，准备会在修改已保存的实例前停止。
 
-```powershell
-python -c "import json,pathlib;p=pathlib.Path('runtime/docker/instance.json');r=pathlib.Path('deploy/templates/docker-instance.recommended.json');i=json.loads(p.read_text('utf-8'));d=json.loads(r.read_text('utf-8'));c={**i.get('runtime_compatibility',{}),**d.get('runtime_compatibility',{})};p.write_text(json.dumps({**i,**d,'runtime_compatibility':c},indent=2)+'\n','utf-8')"
-.\DOCKER.bat prepare
-```
+公网或 NAT 搭建时，`--host-ip` 仍填服务器网卡的私网地址，另传 `--public-host <公网IPv4>`。准备程序把公网地址持久化到 `instance.json` 的 `public_host`。生成的频道目录和游戏/中继通告使用公网地址，Compose 的网卡绑定使用私网地址。要恢复局域网通告，可从实例配置删除 `public_host`，再重新准备和启动。
 
-合并完成后执行 `sh deploy/docker/manage.sh up`（或 `.\DOCKER.bat up`）即可启动或重建游戏容器。
+站点路由或云防火墙须将频道 TCP 和中继 UDP 的实际端口映射到私网宿主机。数据库、管理、账号 API 和本地 bootstrap 绑定方式保持与原入口一致，公网登录接入仍走已配置的登录器或网关。配置生成可验证地址与端口，外网实际连通性需要从玩家网络核对。
 
 ## 核心协议与玩法开关详解
 

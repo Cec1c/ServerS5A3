@@ -214,6 +214,9 @@ def preserve_installed_optimization(instance, raw, manage):
 def installed_candidate_options(instance, raw, manage, executable):
     updated = preserve_installed_optimization(instance, raw, manage)
     if ('black_diamond_secret_shop' in updated or 'client_exe_sha256' in updated or
+            updated.get('buff_group_sync') == 'auto' or
+            updated.get('tag_buff_group_sync') in ('auto', 'on') or
+            updated.get('wedding_gender_policy') == 'deny_male_male' or
             'DNFBRIDGE_BLACK_DIAMOND_SECRET_SHOP' in updated.get('runtime_compatibility', {})):
         updated['client_exe_sha256'] = executable
     return updated

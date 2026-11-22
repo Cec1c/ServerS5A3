@@ -54,6 +54,12 @@ class RecommendedInstanceTemplateTests(unittest.TestCase):
         ):
             self.assertIn(expected, env)
 
+    def test_recommendation_respects_nested_explicit_buff_mode(self):
+        preset = json.loads((manage.ROOT / "deploy/templates/docker-instance.recommended.json").read_text())
+        config = {"runtime_compatibility": {manage.BUFF_GROUP_SYNC_KEY: "off"}}
+        merged = manage.recommended_instance(config, preset)
+        self.assertEqual(manage.buff_group_sync_env(merged, manage.runtime_compatibility_env(merged)), "off")
+
     def test_v215_formal_client_sha_is_recognized_for_buff_group_sync(self):
         v215_sha = "28e04d1d1c148c841318d533ed8ccb3e426ba5a5f24328b3c913b81303b12a84"
         self.assertEqual(manage.BUFF_GROUP_CLIENTS.get(v215_sha), "on")

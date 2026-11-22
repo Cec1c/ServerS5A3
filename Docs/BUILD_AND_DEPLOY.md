@@ -124,7 +124,7 @@ cd ServerS5A3
 
 请先核对目标机器、源码版本、现有进程、数据库和客户端配套。
 首次 prepare 默认选择仓库统一的 120 频道外部表；如从其他路径读取，文件须与仓库 ETC 逐字节相同。使用 Docs/BUFF_GROUP_DEPLOYMENT.md 的配对资源，并传 --client-dir 指向服务端可读的 EXE 目录。
-首次 prepare 后将 deploy/templates/docker-instance.recommended.json 合并进 runtime/docker/instance.json（保留自动生成的本机IP、数据库密码和令牌）：确保 dungeon_tournament="vendor"（开启青龙/黄龙/魂大会刷怪）、buff_group_sync="on"、buff_swap_reapply="on"、disjoint_epic_display="paired-v1"、town_display_only="on"、公会功能及 runtime_compatibility 推荐项全部生效。
+首次 prepare 为配套客户端自动应用官方推荐配置。配套旧实例可用 prepare --apply-recommended 补齐缺项，检查已有显式开关。公网搭建使用 --public-host 设玩家通告 IPv4，--host-ip 仍绑定私网网卡。
 赛马活动2365保持关闭（joust_event_enabled=false），检查配置、持久化覆盖与重启后的生效值；按 Docs/DOCKER_RUNTIME_REFERENCE.md 核对运行中 DNF90Server 进程的真实环境变量，并列出其余活动的实际开启状态。
 有旧数据时先备份并验证，再部署本次服务。
 
@@ -199,22 +199,9 @@ sh deploy/docker/manage.sh prepare --pvf "/srv/dnf-assets/Script.pvf" --host-ip 
 sh deploy/docker/manage.sh prepare --channel-info "/srv/dnf-assets/channel_info.etc"
 ```
 
-**启动前，将官方推荐配置包 [`deploy/templates/docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 合并进 `runtime/docker/instance.json`**（一次性设好 `joust_event_enabled: false` 关闭赛马、`dungeon_tournament: "vendor"` 开启青龙/黄龙/魂大会刷怪，以及双组 Buff、分解显示、城镇同屏、公会与 `runtime_compatibility` 推荐项；各字段详解见[运行配置包与脱敏环境参考](DOCKER_RUNTIME_REFERENCE.md#一键合入官方推荐配置包首次-prepare-后必做)）。复用旧数据库时，另按[活动开关说明](#已有服检查保存值实际生效值和目录)确认 2365 的持久化设置已关闭。合并命令如下：
+配套新实例的 `prepare` 已应用推荐配置。配套旧实例可用 `prepare --apply-recommended` 补齐缺项。复用旧数据库时，按[活动开关说明](#已有服检查保存值实际生效值和目录)确认 2365 的持久化设置已关闭。公网通告与端口映射见[运行配置说明](DOCKER_RUNTIME_REFERENCE.md#推荐配置与公网通告)。
 
 ```sh
-python3 - <<'PY'
-import json
-from pathlib import Path
-
-inst_path = Path("runtime/docker/instance.json")
-rec_path = Path("deploy/templates/docker-instance.recommended.json")
-inst = json.loads(inst_path.read_text(encoding="utf-8"))
-rec = json.loads(rec_path.read_text(encoding="utf-8"))
-compat = {**inst.get("runtime_compatibility", {}), **rec.get("runtime_compatibility", {})}
-merged = {**inst, **rec, "runtime_compatibility": compat}
-inst_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
-PY
-
 sh deploy/docker/manage.sh up
 sh deploy/docker/manage.sh status
 sh deploy/docker/manage.sh logs
