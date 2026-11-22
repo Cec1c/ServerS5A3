@@ -20,7 +20,7 @@ import (
 
 const (
 	runtimeRaidDefaultGroup = 1
-	runtimeRaidMaxGroups    = 5
+	runtimeRaidMaxGroups    = 10
 	runtimeRaidGroupSize    = 4
 	runtimeRaidFailureCode  = 3
 )
@@ -382,7 +382,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 		profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 		defer cancelProfiles()
 		profiles := newCurrentRaidProfileBatch(s, profileCtx)
-		if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, profiles, nil); err != nil {
+		if err := s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session, state, profiles, nil); err != nil {
 			return s.currentRaidProfileRequestError(session, err)
 		}
 		if err := s.sendGameUpperRawClassCodec(session, uint16(dnfenum.CmdPacketRequestRaidInfo), reply, 1, true); err != nil {
@@ -473,6 +473,7 @@ func (s *Service) handleOnlineLeaveRaid(session *gameSession, typ uint16, body [
 // ACK665 clears the receiver's own raid UI even when it requested another UID.
 func (s *Service) finishOnlineRaidDeparture(session *gameSession, typ uint16, state runtimeRaidState, disbanded, wasAntonWaiting, forcedExit bool) error {
 	sourceID := selectedCharacterID(session)
+	session.raidProfileView.clear()
 	var errs []error
 	var partyExit runtimePartyRaidExitProjection
 	if s.options.currentClientVersion == "official-24.9" {
@@ -520,17 +521,37 @@ func (s *Service) finishOnlineRaidDeparture(session *gameSession, typ uint16, st
 	// The waiting UI compares metadata.Leader against the local UID; the
 	// roster's leader flag alone cannot enable the successor's controls.
 	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout {
-		for _, member := range state.Members {
-			peer, online := s.onlineGameSession(member.CharID)
-			if !online || !s.currentRaidAdmissionVisible(peer, state) {
-				continue
+		if state.Started {
+			for _, member := range state.Members {
+				peer, online := s.onlineGameSession(member.CharID)
+				if !online || !s.currentRaidAdmissionVisible(peer, state) {
+					continue
+				}
+				if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
+					s.failRuntimeRaidRecipient(peer, "leave_metadata", err)
+				}
 			}
-			if err := s.sendRuntimeRaidMetadata(peer, state, 2); err != nil {
-				s.failRuntimeRaidRecipient(peer, "leave_metadata", err)
+		} else if leader, online := s.onlineGameSession(state.LeaderID); online && s.currentRaidAdmissionVisible(leader, state) {
+			if err := s.sendRuntimeRaidMetadata(leader, state, 2); err != nil {
+				s.failRuntimeRaidRecipient(leader, "leave_metadata", err)
 			}
 		}
 	}
-	if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
+	if s.options.currentClientVersion == "official-24.9" {
+		for _, member := range state.Members {
+			if viewer, online := s.onlineGameSession(member.CharID); online {
+				viewer.raidProfileView.forget(state, sourceID)
+			}
+		}
+	}
+	// During recruiting the profile cache is unchanged by removing one identity:
+	// one leader metadata refresh and one roster update suffice. Keep the
+	// established complete post-start refresh so battle rules remain unchanged.
+	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout && !state.Started {
+		if err := s.broadcastRuntimeRaidRoster(state); err != nil {
+			errs = append(errs, err)
+		}
+	} else if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
 		errs = append(errs, err)
 	}
 	if state.Battle != nil {
@@ -674,7 +695,36 @@ func (s *Service) handleOnlineRejoinRaid(session *gameSession, typ uint16, body 
 }
 
 func (s *Service) handleOnlineRaidManagerWork(session *gameSession, typ uint16, body []byte) error {
-	return s.dispatchOnlineRaidManagerWork(session, typ, body)
+	req, err := raid.DecodeManagerWorkRequest(body)
+	if err != nil {
+		s.logGameEvent(session, "game-raid-manager-body-invalid", "type", typ, "body_len", len(body), "error", err)
+		return nil
+	}
+	// All three native fields are u32. Validate before narrowing so an
+	// out-of-range member or group cannot alias a valid manager request.
+	if req.MemberCharKey == 0 || req.MemberCharKey > 0xffff || req.TargetGroup > runtimeRaidMaxGroups ||
+		(req.TargetGroup == 0 && req.ActionOrMode != 0) {
+		return nil
+	}
+	sourceID := selectedCharacterID(session)
+	state, ok, projectionChanged := s.moveRuntimeRaidMember(sourceID, uint16(req.MemberCharKey), byte(req.TargetGroup))
+	if !ok {
+		s.logGameEvent(session, "game-raid-manager-rejected",
+			"type", typ,
+			"source_char_id", sourceID,
+			"member_char_id", req.MemberCharKey,
+			"target_group", req.TargetGroup)
+		return nil
+	}
+	// S2C669 is DoNothing. Publish roster first, then only the changed
+	// live participation projection; no phase-start/reward side effects.
+	if err := s.broadcastRuntimeRaidRoster(state); err != nil {
+		return err
+	}
+	if projectionChanged {
+		s.queueCurrentRaidRosterProgress(state)
+	}
+	return nil
 }
 
 func (s *Service) handleOnlineRaidMemberChangeState(session *gameSession, typ uint16, body []byte) error {
@@ -779,15 +829,6 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(sourceID)
 	if state == nil || state.LeaderID != sourceID || len(state.Members) == 0 || len(state.Members) > currentRaidMemberMaximum(*state) {
-		if session != nil {
-			if state == nil {
-				s.logGameEvent(session, "game-raid-start-probe", "reason", "no_raid_for_member", "char_id", sourceID)
-			} else {
-				s.logGameEvent(session, "game-raid-start-probe", "reason", "leader_or_size",
-					"char_id", sourceID, "leader", state.LeaderID, "members", len(state.Members),
-					"max", currentRaidMemberMaximum(*state), "started", state.Started, "raid_key", state.RaidKey)
-			}
-		}
 		return runtimeRaidState{}, false, &raidStartRejection{message: "请由团长确认攻坚队人数后开始攻坚"}
 	}
 	if state.Started {
@@ -836,10 +877,6 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		}
 	}
 	if runtimeRaidHasOversizedGroup(*state) {
-		if session != nil {
-			s.logGameEvent(session, "game-raid-start-probe", "reason", "oversized_group",
-				"members", len(state.Members), "raid_key", state.RaidKey)
-		}
 		return runtimeRaidState{}, false, &raidStartRejection{message: "每个队伍最多编入4人，请调整编队"}
 	}
 	seen := make(map[uint16]bool, len(state.Members))
@@ -856,11 +893,6 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		// A retained offline seat is not a paid admission. Bind/restore or
 		// expiry must resolve it before the current aggregate is frozen.
 		if seat, reserved := s.currentRaidDisconnects[member.CharID]; state.CurrentLayout && reserved && seat.Raid == state {
-			if session != nil {
-				s.logGameEvent(session, "game-raid-start-probe", "reason", "retained_offline_seat",
-					"member_char_id", member.CharID, "raid_key", state.RaidKey,
-					"current_layout", state.CurrentLayout, "seat_raid", seat.Raid.RaidKey)
-			}
 			return runtimeRaidState{}, false, &raidStartRejection{message: "队员尚未重新连接，请等待队员归队", members: []uint16{member.CharID}}
 		}
 		seen[member.CharID] = true
@@ -945,7 +977,7 @@ func (s *Service) changeRuntimeRaidMemberState(sourceID uint16, userState byte) 
 }
 
 func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, targetGroup byte) (runtimeRaidState, bool, bool) {
-	if targetGroup == 0 || targetGroup > 8 {
+	if targetGroup > runtimeRaidMaxGroups {
 		return runtimeRaidState{}, false, false
 	}
 	s.raidMu.Lock()
@@ -958,13 +990,25 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	if index < 0 {
 		return runtimeRaidState{}, false, false
 	}
+	// V215's RemovePartyBtn/group selector sends {0, member, 0} for
+	// every member of the selected normal raid group. Zero clears only the
+	// planned placement; ordinary-party and frozen battle owners stay intact.
+	if targetGroup == 0 && (!state.CurrentLayout || state.RouteOrRaidType > 1) {
+		return runtimeRaidState{}, false, false
+	}
 	if targetGroup > currentRaidGroupMaximum(*state) {
 		return runtimeRaidState{}, false, false
 	}
 	if state.RouteOrRaidType == 2 && state.Started {
 		return runtimeRaidState{}, false, false
 	}
-	if state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(*state, targetGroup, memberID) >= runtimeRaidGroupSize {
+	placement := *state
+	if !state.Started && runtimeRaidKeepsUneditedSolos(*state) {
+		// Match the roster's live solo projection. Automatic admission seats
+		// hidden as unassigned must not occupy a manually selected group.
+		placement = s.currentRaidLivePartyProjection(placement)
+	}
+	if targetGroup != 0 && state.RouteOrRaidType != 2 && runtimeRaidGroupAssignedCount(placement, targetGroup, memberID) >= runtimeRaidGroupSize {
 		return runtimeRaidState{}, false, false
 	}
 	if state.RouteOrRaidType == 2 {
@@ -977,10 +1021,16 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	}
 	groupChanged := state.Members[index].GroupIndex != targetGroup
 	state.Members[index].GroupIndex = targetGroup
-	state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(*state, targetGroup, memberID)
-	state.Members[index].OrdinaryPartySolo = false
-	if !state.Started && state.CurrentLayout && state.RouteOrRaidType <= 1 {
-		state.Members[index].RecruitingPlacementExplicit = true
+	if targetGroup == 0 {
+		state.Members[index].SlotOrder = 0
+		state.Members[index].OrdinaryPartySolo = true
+		state.Members[index].RecruitingPlacementExplicit = false
+	} else {
+		state.Members[index].SlotOrder = nextRuntimeRaidSlotExcluding(placement, targetGroup, memberID)
+		state.Members[index].OrdinaryPartySolo = false
+		if !state.Started && state.CurrentLayout && state.RouteOrRaidType <= 1 {
+			state.Members[index].RecruitingPlacementExplicit = true
+		}
 	}
 	runtimeRaidSortMembers(state.Members)
 	projectionChanged := false
@@ -1005,7 +1055,7 @@ func (s *Service) broadcastRuntimeRaidStartRefresh(state runtimeRaidState) error
 	// All members were admitted before start. Refresh category1 properties,
 	// placement and committed ticket counts, not every peer's full appearance.
 	// Ordinary-party formation retains its own required actor priming below.
-	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, 0, false)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, 0, false, false)
 }
 
 func (s *Service) broadcastRuntimeRaidRoster(state runtimeRaidState) error {
@@ -1013,18 +1063,24 @@ func (s *Service) broadcastRuntimeRaidRoster(state runtimeRaidState) error {
 }
 
 func (s *Service) broadcastRuntimeRaidProjection(state runtimeRaidState, includeProfiles bool) error {
-	return s.broadcastRuntimeRaidProjectionForJoin(state, includeProfiles, 0)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, 0, true, false)
 }
 
 func (s *Service) broadcastRuntimeRaidJoinRefresh(state runtimeRaidState, joined uint16) error {
-	return s.broadcastRuntimeRaidProjectionForJoin(state, true, joined)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, true, joined, true, true)
 }
 
 func (s *Service) broadcastRuntimeRaidProjectionForJoin(state runtimeRaidState, includeProfiles bool, joined uint16) error {
-	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, joined, true)
+	return s.broadcastRuntimeRaidProjectionWithAppearance(state, includeProfiles, joined, true, false)
 }
 
-func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaidState, includeProfiles bool, joined uint16, includeAppearance bool) error {
+func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(
+	state runtimeRaidState,
+	includeProfiles bool,
+	joined uint16,
+	includeAppearance bool,
+	refreshLeaderMetadata bool,
+) error {
 	body, err := s.buildRuntimeRaidRosterBody(state)
 	if err != nil {
 		return err
@@ -1032,13 +1088,23 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaid
 	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancelProfiles()
 	profiles := newCurrentRaidProfileBatch(s, profileCtx)
-	// Ownership already read for the profiles belongs to this same broadcast.
-	// Inventory remains a fresh committed read; never retain either across calls.
+	// Profile identity uses its bounded admitted-member memo. Inventory remains
+	// a fresh committed read scoped to this broadcast.
 	admission := &currentRaidAdmissionBatch{ctx: profiles.ctx}
 	for _, member := range state.Members {
 		session, ok := s.onlineGameSession(member.CharID)
 		if !ok {
 			continue
+		}
+		if refreshLeaderMetadata && member.CharID == state.LeaderID && member.CharID != joined &&
+			s.currentRaidAdmissionVisible(session, state) {
+			// Joining used to refresh only the new member's mode2 metadata.
+			// The leader then retained the previous cached roster object until
+			// a town round trip. Refresh that small capability projection here.
+			if err := s.sendRuntimeRaidMetadata(session, state, 2); err != nil {
+				s.failRuntimeRaidRecipient(session, "join_leader_metadata", err)
+				continue
+			}
 		}
 		if includeProfiles {
 			var actors map[uint16]bool
@@ -1047,7 +1113,11 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(state runtimeRaid
 			} else if joined != 0 && member.CharID != joined {
 				actors = map[uint16]bool{joined: true}
 			}
-			if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, state, profiles, actors); err != nil {
+			sendProfiles := s.sendCurrentRuntimeRaidProfilesWithBatchForActors
+			if joined != 0 {
+				sendProfiles = s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors
+			}
+			if err := sendProfiles(session, state, profiles, actors); err != nil {
 				s.failRuntimeRaidRecipient(session, "profiles", err)
 				continue
 			}
@@ -1070,7 +1140,7 @@ func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
 	// seats are not authority to recreate ordinary parties formed during
 	// phase one. Keep their IDs, slots and live UDP transports intact.
 	if b := state.Battle; s.options.currentClientVersion == "official-24.9" &&
-		b != nil && (b.Mode == 1 || b.Mode == 2) && !b.Single && b.Phase > 0 {
+		b != nil && b.Mode == 1 && !b.Single && b.Phase > 0 {
 		return nil
 	}
 	// FiendWar's 1..8 placements are personal raid seats, not ordinary party
@@ -1138,7 +1208,7 @@ func (s *Service) initialRuntimeRaidMembersLocked(session *gameSession, sourceID
 func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byte) runtimeRaidMemberState {
 	member := runtimeRaidMemberState{
 		CharID:     charID,
-		Name:       s.runtimeRaidCharacterName(charID),
+		Name:       csharpSelectCharacterName(charID),
 		GroupIndex: group,
 		SlotOrder:  slot,
 		UserState:  1,
@@ -1156,18 +1226,6 @@ func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byt
 		}
 	}
 	return member
-}
-
-func (s *Service) runtimeRaidCharacterName(charID uint16) string {
-	repos, ok := s.repositoryGroup()
-	if ok && repos.Character != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-		defer cancel()
-		if record, found, err := repos.Character.Load(ctx, strconv.Itoa(int(charID))); err == nil && found && record.Name != "" {
-			return record.Name
-		}
-	}
-	return csharpSelectCharacterName(charID)
 }
 
 func (s *Service) sendRaidCommandFailure(session *gameSession, typ uint16) error {
@@ -1192,7 +1250,7 @@ func (s *Service) nextRuntimeRaidKeyLocked(session *gameSession, sourceID uint16
 		// global56A1E74 (field7: advertised server) before parsing 591.
 		prefix = channelID<<16 | uint32(s.channelAdvertiseID())<<24
 	}
-	base := prefix | uint32(uint16(sourceID)+s.raidKeyEpoch)
+	base := prefix | uint32(sourceID)
 	if base != 0 {
 		if _, exists := s.raids[base]; !exists {
 			return base
@@ -1200,7 +1258,7 @@ func (s *Service) nextRuntimeRaidKeyLocked(session *gameSession, sourceID uint16
 	}
 	for {
 		s.nextRaidSeq++
-		key := prefix | uint32(uint16(s.nextRaidSeq)+s.raidKeyEpoch)
+		key := prefix | uint32(uint16(s.nextRaidSeq))
 		if key == 0 {
 			continue
 		}
@@ -1412,7 +1470,7 @@ func runtimeRaidMemberPlacementLimits(state runtimeRaidState) (byte, int) {
 	if state.RouteOrRaidType == 2 {
 		return 8, 1
 	}
-	return runtimeRaidMaxGroups, runtimeRaidGroupSize
+	return currentRaidGroupMaximum(state), runtimeRaidGroupSize
 }
 
 // planRuntimeRaidGroupSynchronization computes the complete live-member
@@ -1721,7 +1779,7 @@ func nextRuntimeRaidSlot(state runtimeRaidState, group byte) byte {
 func nextRuntimeRaidSlotExcluding(state runtimeRaidState, group byte, exclude uint16) byte {
 	used := make(map[byte]bool)
 	for _, member := range state.Members {
-		if member.CharID == exclude || member.GroupIndex != group {
+		if member.CharID == exclude || member.GroupIndex != group || !runtimeRaidMemberReservesOrdinaryGroup(state, member) {
 			continue
 		}
 		used[member.SlotOrder] = true
