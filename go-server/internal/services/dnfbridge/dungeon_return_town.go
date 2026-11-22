@@ -457,11 +457,6 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 	if err := s.recordCurrentActivityAbyss(session, runtime, snapshot.Scene, false); err != nil {
 		return err
 	}
-	if runtime.raidEntry != nil && runtime.raidEntry.ChannelType == 42 {
-		if err := s.restoreCurrentFiendWarCompletedLifeLocked(session, runtime, false); err != nil {
-			return err
-		}
-	}
 	s.cancelCurrentDungeonDeathReturnLocked(session, runtime, "town_return_transition_started")
 	if !runtime.townReturnPending {
 		runtime.townReturnPending = true
@@ -474,9 +469,6 @@ func (s *Service) sendCurrentDungeonReturnToTownLocked(
 
 	if !runtime.townReturnOp24Sent {
 		if err := s.clearCurrentEpicShopAppearanceLocked(session, runtime); err != nil {
-			return err
-		}
-		if err := s.clearCurrentSecretShopLocked(session, runtime); err != nil {
 			return err
 		}
 		s.logGameEvent(session, "game-dungeon-back-to-village-op24-send",
@@ -720,6 +712,10 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// 锁外执行（要读实例注册表 / 可能要发帧，不能持有 session.dungeon.mu）。
 		// 本函数（`:493` 的闸门）只在 run_status=completed 时才会走到 ⇒ 这里就是
 		// **通关回城**这条路径，不走 dungeon_party_leader_exit.go 的解散。
+		// 先登记本机城镇同屏，再扇出队友回城：否则队友 EnterArea 时
+		// allSameChannelPartyMembersOutsideDungeon 会因为"队长已不在副本但
+		// 尚未登记城镇"而误判就绪，提前触发一次不完整的重绑。
+		published := s.publishCompletedDungeonReturnTownPresence(session, transition, "completed_town_route")
 		if !s.retireCurrentFiendWarEncounterParty(session, runtime) {
 			// Completion does not turn ESC give-up (42) into the result-page
 			// team return (72). Both explicit personal exits retain survivors.
@@ -738,12 +734,11 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// （party_town_return.go:92），"最后一个成员到位后重建同屏"永远是 no-op，
 		// 两个人回城后互相看不见。默认档登记城镇同屏 + 作废本会话的副本运行键；
 		// 回退档一个字段都不改。见 dungeon_party_completion_return_town_presence.go。
-		published := s.publishCompletedDungeonReturnTownPresence(session, transition, "completed_town_route")
-		// The completed op72 route has no guaranteed trailing op15. A party of
-		// one still needs its realtime actor state restored after town presence
-		// becomes ready; the generic completion fanout intentionally skips it.
-		if state := runtimePartyStateSnapshot(session); published && state.PartyID > 0 && len(runtimePartyMembers(state)) == 1 {
-			if err := s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_single_party_town_restore"); err != nil {
+		// 多人队伍的同屏与队伍绑定统一由 rebindTownCopresenceAfterDungeonReturn 在全员到位时
+		// 一次性完成，这里不再二次重建（二次重建会在 [town_local_actor+0x4C8] 已绑定时再发
+		// kind3，触发客户端 0x201786B 解散分支，表现为"先解散再重组"）。
+		if state := s.townCopresenceActorPartyState(session); published && state.PartyID > 0 && len(runtimePartyMembers(state)) == 1 {
+			if err := s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_party_town_restore_after_presence"); err != nil {
 				return err
 			}
 		}
@@ -851,13 +846,9 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 			source+"_resume_confirmed_return",
 		)
 	}
-	if (runtime.townReturnSource == currentRaidTableReturnSource || runtime.townReturnSource == currentRaidTablePartyReturnSource) && !s.currentRaidTableActiveReturnReady(session, runtime) {
+	if ok, reason := s.reconcileRaidTableReturnBeforeTownCommitLocked(session, runtime, source); !ok {
 		session.dungeon.mu.Unlock()
-		return fmt.Errorf("raid table return owner changed before town confirmation")
-	}
-	if runtime.raidTablePartyReturn != nil && !s.currentRaidTablePartyReturnMatches(session, runtime, runtime.raidTablePartyReturn) {
-		session.dungeon.mu.Unlock()
-		return fmt.Errorf("raid table party changed before town confirmation")
+		return fmt.Errorf("%s", reason)
 	}
 	snapshot := runtime.Session.Snapshot()
 	deadlineOwner := runtime.raidDeadlineReturn
@@ -945,6 +936,14 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	townID := runtime.townReturnTransition.TownID
 	areaID := runtime.townReturnTransition.AreaID
 	session.dungeon.mu.Unlock()
+	// 客户端已经发出自己的城镇侧场景请求（本次提交就是由它触发的），因此城镇
+	// 上下文就是连接频道；但 townActorOwnerChannel 此刻可能仍是副本 owner 0
+	// （见上面 omitSceneActivation 的注释）。遭遇战临时队伍退役的 op9 kind3
+	// 拿这个字段当记录上下文：0 只会清副本记录，客户端城镇上下文里"自己"那条
+	// 队伍记录会留下来，队伍框一直残留。提前落成与 ensure... 的 :1075 同一个来源。
+	session.townMu.Lock()
+	session.townActorOwnerChannel = returnOwnerChannel
+	session.townMu.Unlock()
 	if runtime.guildPractice != nil {
 		s.projectOptionalGuildEssenceSnapshot(session)
 	}
@@ -1018,11 +1017,20 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 		"reason", "client_town_side_scene_request_confirmed_transition")
 	// 副本返回城镇不会走 SET_USER_AREA，因此必须在这里重新登记城镇同屏，
 	// 否则服务端仍以为玩家在副本区域，同屏广播不会发生（出图后互相看不见）。
-	s.rebindTownCopresenceAfterDungeonReturn(session, townID, areaID, source+"_copresence_rebind")
-	return s.ensureCurrentConfirmedDungeonReturnPlayerState(
+	armDungeonReturnAliasRetirePending(session)
+	err := s.ensureCurrentConfirmedDungeonReturnPlayerState(
 		session,
 		source+"_after_confirmed_typed_op24",
 	)
+	if s.rebindTownCopresenceAfterDungeonReturn(session, townID, areaID, source+"_copresence_rebind") && err == nil {
+		if rebuildErr := s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_after_copresence_rebind"); rebuildErr != nil {
+			s.logGameEvent(session, "game-party-town-return-post-rebind-deferred",
+				"char_id", session.selectedCharacterID,
+				"source", source,
+				"error", rebuildErr)
+		}
+	}
+	return err
 }
 
 // ensureCurrentConfirmedDungeonReturnPlayerState consumes the direct
@@ -1091,10 +1099,20 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 	session.townPostTransition.mu.Unlock()
 	switch {
 	case stage == currentTownPostTransitionIdle || stage == currentTownPostTransitionComplete:
-		s.armCurrentTownPostTransitionPlayerState(
-			session,
-			source+"_arm_direct_return_generation",
-		)
+		if selectorReturn != nil {
+			s.armCurrentTownPostTransitionPlayerStateWithProfile(
+				session,
+				source+"_arm_direct_return_generation",
+				characterID,
+				ownerChannel,
+				true,
+			)
+		} else {
+			s.armCurrentTownPostTransitionPlayerState(
+				session,
+				source+"_arm_direct_return_generation",
+			)
+		}
 	case armedCharacterID != characterID:
 		return fmt.Errorf(
 			"confirmed dungeon return actor rebuild owner changed: armed=%d selected=%d stage=%d",
@@ -1120,6 +1138,9 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 		session.confirmedDungeonReturnStatePending = false
 	}
 	session.dungeon.mu.Unlock()
+	// 遭遇战临时队伍在本次回城提交里退役、但退役帧发得比城镇上下文还早：
+	// 现在 owner 已落定、玩家状态已重建，补一条"自己"的 kind3 收口。
+	s.flushFiendWarPartyClearOnTownSceneReady(session, source+"_fiendwar_party_clear_after_town_ready")
 	if selectorReturn != nil {
 		if !s.restoreCurrentSelectorReturnPresence(session, selectorReturn, source) {
 			return nil
@@ -1135,6 +1156,9 @@ func (s *Service) ensureCurrentConfirmedDungeonReturnPlayerState(
 		"char_id", characterID,
 		"owner_context", ownerChannel,
 		"sequence", currentTownPostTransitionPlayerStateSequence(currentTownReturnOmitsSceneActivation(session)))
+	// 本会话的 mode0/mode1 与同区队友的 mode0/mode1 已在 sendCurrentTownPostTransitionPlayerState
+	// 中重建完成；立即对本会话下发一次 op153+op9 把新队友角色绑回 CPartyManager.slotActors，
+	// 避免在等待其它队友处理 op35 的窗口期内出现队友血条短暂为空。
 	// op35 can consume the return without the later op15 scene finalizer.
 	// Actor reconstruction replaces the native party/HUD owner, so restore
 	// the roster after all members have completed their own return generation.
@@ -1206,7 +1230,6 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.selectPreviewActorRemoved = false
 	session.preDungeonContextPlayerStateSent = false
 	session.postStartMapPlayerStateSent = false
-	clearDeferredSelectedActorGuardianGemRowRefresh(session)
 	session.deferredDungeonUserStateObjectKey = 0
 	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
