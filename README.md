@@ -26,7 +26,8 @@
 | **青龙大会 / 黄龙大会 / 魂大会进图不出怪、直接判通关或翻牌卡住** | 源码默认 `dungeon_tournament` 为 `off`，未走 `[tournament enemies]` 4 轮赛程铺怪路径 | 设 `"dungeon_tournament": "vendor"`（对应 `DNFBRIDGE_DUNGEON_TOURNAMENT=vendor`；**填 `on`/`true`/`1` 均无效，只认 `vendor`**） |
 | **选角或进城后客户端闪退（赛马活动冲突）** | 首次 `prepare` 模板默认开启了尚未修复闪退的 2365 赛马活动 | 设 `"joust_event_enabled": false`；**旧数据库**还必须通过管理接口将活动 **2365** 保存为关闭并重启（库内保存值优先于环境变量） |
 | **登录后无频道、选频道转圈或无法进游戏** | 旧实例仍在使用不同频道表或PVF内置目录 | 新实例默认使用统一外部表；旧实例按迁移说明备份并显式选择 `--channel-info go-server/internal/services/dnfbridge/testdata/channel_info.etc`（[120 频道说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)） |
-| **V212–V215 双组 Buff 登记不保存、切图清空或换装不重算** | 未开启双组 Buff 同步或换装重算开关，或客户端与开关未配对 | 配套 V212–V215 客户端设 `"buff_group_sync": "on"` 与 `"buff_swap_reapply": "on"`（详见 [Buff 部署说明](Docs/BUFF_GROUP_DEPLOYMENT.md)） |
+| **积分没有入账或商城余额不刷新** | 旧实例保留了关闭配置，或实际客户端没有 427 号余额通知接收能力 | 按[积分与 Buff 配对步骤](Docs/BUFF_GROUP_DEPLOYMENT.md#积分商城与-buff-配对)核对服务端开关和实际 EXE |
+| **双组 Buff 登记不保存、切图清空或换装不重算** | 未开启双组 Buff 同步或换装重算开关，或客户端与开关未配对 | 配套 V212–V215 客户端设 `"buff_group_sync": "on"` 与 `"buff_swap_reapply": "on"`（详见 [Buff 部署说明](Docs/BUFF_GROUP_DEPLOYMENT.md)） |
 | **史诗分解不弹无色/灵魂结果框（V210+）、城镇非队友加载慢或异常（V211+）** | 漏开与新版客户端配套的服务端显示模式 | 设 `"disjoint_epic_display": "paired-v1"` 与 `"town_display_only": "on"` |
 | **公会排行/红包/守护神/精髓无法使用，或深渊锁槽、组队进图掉线/顺序错乱** | 公会子系统默认全关，且未注入 `runtime_compatibility` 17 项协议修复 | 直接将 [`deploy/templates/docker-instance.recommended.json`](deploy/templates/docker-instance.recommended.json) 合并进 `instance.json` |
 | **NPC 赠礼（好感度 op812）不刷新、黑钻 188 疲劳 / 加百利商店缺失** | 服务端提交过旧，或客户端/PVF 未同步到 2026-11-15 公开批次 | 拉取最新 `master` 重新构建，并在 [GitHub Releases](https://github.com/Cec1c/ServerS5A3/releases) 下载 **V215 客户端组件** 与 **`66482976` 正式服完整 PVF**（见 [公开功能清单](Docs/SELECTED_PUBLICATION_20261115.md)） |
@@ -34,6 +35,8 @@
 完整的环境变量映射与线上运行进程只读核对脚本见 **[Docker 运行配置与脱敏参考](Docs/DOCKER_RUNTIME_REFERENCE.md)** 及参考文件 [`deploy/templates/docker-server.redacted.env`](deploy/templates/docker-server.redacted.env)。
 
 ## 快速开始：使用 Docker 运行配置包
+
+使用[积分与 Buff 配对步骤](Docs/BUFF_GROUP_DEPLOYMENT.md#积分商城与-buff-配对)准备 `DNF.exe` 和 `Script.pvf`，再把这对文件交给搭建入口。公开 Releases 的 V212、V215、V216 原版均缺少 427 号余额通知接收位。
 
 ### 方式一：把仓库和配置包交给编程 Agent 自动部署（推荐）
 
@@ -45,7 +48,7 @@
 服务器连接信息和 Windows 客户端目录由我提供。
 
 要求：
-1. 先核对目标机器、源码提交、数据库容量以及客户端 DNF.exe / Script.pvf 的 SHA256 配对关系。
+1. 按 Docs/BUFF_GROUP_DEPLOYMENT.md 准备积分与 Buff 配对资源，核对目标机器、源码提交、数据库容量及 EXE/PVF 摘要。Docker prepare 用 --client-dir 指向服务端可读取的配套 DNF.exe 目录。
 2. 使用 deploy/docker/manage.sh 构建镜像并执行首次 prepare，默认使用 go-server/internal/services/dnfbridge/testdata/channel_info.etc（统一120频道外部表）；显式指定的表须匹配同一摘要，不能提取PVF目录代替。
 3. 将 deploy/templates/docker-instance.recommended.json 合并进生成的 runtime/docker/instance.json（保留自动生成的本机地址、密码与令牌），确保启用 dungeon_tournament="vendor"（青龙/黄龙/魂大会刷怪）、buff_group_sync="on"、buff_swap_reapply="on"、disjoint_epic_display="paired-v1"、town_display_only="on"、公会功能及 runtime_compatibility 全部推荐项，并将 joust_event_enabled 设为 false 关闭 2365 赛马活动。
 4. 启动容器后，按 Docs/DOCKER_RUNTIME_REFERENCE.md 读取实际 DNF90Server 进程的 /proc/<pid>/environ 与活动生效状态核对无误。
@@ -61,6 +64,7 @@
 sh deploy/docker/manage.sh build
 sh deploy/docker/manage.sh prepare \
   --pvf "/srv/dnf-assets/Script.pvf" \
+  --client-dir "/srv/dnf-assets" \
   --channel-info "go-server/internal/services/dnfbridge/testdata/channel_info.etc" \
   --host-ip 192.168.1.50
 
@@ -178,7 +182,7 @@ python3 -m unittest discover -s deploy/docker -p "test_*.py" -v
 | 核对 Docker 环境变量、青龙/黄龙大会与推荐开关包 | [Docker 运行配置与脱敏参考](Docs/DOCKER_RUNTIME_REFERENCE.md) · [`docker-instance.recommended.json`](deploy/templates/docker-instance.recommended.json) |
 | Windows 本机 Docker 测试环境 | [Docker Linux 本地测试环境](Docs/DOCKER_LOCAL.md) |
 | 选择与核验 120 频道外部 ETC | [频道表部署说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md) |
-| V212–V215 双组 Buff 协议配对 | [V212 双组 Buff 部署配置](Docs/BUFF_GROUP_DEPLOYMENT.md) |
+| 积分商城与双组 Buff 配对 | [部署配置与客户端资源](Docs/BUFF_GROUP_DEPLOYMENT.md) |
 | 查看近期公开的黑钻/加百利/好感度与高峰优化 | [2026-11-15 公开说明](Docs/SELECTED_PUBLICATION_20261115.md) · [2026-11-11 玩法增量](Docs/GAMEPLAY_UPDATES_20261111.md) · [热点优化](Docs/PERFORMANCE_HOT_PATHS_20261114.md) |
 | 数据库持久指纹触发器与升级奖励索引维护 | [优化表结构维护](Docs/OPTIMIZATION_SCHEMA_MAINTENANCE.md) |
 | 本地靶向测试、变更记录与 PR 协作流程 | [本地 CI/CD](Docs/LOCAL_CICD.md) · [变更记录规范](Docs/CHANGELOG_WORKFLOW.md) · [GitHub 权威迁移](Docs/GITHUB_AUTHORITY_MIGRATION.md) |
