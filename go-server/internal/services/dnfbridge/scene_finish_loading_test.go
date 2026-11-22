@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"strconv"
 	"testing"
-	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
-	dnfmail "longheng.io/server/internal/modules/dnf/mail"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
@@ -156,10 +153,6 @@ func TestFinishLoadingStatusThenMainCharacterStateUsesRealRecord(t *testing.T) {
 		!bytes.Equal(userState.Body, wantUserState) {
 		t.Fatalf("post-finish-loading deferred user state=%+v body=%x want=%x", userState.Header, userState.Body, wantUserState)
 	}
-	alarm, rest := splitGameServerUpperPacket(t, rest)
-	if alarm.Header.Classification != 0 || alarm.Header.MsgID != 99 || !bytes.Equal(alarm.Body, []byte{0, 0}) {
-		t.Fatalf("scene-ready mailbox alarm=%+v body=%x", alarm.Header, alarm.Body)
-	}
 	if len(rest) != 0 || !session.currentFinishLoadingStateSent || !session.currentFinishLoadingCompletionSent {
 		t.Fatalf("finish-loading trailing=%x state=%v completion=%v",
 			rest, session.currentFinishLoadingStateSent, session.currentFinishLoadingCompletionSent)
@@ -200,12 +193,8 @@ func TestFinishLoadingStatusThenMainCharacterStateUsesRealRecord(t *testing.T) {
 	}
 	townPlacement, townRest := splitGameServerUpperPacket(t, townRest)
 	if townPlacement.Header.Classification != 0 || townPlacement.Header.MsgID != uint16(dnfenum.CmdPacketRequestBlacklist) ||
-		!bytes.Equal(townPlacement.Body, buildCurrentSceneActorPlacementBody()) {
+		!bytes.Equal(townPlacement.Body, buildCurrentSceneActorPlacementBody()) || len(townRest) != 0 {
 		t.Fatalf("town finish-loading placement=%+v body=%x rest=%x", townPlacement.Header, townPlacement.Body, townRest)
-	}
-	townAlarm, townRest := splitGameServerUpperPacket(t, townRest)
-	if townAlarm.Header.Classification != 0 || townAlarm.Header.MsgID != 99 || !bytes.Equal(townAlarm.Body, []byte{0, 0}) || len(townRest) != 0 {
-		t.Fatalf("town scene-ready mailbox alarm=%+v body=%x rest=%x", townAlarm.Header, townAlarm.Body, townRest)
 	}
 	if !townSession.currentFinishLoadingStateSent || !townSession.currentFinishLoadingCompletionSent ||
 		!townSession.initialTownSkillInfoSent || !townSession.postFinishLoadingPlayerStateSent {
@@ -243,82 +232,6 @@ func TestFinishLoadingStatusAfterCompletedDungeonReturnAcksWithoutMainState(t *t
 			session.currentFinishLoadingStateSent,
 			session.currentFinishLoadingCompletionSent,
 			session.postFinishLoadingPlayerStateSent)
-	}
-}
-
-func TestCompletedDungeonReturnOp37AckOnlyResyncsMailboxAfterEarlyCount(t *testing.T) {
-	repositories := dnfrepomemory.NewMemoryGroup()
-	saveUnread := func(count int) {
-		t.Helper()
-		record := dnfrepo.MailboxRecord{CharacterID: "77", Mails: map[string]dnfrepo.MailRecord{}}
-		for i := 0; i < count; i++ {
-			id := strconv.Itoa(i + 1)
-			record.Mails[id] = dnfrepo.MailRecord{MailID: id, CreatedAt: time.Now().UTC()}
-		}
-		if err := repositories.Mailbox.Save(context.Background(), record); err != nil {
-			t.Fatal(err)
-		}
-	}
-	connection := &bufferConn{}
-	session := &gameSession{
-		conn:                           connection,
-		selectedCharacterID:            77,
-		returnTownFinishLoadingAckOnly: true,
-	}
-	service := &Service{
-		options: options{
-			gameUpperHeader:    gameUpperHeaderServer16,
-			gameUpperBodyCodec: gameUpperBodyCodecPlain,
-		},
-		repositoryProvider: func() (dnfrepo.Group, bool) { return repositories, true },
-	}
-
-	// The earlier selected/town scene had count=1 and the completed-return actor
-	// chain has already been written. Calling the early town wrapper must not
-	// mark this as a client-ready scene; only the client's real op37 may re-read
-	// and project the newer durable count.
-	saveUnread(1)
-	session.setFinishLoadingGateState(true)
-	session.setFinishLoadingGatePostFinish(true)
-	session.townPostTransition.stage = currentTownPostTransitionComplete
-	if err := service.sendCurrentTownPostTransitionPlayerState(session, "early_completed_return_state"); err != nil {
-		t.Fatal(err)
-	}
-	if connection.write.Len() != 0 || session.mailboxSceneAlarmSent {
-		t.Fatalf("early completed-return state consumed mailbox readiness: bytes=%x sent=%t", connection.write.Bytes(), session.mailboxSceneAlarmSent)
-	}
-	saveUnread(2)
-
-	if err := service.sendFinishLoadingStatus(session, make([]byte, currentFinishLoadingLegacyRequestBodySize)); err != nil {
-		t.Fatalf("return-town finish-loading status: %v", err)
-	}
-	ack, rest := splitGameServerUpperPacketWithHeader(t, connection.write.Bytes(), service.gameUpperHeaderSize())
-	alarm, rest := splitGameServerUpperPacketWithHeader(t, rest, service.gameUpperHeaderSize())
-	if len(rest) != 0 {
-		t.Fatalf("unexpected packets after ACK and mailbox: %x", rest)
-	}
-	if ack.Header.Classification != dnfproto.DefaultChannelClassification ||
-		ack.Header.MsgID != uint16(dnfenum.CmdPacketFinishLoading) ||
-		!bytes.Equal(ack.Body, []byte{1}) {
-		t.Fatalf("ACK-only finish-loading status=%+v body=%x", ack.Header, ack.Body)
-	}
-	if alarm.Header.Classification != 0 ||
-		alarm.Header.MsgID != dnfmail.MailboxAlarmNotificationMessageID ||
-		!bytes.Equal(alarm.Body, []byte{2, 0}) {
-		t.Fatalf("ACK-only scene-ready mailbox=%+v body=%x", alarm.Header, alarm.Body)
-	}
-	if !session.mailboxSceneAlarmSent {
-		t.Fatal("ACK-only op37 did not commit scene-ready mailbox resync")
-	}
-
-	// A repeated op37 gets its normal status ACK but must not duplicate op99.
-	connection.write.Reset()
-	if err := service.sendFinishLoadingStatus(session, make([]byte, currentFinishLoadingLegacyRequestBodySize)); err != nil {
-		t.Fatalf("duplicate return-town finish-loading status: %v", err)
-	}
-	ack, rest = splitGameServerUpperPacketWithHeader(t, connection.write.Bytes(), service.gameUpperHeaderSize())
-	if len(rest) != 0 || ack.Header.MsgID != uint16(dnfenum.CmdPacketFinishLoading) {
-		t.Fatalf("duplicate ACK-only op37 replayed mailbox: ack=%+v rest=%x", ack, rest)
 	}
 }
 

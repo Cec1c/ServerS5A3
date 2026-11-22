@@ -319,8 +319,7 @@ func TestRaidStartPartyIntentRejectsMixedRaidMembership(t *testing.T) {
 
 func TestRaidStartPartyIntentRejectsGroupExhaustionWithoutMerging(t *testing.T) {
 	manager := party.NewRuntimePartyManager()
-	// Six pairs exceed Luke's five groups; Anton now has ten groups.
-	state := runtimeRaidState{CurrentLayout: true, RouteOrRaidType: 1}
+	state := runtimeRaidState{CurrentLayout: true}
 	for id := uint16(1); id <= 12; id += 2 {
 		raidStartIntentManagerPairForTest(t, manager, id, id+1)
 		state.Members = append(state.Members, runtimeRaidMemberState{CharID: id, GroupIndex: 1}, runtimeRaidMemberState{CharID: id + 1, GroupIndex: 1, SlotOrder: 1})
@@ -329,7 +328,7 @@ func TestRaidStartPartyIntentRejectsGroupExhaustionWithoutMerging(t *testing.T) 
 	before, parties := cloneRuntimeRaidState(state), manager.Snapshots()
 	_, err := s.prepareCurrentRaidStartPartyIntent(state)
 	if err == nil || !strings.Contains(err.Error(), "no free group") {
-		t.Fatalf("six distinct Luke parties must reject before admission: %v", err)
+		t.Fatalf("six distinct ordinary parties must reject before admission: %v", err)
 	}
 	if !reflect.DeepEqual(state, before) || !reflect.DeepEqual(manager.Snapshots(), parties) {
 		t.Fatal("group exhaustion partially committed or merged parties")

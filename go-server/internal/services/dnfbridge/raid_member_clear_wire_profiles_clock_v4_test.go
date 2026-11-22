@@ -65,15 +65,7 @@ func auditMemberClearInfoWire(t *testing.T, f *raidStartGuardFixture, session *g
 	if err := f.service.handleOnlineRequestRaidInfo(session, request); err != nil {
 		t.Fatal(err)
 	}
-	raw := f.conn.write.Bytes()
-	profiles, appearances := currentRaidProfileAndAppearanceFrameCounts(t, raw)
-	if profiles > 0 {
-		raw = consumeCurrentRaidProfiles(t, raw, cloneRuntimeRaidState(*f.state))
-	}
-	raw, stripped := consumeCurrentRaidAppearanceFrames(t, raw)
-	if stripped != appearances {
-		t.Fatalf("appearance frames=%d stripped=%d", appearances, stripped)
-	}
+	raw := consumeCurrentRaidProfiles(t, f.conn.write.Bytes(), cloneRuntimeRaidState(*f.state))
 	ack, rest := splitGameServerUpperPacket(t, raw)
 	if ack.Header.MsgID != 1359 || ack.Header.Classification != 1 {
 		t.Fatal("missing owned ACK1359")

@@ -23,7 +23,6 @@ func TestRealPVFLukeMaterialPlannerFiltersBeforeRegisteringDrops(t *testing.T) {
 			}
 			if mode == "single" {
 				b.Single = true
-				r.raidEntry.singleLukeMode = true
 			}
 			if mode == "stale_attempt" {
 				r.raidEntry.Attempt++
@@ -55,7 +54,7 @@ func TestRealPVFLukeMaterialPlannerFiltersBeforeRegisteringDrops(t *testing.T) {
 			if gold == 0 {
 				t.Fatal("material suppression removed gold")
 			}
-			if mode == "multiplayer" || mode == "single" {
+			if mode == "multiplayer" {
 				if material != 0 {
 					t.Fatal("multiplayer planner emitted material")
 				}

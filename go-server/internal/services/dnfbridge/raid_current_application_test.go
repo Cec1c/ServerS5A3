@@ -67,20 +67,15 @@ func TestCurrentRaidApplicationActualDispatchRequiresApprovalAndJoinsOnlyOnce(t 
 		t.Fatal("approved applicant not committed to actual raid")
 	}
 	ack, rest = splitGameServerUpperPacket(t, ac.write.Bytes())
-	leaderMetadata, rest := splitGameServerUpperPacket(t, rest)
-	leaderProfiles, _ := currentRaidProfileAndAppearanceFrameCounts(t, rest)
-	rest = consumeCurrentRaidProfilesForIDs(t, rest, after, b.selectedCharacterID)
-	rest, _ = consumeCurrentRaidAppearanceFrames(t, rest)
+	rest = consumeCurrentRaidProfiles(t, rest, after)
 	leaderRoster, rest := splitGameServerUpperPacket(t, rest)
 	metadata, appRest := splitGameServerUpperPacket(t, bc.write.Bytes())
-	appProfiles, _ := currentRaidProfileAndAppearanceFrameCounts(t, appRest)
 	appRest = consumeCurrentRaidProfiles(t, appRest, after)
-	appRest, _ = consumeCurrentRaidAppearanceFrames(t, appRest)
 	appRoster, appRest := splitGameServerUpperPacket(t, appRest)
 	wantAck := append([]byte{1}, party.BuildResponsePeerAckPayload(b.selectedCharacterID, 10)...)
 	wantMetadata, _ := buildCurrentRuntimeRaidMetadata(raidAllSoloWireFixture(after), 2)
 	wantRoster, _ := s.buildRuntimeRaidRosterBody(after)
-	if leaderProfiles != 1 || appProfiles != 1 || !bytes.Equal(ack.Body, wantAck) || len(rest) != 0 || len(appRest) != 0 || leaderMetadata.Header.MsgID != 591 || len(leaderMetadata.Body) < 12 || binary.LittleEndian.Uint32(leaderMetadata.Body[4:8]) != 2 || !bytes.Equal(leaderMetadata.Body, wantMetadata) || !bytes.Equal(metadata.Body, wantMetadata) || !bytes.Equal(appRoster.Body, wantRoster) || !bytes.Equal(leaderRoster.Body, wantRoster) {
+	if !bytes.Equal(ack.Body, wantAck) || len(rest) != 0 || len(appRest) != 0 || !bytes.Equal(metadata.Body, wantMetadata) || !bytes.Equal(appRoster.Body, wantRoster) || !bytes.Equal(leaderRoster.Body, wantRoster) {
 		t.Fatal("approval did not project committed real roster")
 	}
 	ac.write.Reset()

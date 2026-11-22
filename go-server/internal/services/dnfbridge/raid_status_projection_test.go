@@ -29,8 +29,8 @@ func TestRaidCompactProfilesReadRosterOncePerBroadcast(t *testing.T) {
 			t.Fatal("repeated per-receiver repository reads", loads)
 		}
 	}
-	// A later refresh gets a new broadcast memo and reloads authoritative
-	// properties; no cross-request service cache is retained.
+	// A later refresh must reload authoritative fields, with no cross-refresh
+	// caching of names, levels, job or owner context.
 	_, err = s.currentRuntimeRaidProfileBody(state, newCurrentRaidProfileBatch(s, context.Background()))
 	if err != nil {
 		t.Fatal(err)

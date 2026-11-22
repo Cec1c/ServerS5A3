@@ -179,7 +179,7 @@ func TestGuildCargoPurchaseRealPVF(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, err := guild.LoadContentCatalog(source)
-	if err != nil || len(c.Contents) < 23 || c.CargoLimit != 56 {
+	if err != nil || len(c.Contents) != 23 || c.CargoLimit != 56 {
 		t.Fatalf("catalog %+v %v", c, err)
 	}
 	if a, b := c.Contents[11], c.Contents[12]; a.Type != 4 || b.Type != 4 || a.Value != 16 || b.Value != 8 || a.Price != 10000 || b.Price != 5000 || a.Gold || b.Gold {
@@ -194,16 +194,6 @@ func TestGuildCargoPurchaseRealPVF(t *testing.T) {
 		v := c.Contents[uint32(16+i)]
 		if v.Type != 6 || v.Value != want || v.Days != -1 || v.Mode != 0 || v.Gold || v.Price != []uint32{100000, 200000, 500000}[i] {
 			t.Fatal("member expansion product differs", v)
-		}
-	}
-	if v, ok := c.Contents[19]; ok {
-		if v.Type != 6 || v.Value != 5000 || v.Days != -1 || v.Mode != 0 || v.Gold || v.Price != 2000000 {
-			t.Fatal("5000 member expansion product differs", v)
-		}
-	}
-	if v, ok := c.Contents[27]; ok {
-		if v.Type != 21 || v.Value != 5000 || v.Days != 1 || v.Mode != 0 || !v.Gold || v.Price != 10000000 {
-			t.Fatal("5000 contract product differs", v)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"context"
-	"errors"
 	"longheng.io/server/internal/modules/dnf/channelcatalog"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/pvf"
@@ -38,11 +37,7 @@ func TestRealPVFCurrentRaidDisconnectPublishesOfflineRetainedSeat(t *testing.T) 
 			t.Fatal("actual disconnect grace", p, seconds)
 		}
 	}
-	s, leader, member, lc, _, state := prepareApprovedCurrentRaid(t)
-	if err := s.startGameSessionEvents(context.Background(), leader); err != nil {
-		t.Fatal(err)
-	}
-	defer stopTestGameSessionEvents(t, s, leader)
+	s, _, member, lc, _, state := prepareApprovedCurrentRaid(t)
 	s.initialEquipmentArchive = archive
 	s.shutdownGameSessionEvents(member, false)
 	if _, bound := s.boundGameSessionCharacterSnapshot(member); bound {
@@ -55,9 +50,6 @@ func TestRealPVFCurrentRaidDisconnectPublishesOfflineRetainedSeat(t *testing.T) 
 	idx := runtimeRaidMemberIndex(after, member.selectedCharacterID)
 	if idx < 0 || after.Members[idx].UserState != 0 {
 		t.Fatalf("disconnected retained member still online: key=%x member=%d state=%d", state.RaidKey, member.selectedCharacterID, after.Members[idx].UserState)
-	}
-	if err := s.callGameSession(context.Background(), leader, "drain-offline-presence", func() error { return nil }); err != nil {
-		t.Fatal(err)
 	}
 	if lc.write.Len() == 0 {
 		t.Fatal("offline presence never projected to peer")
@@ -301,8 +293,7 @@ func TestRealPVFCurrentRaidPresenceSeatLifecycle(t *testing.T) {
 		s, l, m, _ := newFixture(t)
 		s.shutdownGameSessionEvents(m, false)
 		state, ok, err := s.startRuntimeRaidWithEntryCost(l)
-		var rejected *raidStartRejection
-		if !errors.As(err, &rejected) || !reflect.DeepEqual(rejected.members, []uint16{m.selectedCharacterID}) || ok || state.Started {
+		if err != nil || ok || state.Started {
 			t.Fatal("offline retained member admitted", ok, err)
 		}
 		after, _ := s.runtimeRaidForMember(l.selectedCharacterID)

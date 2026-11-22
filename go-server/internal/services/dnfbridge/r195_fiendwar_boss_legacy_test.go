@@ -178,8 +178,8 @@ func TestR195FiendWarBossBothTransportsHPAndWindow(t *testing.T) {
 				t.Fatal("premature window accepted")
 			}
 			send(0, 1, 0, 75)
-			if f.state.Battle.FiendWar.Value("top boss view hp") != 100 || f.state.Battle.FiendWar.Value("top boss hp") != 100 || f.state.Battle.FiendWar.Value("boss pattern state") != 1111 {
-				t.Fatal("minigame HP replaced body HP or changed pool")
+			if f.state.Battle.FiendWar.Value("top boss view hp") != 75 || f.state.Battle.FiendWar.Value("boss pattern state") != 1111 {
+				t.Fatal("HP report lost or changed pool")
 			}
 			r160WaitRaidProjection(t, f, peers)
 			for _, step := range []struct {

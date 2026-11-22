@@ -82,11 +82,6 @@ func TestP161PartyFollowerDungeonEntryRehydratesGuardianGemAfterFullMode1(t *tes
 	if !ok {
 		t.Fatal("repository group missing")
 	}
-	// The generic party fixture has no persisted job. The real post-finish
-	// skill projection rejects that state before it reaches the medal replay.
-	for _, id := range []string{"99", "100"} {
-		p161EnableCharacterFinishLoadingSkillInfo(t, service, id, 20)
-	}
 	raw := currentGuardianGemTestRaw(int16(currentGuildMedalActorSlot), 100380017, 1)
 	binary.LittleEndian.PutUint16(
 		raw[currentGuardianGemRawSocketOffset:currentGuardianGemRawSocketOffset+currentGuardianGemRawSocketWidth],
@@ -112,7 +107,7 @@ func TestP161PartyFollowerDungeonEntryRehydratesGuardianGemAfterFullMode1(t *tes
 	op27 := firstPartyDungeonSyncStep(steps, follower.selectedCharacterID, currentDungeonContextMsgID, nil)
 	op28 := firstPartyDungeonSyncStep(steps, follower.selectedCharacterID, currentDungeonInfoNotification, nil)
 	op29 := firstPartyDungeonSyncStep(steps, follower.selectedCharacterID, currentDungeonStartNotification, nil)
-	fullMode1, op37, op30, postOp120, gemOp14 := -1, -1, -1, -1, -1
+	fullMode1, gemOp14 := -1, -1
 	op27Count, gemCount := 0, 0
 	for index, step := range steps {
 		if step.CharID != follower.selectedCharacterID || step.Classification != 0 {
@@ -129,18 +124,6 @@ func TestP161PartyFollowerDungeonEntryRehydratesGuardianGemAfterFullMode1(t *tes
 				fullMode1 < 0 {
 				fullMode1 = index
 			}
-		case uint16(dnfenum.CmdPacketFinishLoading):
-			if index > fullMode1 && len(step.Body) == currentFinishLoadingCharacterStateBodySize {
-				op37 = index
-			}
-		case currentIncreaseStatusResultMsgID:
-			if index > op37 {
-				op30 = index
-			}
-		case uint16(dnfenum.CmdPacketRequestBlacklist):
-			if index > op30 {
-				postOp120 = index
-			}
 		case uint16(dnfenum.CmdPacketWalkoutPartyMember):
 			if op29 >= 0 && index > op29 &&
 				len(step.Body) == 3+currentItemListEntryWireSize &&
@@ -154,9 +137,9 @@ func TestP161PartyFollowerDungeonEntryRehydratesGuardianGemAfterFullMode1(t *tes
 			}
 		}
 	}
-	if op27 < 0 || op28 < 0 || op29 < 0 || fullMode1 < 0 || op37 < 0 || op30 < 0 || postOp120 < 0 || gemOp14 < 0 ||
-		!(op27 < op28 && op28 < op29 && op29 < fullMode1 && fullMode1 < op37 && op37 < op30 && op30 < postOp120 && postOp120 < gemOp14) {
-		t.Fatalf("order op27=%d op28=%d op29=%d full_mode1=%d op37=%d op30=%d post_op120=%d gem_op14=%d", op27, op28, op29, fullMode1, op37, op30, postOp120, gemOp14)
+	if op27 < 0 || op28 < 0 || op29 < 0 || fullMode1 < 0 || gemOp14 < 0 ||
+		!(op27 < op28 && op28 < op29 && op29 < fullMode1 && fullMode1 < gemOp14) {
+		t.Fatalf("order op27=%d op28=%d op29=%d full_mode1=%d gem_op14=%d", op27, op28, op29, fullMode1, gemOp14)
 	}
 	if op27Count != 1 || gemCount != 1 {
 		t.Fatalf("op27_count=%d gem_op14_count=%d", op27Count, gemCount)

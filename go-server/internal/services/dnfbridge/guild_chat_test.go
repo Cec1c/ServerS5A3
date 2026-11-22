@@ -26,21 +26,7 @@ func guildChatRequest(source uint16, message string) []byte {
 }
 
 func TestGuildChatCrossChannelAndSceneUsesNamedNativeNotice(t *testing.T) {
-	s, peers, repos := guildHallFixture(t)
-	sender, found, err := repos.Character.Load(context.Background(), "29")
-	if err != nil || !found {
-		t.Fatalf("load sender: %v", err)
-	}
-	if sender.Stats == nil {
-		sender.Stats = map[string]int64{}
-	}
-	sender.Stats["server_group_id"] = 7
-	if peers[29].townActorOwnerChannel == 7 {
-		t.Fatal("fixture must distinguish channel from server group")
-	}
-	if err := repos.Character.Save(context.Background(), sender); err != nil {
-		t.Fatal(err)
-	}
+	s, peers, _ := guildHallFixture(t)
 	// No shared scene actors: the named notification must work across scenes.
 	peers[30].townPositionSnapshot.TownID = 38
 	if err := s.handleCurrentPeerChat(peers[29], 17, guildChatRequest(29, "公会消息")); err != nil {
@@ -49,7 +35,7 @@ func TestGuildChatCrossChannelAndSceneUsesNamedNativeNotice(t *testing.T) {
 	var expected packetWriter
 	expected.writeBytes([]byte{6, 0, 0, 0})
 	expected.writeRawDstr(rosterNameBytes("角色29"))
-	expected.writeByte(7)
+	expected.writeByte(peers[29].townActorOwnerChannel)
 	expected.writeRawDstr(rosterNameBytes("公会消息"))
 	expected.writeRawDstr(nil)
 	for id, peer := range peers {

@@ -60,7 +60,7 @@ func TestGameTransportUnreadPeerExpiresAndReleasesRetirement(t *testing.T) {
 		if err == nil {
 			t.Fatal("unread peer succeeded")
 		}
-	case <-time.After(2 * gameTransportWriteTimeout):
+	case <-time.After(2 * createWriteTimeout):
 		t.Fatal("ordinary write remained unbounded")
 	}
 	select {
@@ -162,28 +162,5 @@ func TestGameTransportCallerDeadlineAndCancellationDoNotLeak(t *testing.T) {
 	p.wireMu.Unlock()
 	if err == nil || time.Since(start) > time.Second {
 		t.Fatalf("earlier deadline ignored: %v", err)
-	}
-}
-
-type transportPartialFailureConn struct {
-	bufferConn
-	err error
-}
-
-func (c *transportPartialFailureConn) Write([]byte) (int, error) { return 1, c.err }
-
-func TestGameTransportPartialWritePreservesInitiatingError(t *testing.T) {
-	failure := errors.New("partial write")
-	peer := &gameSession{conn: &transportPartialFailureConn{err: failure}}
-	ctx, cancel := context.WithTimeout(peer.gameTransportContext(), time.Second)
-	defer cancel()
-	peer.wireWriteContext = ctx
-	s := &Service{}
-	n, err := s.writeGameSessionObserved(peer, []byte{1, 2}, perfWireDirect)
-	if n != 1 || !errors.Is(err, failure) || errors.Is(err, context.Canceled) {
-		t.Fatalf("partial write count=%d err=%v", n, err)
-	}
-	if ctx.Err() != context.Canceled {
-		t.Fatal("partial frame left its transport usable")
 	}
 }

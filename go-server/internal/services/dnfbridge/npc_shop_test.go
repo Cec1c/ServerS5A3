@@ -302,16 +302,12 @@ func TestCurrentNPCShopBuyFailuresDoNotMutateGoldOrInventory(t *testing.T) {
 			repositories := mustCurrentNPCShopRepositories(t, test.gold, test.slots)
 			connection := &bufferConn{}
 			service := currentNPCShopTestService(repositories, shop, items)
-			if err := service.handleCurrentNPCShopBuy(&gameSession{conn: connection, selectedCharacterID: 19}, currentNPCShopBuyTestBody(test.itemID, test.count, 1, 326)); err != nil {
+			if err := service.handleCurrentNPCShopBuy(&gameSession{conn: connection, selectedCharacterID: 19}, currentNPCShopBuyTestBody(test.itemID, test.count, 0, 0)); err != nil {
 				t.Fatal(err)
 			}
 			failure, trailing := splitGameServerUpperPacket(t, connection.write.Bytes())
-			wantCode := currentNPCShopBuyErrorCode
-			if test.itemID == 601 { // The forged shelf fails before the asset owner.
-				wantCode = currentNPCShopContextErrorCode
-			}
 			if len(trailing) != 0 || failure.Header.MsgID != uint16(dnfenum.CmdPacketBuyItem) ||
-				failure.Header.Classification != dnfproto.DefaultChannelClassification || !bytes.Equal(failure.Body, []byte{0, wantCode}) {
+				failure.Header.Classification != dnfproto.DefaultChannelClassification || !bytes.Equal(failure.Body, []byte{0, currentNPCShopBuyErrorCode}) {
 				t.Fatalf("failure header=%+v body=%x trailing=%d", failure.Header, failure.Body, len(trailing))
 			}
 			character, found, err := repositories.Character.Load(context.Background(), "19")
@@ -365,7 +361,7 @@ func TestCurrentNPCShopBuyCommitFailureRollsBackWalletAndInventory(t *testing.T)
 	}
 	connection := &bufferConn{}
 	service := currentNPCShopTestService(repositories, shop, items)
-	if err := service.handleCurrentNPCShopBuy(&gameSession{conn: connection, selectedCharacterID: 19}, currentNPCShopBuyTestBody(600, 2, 1, 326)); err != nil {
+	if err := service.handleCurrentNPCShopBuy(&gameSession{conn: connection, selectedCharacterID: 19}, currentNPCShopBuyTestBody(600, 2, 0, 0)); err != nil {
 		t.Fatal(err)
 	}
 	failure, trailing := splitGameServerUpperPacket(t, connection.write.Bytes())

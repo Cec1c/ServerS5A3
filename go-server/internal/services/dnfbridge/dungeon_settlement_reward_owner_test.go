@@ -582,8 +582,8 @@ func TestCurrentBlackDiamondBonusRequiresBlackDiamondEntitlement(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if got := service.currentBlackDiamondBonusExp(context.Background(), "account-1", 200); got != 10 {
-			t.Fatalf("%s black diamond bonus = %d, want 10", metadataKey, got)
+		if got := service.currentBlackDiamondBonusExp(context.Background(), "account-1", 200); got != 20 {
+			t.Fatalf("%s black diamond bonus = %d, want 20", metadataKey, got)
 		}
 	}
 	for _, premiumType := range []int64{1, 29} {

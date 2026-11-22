@@ -54,21 +54,7 @@ func guildItemNotices(t *testing.T, peer *gameSession) [][]byte {
 func TestGuildItemHyperlinkNativeCrossChannelDelivery(t *testing.T) {
 	for _, count := range []int{1, 2, 5} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
-			s, peers, repos := guildHallFixture(t)
-			sender, found, err := repos.Character.Load(context.Background(), "29")
-			if err != nil || !found {
-				t.Fatalf("load sender: %v", err)
-			}
-			if sender.Stats == nil {
-				sender.Stats = map[string]int64{}
-			}
-			sender.Stats["server_group_id"] = 7
-			if peers[29].townActorOwnerChannel == 7 {
-				t.Fatal("fixture must distinguish channel from server group")
-			}
-			if err := repos.Character.Save(context.Background(), sender); err != nil {
-				t.Fatal(err)
-			}
+			s, peers, _ := guildHallFixture(t)
 			peers[30].townPositionSnapshot.TownID = 38
 			request := guildItemRequest(t, count)
 			if err := s.handleCurrentItemHyperlinkMessage(peers[29], 424, request); err != nil {
@@ -81,7 +67,7 @@ func TestGuildItemHyperlinkNativeCrossChannelDelivery(t *testing.T) {
 			var w packetWriter
 			w.writeBytes([]byte{6, 0, 0, 0})
 			w.writeRawDstr(rosterNameBytes("角色29"))
-			w.writeByte(7)
+			w.writeByte(peers[29].townActorOwnerChannel)
 			w.writeRawDstr([]byte("hello"))
 			w.writeByte(byte(count))
 			w.writeBytes(request[17:])
