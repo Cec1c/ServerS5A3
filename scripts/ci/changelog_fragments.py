@@ -76,18 +76,39 @@ def parse_note(path, raw, *, legacy_sections=False):
     require('\r' not in text and '\x00' not in text and text.endswith('\n'), 'use UTF-8/LF with final newline: ' + path)
     require(not MARKERS.search(text), 'conflict marker in ' + path)
     category = '功能修复' if parent == PUBLIC else '群服内容'
-    prefix = '---\ncategory: ' + category + '\n---\n\n# '
-    legacy_prefix = '---\ncategory: ' + category + '\n---\n\n## '
-    if legacy_sections and text.startswith(legacy_prefix):
-        # Already merged fragments used a level-two title. Select that parser
-        # prefix only in inherited mode; keep the original blob/hash intact.
-        prefix = legacy_prefix
+    frontmatters = ['---\ncategory: ' + category + '\n---\n\n']
+    if legacy_sections and parent == PUBLIC:
+        # Already merged public notes occasionally wrote the shorthand "修复"
+        # instead of the full category label. Never accept it under PRIVATE or
+        # accept the opposite scope category.
+        frontmatters.append('---\ncategory: 修复\n---\n\n')
+    matched_fm = next((fm for fm in frontmatters if text.startswith(fm)), None)
     if legacy_sections and not text.startswith('---\n'):
         # Some already merged notes are plain prose. Preserve them verbatim;
         # category and identity still come from the public/private path.
-        return Note(path, match[1], match[2], category, match[1], text.strip(), hashlib.sha256(raw).hexdigest())
-    require(text.startswith(prefix), 'wrong category or fragment header: ' + path)
-    title, sep, body = text[len(prefix):].partition('\n\n')
+        require(text.strip(), 'empty historical fragment: ' + path)
+        prose = text.lstrip('\n').rstrip()
+        return Note(path, match[1], match[2], category, match[1], prose, hashlib.sha256(raw).hexdigest())
+    require(matched_fm is not None, 'wrong category or fragment header: ' + path)
+    rest = text[len(matched_fm):]
+    if rest.startswith('# '):
+        heading_rest = rest[2:]
+    elif legacy_sections and rest.startswith('## '):
+        # Already merged fragments used a level-two title. Select that parser
+        # prefix only in inherited mode; keep the original blob/hash intact.
+        heading_rest = rest[3:]
+    elif legacy_sections:
+        # Already merged notes with matching frontmatter followed directly by
+        # prose (without a Markdown heading) remain immutable; keep their blob,
+        # indentation, and hash intact while still requiring a matching category
+        # and non-empty body.
+        require(rest.strip(), 'empty historical fragment: ' + path)
+        prose = rest.lstrip('\n').rstrip()
+        require(not re.search(r'(?m)^# ', prose), 'multiple fragment titles: ' + path)
+        return Note(path, match[1], match[2], category, match[1], prose, hashlib.sha256(raw).hexdigest())
+    else:
+        raise NoteError('wrong category or fragment header: ' + path)
+    title, sep, body = heading_rest.partition('\n\n')
     require(sep and title.strip() == title and 1 <= len(title) <= 100 and '\n' not in title,
             'one short title is required: ' + path)
     sections = body.startswith('## 变更\n\n') and body.count('\n## 验证\n\n') == 1
@@ -142,28 +163,31 @@ def changed_paths(root, base):
 
 
 def inherited_notes(root, scope, ref='HEAD'):
-    """无基线时，把 HEAD 所有父提交里已有的片段视为已合并。
+    """无基线时，把目标提交父提交里已有的精确片段内容视为已合并。
 
-    合并提交的片段可能只出现在第二父提交上，只看 HEAD~1 会把它误判为本次新增。
+    第一父提交已有路径优先固定其主线版本，其余父提交只补充新引入的历史片段，
+    防止合并分支重写既有历史片段被误认为合法 legacy；且必须字节完全一致。
     """
     p = git(root, 'rev-parse', commit(root, ref) + '^@', check=False)
     if p.returncode:
-        return set()
-    found = set()
-    for ref in p.stdout.decode().split():
-        found |= set(note_blobs(root, scope, ref))
+        return {}
+    found = {}
+    for parent_ref in p.stdout.decode().split():
+        for path, raw in note_blobs(root, scope, parent_ref).items():
+            found.setdefault(path, raw)
     return found
 
 
 def load_notes_tolerant(blobs, inherited):
-    """已合并的片段不可修改，因此只对本次新增的片段强制格式校验。
+    """仅对与继承基线字节完全一致的片段允许历史格式兼容，其余强制当前严格格式。
 
-    已存在于基线（或 HEAD~1）的片段即使不合规也只提示，否则一个历史格式片段
-    会让所有人的校验永久失败，而它们又按规范不得就地修改。
+    已合并片段的不可变性由显式 --base / --since 检查保证；在未提供基线的分支本地校验或
+    渲染中，若片段与父提交字节完全一致则允许走 legacy 解析，若在 PR 合并前被作者修订则须
+    满足当前严格格式，既不阻断合并前修订，也防止就地篡改历史 legacy 片段绕过校验。
     """
     notes, legacy = [], []
     for path, raw in sorted(blobs.items()):
-        if path in inherited:
+        if inherited.get(path) == raw:
             try:
                 notes.append(parse_note(path, raw))
             except NoteError:
@@ -203,9 +227,18 @@ def check(root, scope, base=None):
         if scope == 'group':
             added = {p for p in added if p.startswith(PRIVATE + '/')}
         require(not paths or added, 'this change requires a new ' + ('group' if scope == 'group' else scope) + ' fragment')
-        inherited = set(previous)
+        inherited = previous
     else:
         inherited = inherited_notes(root, scope)
+        head_blobs = None
+        for path, raw in list(current.items()):
+            if b'\r\n' in raw:
+                if head_blobs is None:
+                    head_blobs = note_blobs(root, scope, 'HEAD')
+                normalized = raw.replace(b'\r\n', b'\n')
+                if (head_blobs.get(path) == normalized and
+                        git(root, 'diff', '--quiet', '--no-ext-diff', 'HEAD', '--', path, check=False).returncode == 0):
+                    current[path] = normalized
     notes, legacy = load_notes_tolerant(current, inherited)
     for path in legacy:
         print('warning: merged fragment predates the current format and cannot be edited in place: ' + path,
@@ -225,7 +258,10 @@ def render(root, scope, since=None, until='HEAD'):
     old = note_blobs(root, scope, since) if since else {}
     for path, raw in old.items():
         require(blobs.get(path) == raw, 'released fragment changed or removed: ' + path)
-    notes, legacy = load_notes_tolerant(blobs, set(old) | inherited_notes(root, scope, until))
+    inherited = dict(old)
+    for path, raw in inherited_notes(root, scope, until).items():
+        inherited.setdefault(path, raw)
+    notes, legacy = load_notes_tolerant(blobs, inherited)
     selected = sorted((n for n in notes if n.path not in old), key=lambda n: (n.id, n.kind, n.path))
     lines = ['# 变更记录汇总', '', '> 以下为所选源码范围的记录；发布、部署和实机验收以各条验证状态及发布回执为准。', '',
              '范围：`' + (since or '全部历史片段') + '` → `' + until + '`', '']
