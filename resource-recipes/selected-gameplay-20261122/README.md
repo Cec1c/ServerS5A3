@@ -1,6 +1,6 @@
 # 积分商城、卢克战利品商店与罗什气泡
 
-输入是[公开团本与商店配方](../selected-raid-shop-20261118/README.md)的两份输出。PVF-CLI 与生成脚本分别负责修改、核对资源条目。以下命令在本目录运行，请为输出指定新文件。
+输入是[公开团本与商店配方](../selected-raid-shop-20261118/README.md)的两份输出。[公开 PVF-CLI](https://github.com/Cec1c/PVF-CLI) 的 `6834395da196f6cc6fa1d37a72c281a391f5094d` 版本支持这里使用的 schema 2。按工具说明构建并将 `pvf` 加入 PATH，或用 `--pvf-cli` 指定生成器使用的工具路径。以下命令在本目录运行，请为输出指定新文件。
 
 ```text
 python pvf_plan.py --input public-raid.pvf --out selected-plan.json
