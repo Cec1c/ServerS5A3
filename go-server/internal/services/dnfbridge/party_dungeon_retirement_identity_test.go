@@ -100,6 +100,8 @@ func TestCurrentDungeonPartyRetirementAllowsRoomCoordinateAdvanceWithinInstance(
 	newerRoom := f.instance.key
 	newerRoom.RoomX++
 	newerRoom.RoomY++
+	newerRoom.Seed++
+	newerRoom.MapID++
 	f.member.dungeonPartyRunMu.Lock()
 	f.member.dungeonPartyRun = newerRoom
 	f.member.dungeonPartyRunValid = true

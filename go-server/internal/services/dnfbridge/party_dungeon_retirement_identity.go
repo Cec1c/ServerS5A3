@@ -42,6 +42,7 @@ func (s *Service) withCurrentDungeonPartyRetirement(identity boundGameSessionCha
 	if session.dungeonPartyRunValid {
 		current, retired := session.dungeonPartyRun, instance.key
 		proof := session.dungeon.partyRetirement
+		activeOwner := session.dungeon.runtime != nil && session.dungeon.runtime.partyInstance == instance
 		committedOwner := session.dungeon.runtime == nil && proof.instance == instance && proof.token == session.dungeon.runToken && proof.keyValid && proof.key == current
 		// Room coordinates legitimately advance inside the same instance.
 		current.RoomX, current.RoomY, current.MapID = 0, 0, 0
@@ -49,8 +50,9 @@ func (s *Service) withCurrentDungeonPartyRetirement(identity boundGameSessionCha
 		// Navigation also replaces the room seed. A frozen raid admission
 		// identifies the run independently of that seed; the instance retains
 		// its entry-room key while the session records the latest room.
-		// Ordinary runs still need the seed guard, as they lack this identity.
-		if committedOwner || (current.RaidKey != 0 && current.RaidKey == retired.RaidKey &&
+		// The attached immutable instance is also authoritative for ordinary
+		// runs. A changed room seed cannot invalidate its owner's departure.
+		if activeOwner || committedOwner || (current.RaidKey != 0 && current.RaidKey == retired.RaidKey &&
 			current.RaidInstanceID != "" && current.RaidInstanceID == retired.RaidInstanceID &&
 			current.RaidRunID != "" && current.RaidRunID == retired.RaidRunID) {
 			current.Seed, retired.Seed = 0, 0
