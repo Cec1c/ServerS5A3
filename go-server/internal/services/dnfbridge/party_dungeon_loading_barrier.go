@@ -144,6 +144,9 @@ type pendingPostStartMapPlacement struct {
 
 // partyDungeonLoadingCycle 是一次"全队读条"的组队状态（每个队伍一条）。
 type partyDungeonLoadingCycle struct {
+	started             time.Time
+	expiring            bool
+	warned              bool
 	preparing           map[uint16]*partyLoadingPreparation
 	activationScheduled bool
 	PartyID             uint16
@@ -182,6 +185,7 @@ type partyDungeonLoadingOwner struct {
 	token   uint64
 	room    *runtimeDungeonRoom
 	visit   uint64
+	epoch   uint64
 }
 
 func snapshotPartyDungeonLoadingOwner(session *gameSession) partyDungeonLoadingOwner {
@@ -190,7 +194,7 @@ func snapshotPartyDungeonLoadingOwner(session *gameSession) partyDungeonLoadingO
 	}
 	session.dungeon.mu.Lock()
 	defer session.dungeon.mu.Unlock()
-	owner := partyDungeonLoadingOwner{session: session, runtime: session.dungeon.runtime, token: session.dungeon.runToken}
+	owner := partyDungeonLoadingOwner{session: session, runtime: session.dungeon.runtime, token: session.dungeon.runToken, epoch: session.dungeonPlacementEpoch.Load()}
 	if owner.runtime != nil {
 		owner.room = owner.runtime.Room
 		owner.visit = owner.runtime.loadingRoomVisit
@@ -253,7 +257,7 @@ func (s *Service) ensurePartyDungeonLoadingCycleLocked(session *gameSession, par
 				}
 			}
 		}
-		current = &partyDungeonLoadingCycle{PartyID: partyID, Cycle: next, Ready: ready, owners: owners}
+		current = &partyDungeonLoadingCycle{PartyID: partyID, Cycle: next, Ready: ready, owners: owners, started: time.Now()}
 		cycles[partyID] = current
 	}
 	if current.owners == nil {
@@ -433,6 +437,9 @@ func (s *Service) partyDungeonLoadingBarrierArrive(
 	defer s.partyDungeonLoadingMu.Unlock()
 	current := s.ensurePartyDungeonLoadingCycleLocked(session, partyID, members, owners)
 	now := time.Now()
+	if current.expiring {
+		return false, false, current.Cycle, slot, current
+	}
 	if current.Released {
 		// 合并窗口内的重复到达：按已放行处理，不再重新组队。
 		return true, false, current.Cycle, slot, current
@@ -466,6 +473,10 @@ func (s *Service) forceReleasePartyDungeonLoadingCycle(partyID uint16, expected 
 	}
 	s.partyDungeonLoadingMu.Lock()
 	current := s.partyDungeonLoadingBarrierCyclesLocked()[partyID]
+	if current != nil && current.expiring {
+		s.partyDungeonLoadingMu.Unlock()
+		return
+	}
 	if current != nil && current.Released && current.preparing != nil && !current.activationScheduled && (expected == nil || current == expected) {
 		s.partyDungeonLoadingMu.Unlock()
 		s.checkPartyLoadingPreparation(partyID, current, reason)
@@ -535,10 +546,29 @@ func (s *Service) forceReleasePartyDungeonLoadingCycle(partyID uint16, expected 
 		ready = append(ready, id)
 	}
 	if !allReady {
-		current.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() {
+		age := time.Since(current.started)
+		if reason != "deadline_retired" && age >= partyLoadingDeadline {
+			s.partyDungeonLoadingMu.Unlock()
+			s.expirePartyLoadingCycle(partyID, current, false)
+			return
+		}
+		var missing []uint16
+		if age >= 10*time.Second && !current.warned {
+			current.warned = true
+			for _, id := range current.membersAt {
+				if !current.Ready[id] {
+					missing = append(missing, id)
+				}
+			}
+		}
+		delay := min(partyDungeonLoadingBarrierTimeout, max(time.Second, partyLoadingDeadline-age))
+		current.Timer = time.AfterFunc(delay, func() {
 			s.forceReleasePartyDungeonLoadingCycle(partyID, current, "still_waiting_for_all_members_op37")
 		})
 		s.partyDungeonLoadingMu.Unlock()
+		if len(missing) != 0 {
+			s.logWarn("party loading slow", "party_id", partyID, "cycle", current.Cycle, "missing_members", missing, "elapsed", age)
+		}
 		return
 	}
 	current.Released = true
@@ -587,7 +617,7 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 				expected.preparing[id] = &partyLoadingPreparation{owner: owner, wantTail: releaseTail[id]}
 			}
 		}
-		expected.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() { s.checkPartyLoadingPreparation(partyID, expected, "prepare_watchdog") })
+		expected.Timer = time.AfterFunc(partyLoadingWatchdogDelay(expected), func() { s.checkPartyLoadingPreparation(partyID, expected, "prepare_watchdog") })
 	}
 	for id := range releaseTail {
 		if p := expected.preparing[id]; p != nil {
@@ -654,7 +684,7 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 		}
 		s.partyDungeonLoadingMu.Lock()
 		plan := expected.preparing[charID]
-		retiredPlan := expected.preparing != nil && plan == nil
+		retiredPlan := expected.expiring || expected.preparing != nil && plan == nil
 		s.partyDungeonLoadingMu.Unlock()
 		if retiredPlan {
 			return nil
@@ -668,7 +698,6 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 				return nil
 			}
 			session.partyLoadingPrepared = plan
-			defer func() { session.partyLoadingPrepared = nil }()
 			err := s.restoreCurrentRaidSessionProjection(session, "shared_loading_prepare")
 			if err == nil {
 				err = s.sendPendingPostStartMapPlayerPlacement(session, "party_dungeon_shared_loading_barrier")
@@ -676,8 +705,10 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 			if err == nil && prepareTail {
 				plan.finishBody, err = s.prepareCurrentFinishLoadingCharacterStateSnapshot(session, "shared_loading_prepare")
 			}
+			// Publish readiness only after all session-local preparation writes
+			// finish. The last peer can start activation immediately.
+			session.partyLoadingPrepared = nil
 			if err != nil {
-				session.partyLoadingPrepared = nil
 				s.logGameEvent(session, "game-party-loading-prepare-failed", "char_id", charID, "error", err)
 				return err
 			}
