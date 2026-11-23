@@ -89,82 +89,89 @@ func (s *mysqlSettingsStore) LoadGuildSnapshotRevision(ctx context.Context) (str
 		return "", false, tableErr
 	}
 
-	execDB := s.router.db
-	var readTx *observedSQLTransaction
-	if _, inTx := execDB.(sqlTransactionDB); !inTx {
-		if beginner, ok := execDB.(sqlTxBeginner); ok {
-			tx, txErr := beginObservedSQLTransaction(ctx, beginner, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
-			if txErr != nil {
-				return "", false, txErr
-			}
-			readTx = tx
-			defer readTx.Rollback()
-			execDB = newSQLTransactionDB(readTx.Tx, s.router.db)
-		}
-	}
-
 	// Stage 1 checks source key existence via the primary key index without
 	// touching off-page LONGTEXT chains on dnf_setting_values, while guarding
 	// against orphan sidecar rows after a source DELETE/TRUNCATE.
 	fastQuery := "SELECT EXISTS(SELECT 1 FROM " + values + " e WHERE e.scope=s.scope AND e.entry_key='state'), f.fingerprint FROM " + table + " s LEFT JOIN " + fingerprints + " f ON f.scope=s.scope WHERE s.scope = ?"
+	execDB := s.router.db
+	if guildRevisionHasTransaction(execDB) {
+		return loadGuildSnapshotRevisionSnapshot(ctx, execDB, sourceQuery, fastQuery)
+	}
+
+	// The common case is one self-consistent SELECT. InnoDB gives that single
+	// statement its own read view, so a sidecar hit no longer needs an explicit
+	// REPEATABLE READ transaction, BEGIN or COMMIT.
 	var hasValue bool
 	var fp sql.NullString
-	err = execDB.QueryRowContext(ctx, fastQuery, r.GuildRegistryScope).Scan(&hasValue, &fp)
+	hasValue, fp, err = scanGuildSnapshotFingerprint(ctx, execDB, fastQuery)
 	if err != nil {
 		if guildFingerprintOptionalSchemaError(err) {
-			digest, found, fbErr := scanGuildSnapshotSourceDigest(ctx, execDB, sourceQuery)
-			if fbErr != nil {
-				return "", false, fbErr
-			}
-			if readTx != nil {
-				if commitErr := readTx.Commit(); commitErr != nil {
-					return "", false, commitErr
-				}
-			}
-			return digest, found, nil
+			return scanGuildSnapshotSourceDigest(ctx, execDB, sourceQuery)
 		}
 		if err == sql.ErrNoRows {
-			if readTx != nil {
-				if commitErr := readTx.Commit(); commitErr != nil {
-					return "", false, commitErr
-				}
-			}
 			return "", false, nil
 		}
 		return "", false, err
 	}
-
-	var result string
-	switch {
-	case !hasValue:
+	if !hasValue {
 		// Settings scope row exists without a 'state' value row: match the
 		// legacy NULL digest semantics and never expose an orphan fingerprint.
-		result = ""
-	case fp.Valid:
-		result = fp.String
-	default:
-		// Stage 2 shares the same REPEATABLE READ snapshot when a sidecar row
-		// has not been populated yet.
-		var found bool
-		result, found, err = scanGuildSnapshotSourceDigest(ctx, execDB, sourceQuery)
-		if err != nil {
-			return "", false, err
-		}
-		if !found {
-			if readTx != nil {
-				if commitErr := readTx.Commit(); commitErr != nil {
-					return "", false, commitErr
-				}
-			}
-			return "", false, nil
-		}
+		return "", true, nil
 	}
-	if readTx != nil {
-		if commitErr := readTx.Commit(); commitErr != nil {
+	if fp.Valid {
+		return fp.String, true, nil
+	}
+
+	// A missing sidecar fingerprint is the rare path. Re-enter a read-only
+	// REPEATABLE READ snapshot and repeat Stage 1 there so the existence/orphan
+	// guard and SHA2 fallback observe one snapshot, including after TRUNCATE.
+	if beginner, ok := execDB.(sqlTxBeginner); ok {
+		tx, txErr := beginObservedSQLTransaction(ctx, beginner, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+		if txErr != nil {
+			return "", false, txErr
+		}
+		defer tx.Rollback()
+		scoped := newSQLTransactionDB(tx.Tx, execDB)
+		result, found, loadErr := loadGuildSnapshotRevisionSnapshot(ctx, scoped, sourceQuery, fastQuery)
+		if loadErr != nil {
+			return "", false, loadErr
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
 			return "", false, commitErr
 		}
+		return result, found, nil
 	}
-	return result, true, nil
+	// Minimal read-only adapters that cannot begin a transaction retain the
+	// previous two-statement capability. Production adapters all expose BeginTx.
+	return scanGuildSnapshotSourceDigest(ctx, execDB, sourceQuery)
+}
+
+func loadGuildSnapshotRevisionSnapshot(ctx context.Context, database SQLDB, sourceQuery, fastQuery string) (string, bool, error) {
+	hasValue, fp, err := scanGuildSnapshotFingerprint(ctx, database, fastQuery)
+	if err != nil {
+		if guildFingerprintOptionalSchemaError(err) {
+			return scanGuildSnapshotSourceDigest(ctx, database, sourceQuery)
+		}
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if !hasValue {
+		return "", true, nil
+	}
+	if fp.Valid {
+		return fp.String, true, nil
+	}
+	// Stage 2 shares the caller-owned snapshot with Stage 1.
+	return scanGuildSnapshotSourceDigest(ctx, database, sourceQuery)
+}
+
+func scanGuildSnapshotFingerprint(ctx context.Context, database SQLDB, query string) (bool, sql.NullString, error) {
+	var hasValue bool
+	var fp sql.NullString
+	err := database.QueryRowContext(ctx, query, r.GuildRegistryScope).Scan(&hasValue, &fp)
+	return hasValue, fp, err
 }
 
 func scanGuildSnapshotSourceDigest(ctx context.Context, db SQLDB, query string) (string, bool, error) {
@@ -177,4 +184,16 @@ func scanGuildSnapshotSourceDigest(ctx context.Context, db SQLDB, query string) 
 		return "", false, err
 	}
 	return digest.String, true, nil
+}
+
+// Inspect wrappers without starting a nested transaction.
+func guildRevisionHasTransaction(database SQLDB) bool {
+	switch db := database.(type) {
+	case sqlTransactionDB, *sqlTransactionDB:
+		return true
+	case *ObservedSQLDB:
+		return db != nil && guildRevisionHasTransaction(db.SQLDB)
+	default:
+		return false
+	}
 }

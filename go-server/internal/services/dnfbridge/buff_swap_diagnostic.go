@@ -94,6 +94,9 @@ func (s *Service) logBuffSwapDiagnostic(
 	if s == nil || session == nil {
 		return
 	}
+	if !s.verboseDiagnosticsEnabled() && outcome == "sent" && reason == "wire_write_succeeded" {
+		return
+	}
 	characterID := identity.character
 	if characterID == 0 {
 		characterID = session.selectedCharacterID

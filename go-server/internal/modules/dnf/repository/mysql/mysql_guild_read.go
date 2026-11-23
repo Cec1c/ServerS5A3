@@ -106,7 +106,7 @@ func (s *mysqlGuildCharacters) LoadGuildCharacters(ctx context.Context, ids []st
 		database := s.router.writeDBs[shard]
 		table := mysqlTable(database, s.router.tablePrefix, mysqlCharTable)
 		fields, joins := "c.grow_type, c.delete_flag", ""
-		if !characterMirrorStatsAuthoritative() {
+		if !s.router.environment().mirrorStatsAuthoritative {
 			stats := mysqlTable(database, s.router.tablePrefix, mysqlCharacterStatsTable)
 			fields = "COALESCE(g.stat_value, c.grow_type), COALESCE(d.stat_value, c.delete_flag)"
 			joins = " LEFT JOIN " + stats + " g ON g.character_id=c.character_id AND g.stat_key='grow_type' LEFT JOIN " + stats + " d ON d.character_id=c.character_id AND d.stat_key='delete_flag'"

@@ -71,7 +71,7 @@ func loadCharacterSupplement(
 	// grow_type 行）。历史 stats_json 迁移或手工 SQL 仍可能留下同名影子行，
 	// 旧实现让它在 mirror 之后覆盖权威列 —— 对 grow_type 而言那会把一个已转职
 	// 角色静默改回未转职，分支技能随即被判"该方向不可学"。默认跳过影子行。
-	mirrorAuthoritative := characterMirrorStatsAuthoritative()
+	mirrorAuthoritative := router.environment().mirrorStatsAuthoritative
 	for rows.Next() {
 		var key string
 		var value int64

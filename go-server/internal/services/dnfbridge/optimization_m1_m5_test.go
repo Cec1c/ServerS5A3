@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"longheng.io/server/internal/modules/dnf/buffswap"
 	"longheng.io/server/internal/modules/dnf/dungeoncmd"
+	dnfequip "longheng.io/server/internal/modules/dnf/equip"
 	"longheng.io/server/internal/platform/config"
 )
 
@@ -116,6 +118,77 @@ func TestVerboseDiagnosticsQuietModeSuppressesNoiseAndKeepsAnomalies(t *testing.
 	logCurrentSentinelDeathShape(literal, session, nil, req)
 	if !strings.Contains(logs.String(), "dnfbridge sentinel death request") {
 		t.Fatalf("literal Service should preserve sentinel death diagnostic, got: %s", logs.String())
+	}
+}
+
+func TestQuietDiagnosticsSuppressRoutineM5BypassLogsAndKeepFailures(t *testing.T) {
+	t.Setenv(verboseDiagnosticsEnv, "")
+	var logs bytes.Buffer
+	quiet := &Service{
+		options: optionsFromConfig(config.ServiceConfig{}),
+		logger:  slog.New(slog.NewJSONHandler(&logs, nil)),
+	}
+	session := &gameSession{connID: "r195-quiet", selectedCharacterID: 42}
+	sequence := uint64(7)
+	request := gameplayRequest{Classification: 8, Body: []byte{12}, Sequence: &sequence}
+
+	quiet.logDurabilityRequestReceived(session, request)
+	quiet.logDurabilityRequestSettled(session, dnfequip.DecreaseDurabilityResult{})
+	quiet.logTownSelectorDiagnostic("game-enter-select-dungeon-state-send",
+		"conn_id", session.connID, "char_id", 42, "town_context_ready", true)
+	for _, kind := range []string{
+		"game-dungeon-card-reward-plan-frozen",
+		"game-dungeon-settlement-entry-op31-send",
+		"game-dungeon-completed-town-route-committed",
+	} {
+		quiet.logDungeonSettlementDiagnostic(kind, "conn_id", session.connID, "char_id", 42)
+	}
+	quiet.logBuffSwapDiagnostic(session, "sent", "wire_write_succeeded", "registration_changed",
+		buffOwnedSendIdentity{}, 1368, []byte{1}, 1, buffswap.State{}, 0)
+	if logs.Len() != 0 {
+		t.Fatalf("routine diagnostics bypassed quiet mode: %s", logs.String())
+	}
+
+	quiet.logDurabilityRequestRejected(session, "invalid_slot_body", 1)
+	quiet.logTownSelectorDiagnostic("game-dungeon-select-blocked",
+		"conn_id", session.connID, "char_id", 42, "failure_class", "invalid_selection_state")
+	quiet.logDungeonSettlementDiagnostic("game-dungeon-settlement-entry-blocked",
+		"conn_id", session.connID, "char_id", 42, "reason", "runtime_missing")
+	quiet.logBuffSwapDiagnostic(session, "failed", "socket_write_failed", "registration_changed",
+		buffOwnedSendIdentity{}, 1368, []byte{1}, 1, buffswap.State{}, 0)
+	out := logs.String()
+	for _, want := range []string{
+		"dnfbridge durability request rejected",
+		"game-dungeon-select-blocked",
+		"game-dungeon-settlement-entry-blocked",
+		`"outcome":"failed"`,
+		`"reason":"socket_write_failed"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing retained abnormal diagnostic %q in %s", want, out)
+		}
+	}
+
+	logs.Reset()
+	verbose := &Service{logger: slog.New(slog.NewJSONHandler(&logs, nil))}
+	verbose.logDurabilityRequestReceived(session, request)
+	verbose.logDurabilityRequestSettled(session, dnfequip.DecreaseDurabilityResult{})
+	verbose.logTownSelectorDiagnostic("game-enter-select-dungeon-state-send",
+		"conn_id", session.connID, "char_id", 42)
+	verbose.logDungeonSettlementDiagnostic("game-dungeon-card-reward-plan-frozen",
+		"conn_id", session.connID, "char_id", 42)
+	verbose.logBuffSwapDiagnostic(session, "sent", "wire_write_succeeded", "registration_changed",
+		buffOwnedSendIdentity{}, 1368, []byte{1}, 1, buffswap.State{}, 0)
+	for _, want := range []string{
+		"dnfbridge durability request received",
+		"dnfbridge durability request settled",
+		"dnfbridge town selector diagnostic",
+		"dnfbridge dungeon settlement diagnostic",
+		"dnfbridge buff swap diagnostic",
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("explicit verbose mode missing %q in %s", want, logs.String())
+		}
 	}
 }
 
