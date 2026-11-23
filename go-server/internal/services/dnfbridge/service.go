@@ -91,6 +91,9 @@ type Service struct {
 	options          options
 
 	mu                         sync.Mutex
+	broadcastNoticeMu          sync.Mutex
+	broadcastNoticeEntries     map[string]*broadcastNoticeEntry
+	broadcastNoticeOrder       []string
 	catalog                    *channelcatalog.Catalog
 	channelScript              []byte
 	listeners                  []net.Listener

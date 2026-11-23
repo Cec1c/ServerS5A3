@@ -17,7 +17,26 @@ const Path = "/api/game/admin"
 // Offline recipients are covered by the selected-town bootstrap.
 const ActionNotifyMailbox = "notify_mailbox"
 
+// ActionBroadcastNotice delivers an operator notice to online selected game sessions.
+const ActionBroadcastNotice = "broadcast_notice"
+
+type BroadcastNoticeRequest struct {
+	RequestID string `json:"requestId"`
+	Message   string `json:"message"`
+	Style     string `json:"style,omitempty"`  // "both" (default), "system", or "megaphone"
+	Sender    string `json:"sender,omitempty"` // optional megaphone sender label, default "系统公告"
+}
+
+type BroadcastNoticeResult struct {
+	RequestID        string `json:"requestId"`
+	Style            string `json:"style"`
+	OnlineSessions   int    `json:"onlineSessions"`
+	SelectedSessions int    `json:"selectedSessions"`
+	QueuedSessions   int    `json:"queuedSessions"`
+}
+
 type Request struct {
+	BroadcastNotice *BroadcastNoticeRequest            `json:"broadcastNotice,omitempty"`
 	QQChange        *qqbinding.Change                  `json:"qqChange,omitempty"`
 	QQCheck         *qqbinding.CheckResult             `json:"qqCheck,omitempty"`
 	ActivityQuery   *repository.ActivityQuery          `json:"activityQuery,omitempty"`
@@ -43,6 +62,7 @@ type Request struct {
 }
 
 type Response struct {
+	BroadcastNotice    *BroadcastNoticeResult                    `json:"broadcastNotice,omitempty"`
 	QQChecks           []qqbinding.Check                         `json:"qqChecks,omitempty"`
 	QQChanged          bool                                      `json:"qqChanged,omitempty"`
 	PasswordReset      *PasswordResetResult                      `json:"passwordReset,omitempty"`
