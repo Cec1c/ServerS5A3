@@ -18,12 +18,13 @@ func (s *Service) nextCurrentRelativeItemExpiration(session *gameSession, now ti
 	if session == nil || session.selectedCharacterID == 0 {
 		return time.Time{}, nil
 	}
-	repos, ok := s.repositoryGroup()
+	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
+	defer cancel()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
+	repos, ok := s.repositoryGroupFor(ctx)
 	if !ok || repos.Character == nil || repos.Inventory == nil || repos.Equipment == nil || repos.AccountInventory == nil {
 		return time.Time{}, fmt.Errorf("relative expiry repositories unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
-	defer cancel()
 	id := strconv.Itoa(int(session.selectedCharacterID))
 	account := s.accountIDForSession(session)
 	character, found, err := repos.Character.Load(ctx, id)

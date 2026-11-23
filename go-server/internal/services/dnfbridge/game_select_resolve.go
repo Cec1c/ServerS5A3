@@ -195,6 +195,7 @@ func (s *Service) characterForEnter(
 	session *gameSession,
 	characterID uint16,
 ) (uint16, string, dnfrepo.CharacterRecord, bool) {
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
 	if repos, ok := s.repositoryGroupFor(ctx); ok && repos.Character != nil {
 		if characterID != 0 {
 			characterKey := strconv.Itoa(int(characterID))

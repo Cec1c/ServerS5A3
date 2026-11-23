@@ -517,6 +517,7 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	ctx = s.withPartyLoadingSnapshot(ctx, receiver)
 	// 队友档技能页标记（DNFBRIDGE_PEER_SKILL_PAGE 默认档 = peer）：
 	// 这条 ctx 产出的 mode1 USERINFO 是**发给队友**（receiver）的 actor body，
 	// 所以它的技能页槽位要写被投影 actor 的真实技能等级 —— 否则收包方客户端把

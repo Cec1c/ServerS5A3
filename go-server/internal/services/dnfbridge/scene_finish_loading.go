@@ -124,6 +124,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterStateSnapshot(session *gameSe
 func (s *Service) prepareCurrentFinishLoadingCharacterStateSnapshot(session *gameSession, source string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID == 0 || !hasCharacter {
 		s.logGameEvent(session, "game-main-finish-loading-state-deferred",
@@ -264,6 +265,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID == 0 || !hasCharacter {
 		s.logGameEvent(session, "game-main-post-finish-loading-player-state-deferred",

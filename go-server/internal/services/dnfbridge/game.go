@@ -331,6 +331,7 @@ type gameSession struct {
 	// 见 party_dungeon_loading_barrier.go。
 	pendingPostStartMapMu             sync.Mutex
 	partyLoadingPrepared              *partyLoadingPreparation // own session event loop only
+	partyLoadingSnapshots             atomic.Pointer[partyLoadingSnapshots]
 	pendingPostStartMapPlacement      *pendingPostStartMapPlacement
 	deferredDungeonUserStateObjectKey uint16
 	// finishLoadingMu 保护下面三个 finish-loading 门闩。写点全部在所属会话的

@@ -85,6 +85,7 @@ func (p *currentCrossSceneProfilePeer) current(s *Service) bool {
 
 func (b *currentCrossSceneProfileBatch) peer(session *gameSession) (*currentCrossSceneProfilePeer, error) {
 	s := b.service
+	b.ctx = s.withPartyLoadingSnapshot(b.ctx, session)
 	bound, ok := s.boundGameSessionCharacterSnapshot(session)
 	if !ok {
 		return nil, nil
