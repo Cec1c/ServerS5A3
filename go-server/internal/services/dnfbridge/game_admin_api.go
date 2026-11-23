@@ -256,6 +256,13 @@ func (a *accountAPIServer) handleGameAdmin(w http.ResponseWriter, r *http.Reques
 			out.OK = false
 			out.Error = "mailbox notification unavailable"
 		}
+	case adminapi.ActionBroadcastNotice:
+		var err error
+		out.BroadcastNotice, err = s.administrativeBroadcastNotice(r.Context(), req.BroadcastNotice)
+		if err != nil {
+			out.OK = false
+			out.ErrorCode, out.Error = broadcastNoticeError(err)
+		}
 	case "catalog":
 		var err error
 		out.PremiumTypes, err = s.currentGMAdministrativePremiumTypes()
