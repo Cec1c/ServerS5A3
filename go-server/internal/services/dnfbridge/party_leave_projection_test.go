@@ -138,7 +138,7 @@ func TestPartyLeaveProjectionMemberLeaveClearsDepartedAndRetainsSurvivorSingleto
 
 // Town op13 leader leave rebuilds the remaining member under a fresh party id.
 // The successor keeps its fixed slot and is projected as the singleton leader.
-func TestPartyLeaveProjectionLeaderLeaveRebuildsRemainingLeaderSingleton(t *testing.T) {
+func TestPartyLeaveProjectionLeaderLeaveRetainsPartyIdentity(t *testing.T) {
 	h := newPartyLeaveHarness(t)
 	leaderAux := addPartyLeaveAuxiliary(t, h.service, h.leader)
 	memberAux := addPartyLeaveAuxiliary(t, h.service, h.member)
@@ -153,8 +153,8 @@ func TestPartyLeaveProjectionLeaderLeaveRebuildsRemainingLeaderSingleton(t *test
 	if !found || memberParty.Leader != 1002 || len(memberParty.Members) != 1 {
 		t.Fatalf("remaining member did not become the rebuilt leader: found=%t %+v", found, memberParty)
 	}
-	if memberParty.ID == h.partyID {
-		t.Fatalf("leader leave reused the retired party id %d", memberParty.ID)
+	if memberParty.ID != h.partyID {
+		t.Fatalf("leader leave replaced the surviving party id %d with %d", h.partyID, memberParty.ID)
 	}
 
 	assertPartyProjectionEmpty(t, "departed leader primary", h.leader)
