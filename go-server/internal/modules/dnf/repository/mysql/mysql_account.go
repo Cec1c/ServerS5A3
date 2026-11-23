@@ -79,7 +79,9 @@ func (s *mysqlAccountStore) Load(ctx context.Context, accountID string) (reposit
 		snapshot := repository.CloneAccount(record)
 		s.loadedSnapshot = &snapshot
 	}
-	return repository.CloneAccount(record), true, nil
+	// The tracked metadata before-image owns its clone. The record itself was
+	// allocated by this Load and can be returned without another deep copy.
+	return record, true, nil
 }
 
 // Save 保存完整 DNF 账号记录到 MySQL。

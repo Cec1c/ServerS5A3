@@ -81,6 +81,10 @@ type guildPresenceReadCache struct {
 	onlineSampled   int64
 	rosterChunksKey guildPresenceRosterBodyKey
 	rosterChunks    []currentGuildPacketChunk
+	rosterBuildDone chan struct{}
+	// rosterChunksBuilder is a test seam; production leaves it nil and uses
+	// buildCurrentGuildMemberListChunks directly.
+	rosterChunksBuilder func(*guild.Guild, uint16, bool, bool, map[string]byte, time.Time, byte) []currentGuildPacketChunk
 }
 
 func (c *guildPresenceReadCache) sharedOnlineChannels(s *Service, g *guild.Guild) (map[string]byte, time.Time) {
@@ -122,38 +126,53 @@ func (c *guildPresenceReadCache) sharedRosterChunks(s *Service, g *guild.Guild, 
 	if c == nil || g == nil {
 		return buildCurrentGuildMemberListChunks(g, opcode, full, cursor, online, sampledAt, region)
 	}
-	c.mu.Lock()
-	matched := c.g == g
-	key := guildPresenceRosterBodyKey{
-		version:   c.version,
-		guildID:   g.ID,
-		opcode:    opcode,
-		full:      full,
-		cursor:    cursor,
-		region:    region,
-		sampledAt: sampledAt.UnixNano(),
-	}
-	if matched && c.rosterChunks != nil && c.rosterChunksKey == key {
-		chunks := c.rosterChunks
+	for {
+		c.mu.Lock()
+		if c.g != g {
+			c.mu.Unlock()
+			return buildCurrentGuildMemberListChunks(g, opcode, full, cursor, online, sampledAt, region)
+		}
+		key := guildPresenceRosterBodyKey{
+			version:   c.version,
+			guildID:   g.ID,
+			opcode:    opcode,
+			full:      full,
+			cursor:    cursor,
+			region:    region,
+			sampledAt: sampledAt.UnixNano(),
+		}
+		if c.rosterChunks != nil && c.rosterChunksKey == key {
+			chunks := c.rosterChunks
+			c.mu.Unlock()
+			return chunks
+		}
+		if c.rosterBuildDone != nil {
+			// One broadcast must build the same immutable body once. Wait for
+			// the in-flight build, then re-check the key because the registry
+			// version may have advanced while it ran.
+			done := c.rosterBuildDone
+			c.mu.Unlock()
+			<-done
+			continue
+		}
+		done := make(chan struct{})
+		c.rosterBuildDone = done
+		builder := c.rosterChunksBuilder
+		c.mu.Unlock()
+		if builder == nil {
+			builder = buildCurrentGuildMemberListChunks
+		}
+		chunks := builder(g, opcode, full, cursor, online, sampledAt, region)
+		c.mu.Lock()
+		if c.g == g && c.version == key.version {
+			c.rosterChunksKey = key
+			c.rosterChunks = chunks
+		}
+		c.rosterBuildDone = nil
+		close(done)
 		c.mu.Unlock()
 		return chunks
 	}
-	c.mu.Unlock()
-	chunks := buildCurrentGuildMemberListChunks(g, opcode, full, cursor, online, sampledAt, region)
-	if !matched {
-		return chunks
-	}
-	c.mu.Lock()
-	if c.g == g && c.version == key.version {
-		if c.rosterChunks == nil || c.rosterChunksKey != key {
-			c.rosterChunksKey = key
-			c.rosterChunks = chunks
-		} else {
-			chunks = c.rosterChunks
-		}
-	}
-	c.mu.Unlock()
-	return chunks
 }
 
 func (s *Service) readCurrentGuildDisplay(ctx context.Context, source boundGameSessionCharacter, contribution, hydrateMembers bool) (*guild.Guild, error) {

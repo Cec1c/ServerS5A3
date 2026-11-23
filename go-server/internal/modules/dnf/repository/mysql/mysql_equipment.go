@@ -55,7 +55,9 @@ func (s *mysqlEquipmentStore) Load(ctx context.Context, characterID string) (rep
 		snapshot := repository.CloneEquipment(record)
 		s.loadedSnapshot = &snapshot
 	}
-	return repository.CloneEquipment(record), true, nil
+	// The tracked before-image above is isolated from the freshly allocated
+	// record returned to this single caller.
+	return record, true, nil
 }
 
 // Save 保存完整穿戴装备记录。

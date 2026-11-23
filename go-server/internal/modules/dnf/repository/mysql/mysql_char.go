@@ -237,7 +237,11 @@ func mysqlCharacterStatColumnDDL() string {
 	return strings.Join(lines, "\n")
 }
 
-func mysqlCharacterStatSelectList() string {
+func mysqlCharacterStatSelectList() string { return mysqlCharacterStatSelectListPlain }
+
+var mysqlCharacterStatSelectListPlain = buildMySQLCharacterStatSelectList()
+
+func buildMySQLCharacterStatSelectList() string {
 	columns := make([]string, len(mysqlCharacterStatColumns))
 	for idx, stat := range mysqlCharacterStatColumns {
 		columns[idx] = quoteSQLIdentifier(stat.column)
@@ -305,7 +309,7 @@ func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (reposito
 	if err != nil {
 		return repository.CharacterRecord{}, false, err
 	}
-	query := s.router.selectQuery("SELECT character_id, account_id, slot, name, job, level, " + mysqlCharacterStatSelectList() + ", created_at, updated_at FROM " + table + " WHERE character_id = ?")
+	query := s.router.characterBaseQuery(table)
 	var record repository.CharacterRecord
 	var createdAt, updatedAt sql.NullTime
 	mirrorStats := make([]sql.NullInt64, len(mysqlCharacterStatColumns))
@@ -345,7 +349,8 @@ func (s *mysqlCharStore) Load(ctx context.Context, characterID string) (reposito
 		}
 		s.lockedReadCache[characterID] = repository.CloneCharacter(record)
 	}
-	return repository.CloneCharacter(record), true, nil
+	// This freshly loaded record has no store-owned aliases; retained snapshots above are clones.
+	return record, true, nil
 }
 
 // Save 保存完整 DNF 角色记录到 MySQL。
@@ -751,7 +756,7 @@ func (s *mysqlCharStore) RecordActivity(ctx context.Context, event repository.Ac
 }
 
 func (s *mysqlCharStore) lockedCharacterReadVersion() (uint64, bool) {
-	if !s.router.lockReads || os.Getenv("DNFBRIDGE_EXPERIMENTAL_PEAK") != "on" {
+	if !s.router.lockReads || !s.router.environment().experimentalPeak {
 		return 0, false
 	}
 	versioned, ok := s.router.db.(interface{ transactionWriteVersion() (uint64, bool) })

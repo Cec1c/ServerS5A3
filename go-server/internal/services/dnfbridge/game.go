@@ -130,6 +130,7 @@ type gameSession struct {
 	transportOnce           sync.Once
 	transportCloseOnce      sync.Once
 	transportFailureOnce    sync.Once
+	gameReadCloseOnce       sync.Once // one bounded terminal summary per game socket
 	transportCtx            context.Context
 	transportCancel         context.CancelFunc
 	dproto                  dproto.Session

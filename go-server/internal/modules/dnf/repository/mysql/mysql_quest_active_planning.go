@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"longheng.io/server/internal/modules/dnf/repository"
@@ -26,6 +27,22 @@ var activeQuestStatusSQL = func() string {
 }()
 
 func (s *mysqlQuestStore) LoadQuestActivePlanning(ctx context.Context, id string) (repository.QuestRecord, bool, error) {
+	if s.router.lockReads {
+		// Ordinary saves and deltas lock the parent before touching children.
+		// Taking candidate-state locks first reverses that order and can deadlock
+		// with a save holding the parent while waiting for these same children.
+		parent, err := s.router.writeTable(mysqlQuestTable, id)
+		if err != nil {
+			return repository.QuestRecord{}, false, err
+		}
+		var characterID string
+		var updatedAt sql.NullTime
+		err = s.router.db.QueryRowContext(ctx, s.router.selectQuery("SELECT character_id, updated_at FROM "+parent+" WHERE character_id = ?"), id).Scan(&characterID, &updatedAt)
+		if err != nil {
+			found, scanError := scanErr(err)
+			return repository.QuestRecord{}, found, scanError
+		}
+	}
 	table, err := s.router.writeTable(mysqlQuestStatesTable, id)
 	if err != nil {
 		return repository.QuestRecord{}, false, err

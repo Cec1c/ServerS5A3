@@ -185,7 +185,7 @@ func readGuildRankingSnapshot(ctx context.Context, router mysqlRouter, accounts,
 }
 
 func guildRankingColumns(router mysqlRouter, database string) (string, string) {
-	if characterMirrorStatsAuthoritative() {
+	if router.environment().mirrorStatsAuthoritative {
 		return "c.delete_flag, c.pvp_grade", ""
 	}
 	stats := mysqlTable(database, router.tablePrefix, mysqlCharacterStatsTable)
