@@ -338,7 +338,7 @@ type Service struct {
 	// 非 nil 时 `currentQuestFinishResources` 直接返回它的结果，生产恒为 nil（走
 	// runtime PVF）。存在的唯一理由：专家职业那条加载失败分支位于本加载之后，单测
 	// 必须能让本加载"成功"才能走到它（见 quest_finish_failure_reply_test.go）。
-	questFinishResourceLoader func(context.Context) (*progression.Tables, *pvfDungeonDropCatalog, error)
+	questFinishResourceLoader  func(context.Context) (*progression.Tables, *pvfDungeonDropCatalog, error)
 	guildPresenceCoalesceDelay time.Duration
 }
 
@@ -669,17 +669,9 @@ func (s *Service) Start(ctx context.Context) error {
 		"party_udp_relay_port_count", s.options.partyUDPRelayPortCount,
 		// 下面这些 probe_*/kick_*/fallback 字段**只对 embedded 档生效**（remote 档下本进程
 		// 不 bind 任何中继 UDP 端口、不转发队友流量，端口全部由 a21-relay 分配）。
-		"party_udp_relay_endpoint_fallback", s.partyUDPRelayEndpointFallbackMode().String(),
-		"party_udp_relay_probe_replay", s.partyUDPRelayProbeReplayMode().String(),
-		"party_udp_relay_probe_listen", s.partyUDPRelayProbeListenMode().String(),
+
 		"party_udp_relay_probe_ports", formatPartyUDPRelayPorts(s.options.partyUDPRelayProbePorts),
-		"party_udp_relay_seed_forward", s.partyUDPRelaySeedForwardMode().String(),
-		"party_udp_relay_observed_endpoint_fanout", s.partyUDPRelayObservedEndpointFanoutMode(),
-		"party_udp_relay_datagram_trace", s.partyUDPRelayDatagramTraceMode(),
-		"party_udp_relay_memo_ttl_seconds", int(s.partyUDPRelayMemoTTL()/time.Second),
-		"party_udp_relay_silent_peer_kick", s.partyUDPRelaySilentPeerKickMode(),
-		"party_udp_relay_kick_min_age_seconds", int(s.partyUDPRelayKickTiming().minAge/time.Second),
-		"party_udp_relay_resend_seconds", int(s.partyUDPRelayKickTiming().window/time.Second),
+
 		"party_peer_self_endpoint", s.partyPeerSelfEndpoint().String(),
 		"party_peer_port_endian", s.partyPeerPortEndian().String(),
 		"party_peer_endpoint_include_self", s.partyPeerEndpointIncludeSelf().String(),

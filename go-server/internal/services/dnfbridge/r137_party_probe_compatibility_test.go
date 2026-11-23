@@ -129,11 +129,10 @@ func r136Fixture(t *testing.T, ipB string, mapped bool, nativeProfile ...bool) (
 		start := testCurrentPartyUDPRelayPortStart(t)
 		r, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 			enabled: true, advertiseIP: "127.0.0.1", portStart: start, portCount: 64,
-			probeReplay:            readPartyUDPRelayProbeReplayMode("").enabled(),
-			probeListen:            readPartyUDPRelayProbeListenMode("").enabled(),
-			seedForward:            readPartyUDPRelaySeedForwardMode("").enabled(),
-			observedEndpointFanout: readPartyUDPRelayObservedEndpointFanoutMode(""),
-			probePorts:             []int{0},
+
+			probeListen: true,
+
+			probePorts: []int{0},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -366,30 +365,6 @@ func TestR136P70ReconnectThreeGenerations(t *testing.T) {
 			t.Fatal("reconnect leaked legs")
 		}
 		priorBA, b = nextBA, nextUDP
-	}
-}
-
-func TestR136P70NativeProbeBootstrap(t *testing.T) {
-	for _, ip := range []string{"127.0.0.1", "127.0.0.2"} {
-		t.Run(ip, func(t *testing.T) {
-			f, _, a, b := r136Fixture(t, ip, true, true)
-			r := f.service.partyUDPRelay
-			probe := r.probeListenerPorts()[0]
-			sendOneByteNativeProbe(t, a, probe, 1)
-			sendOneByteNativeProbe(t, b, probe, 0)
-			waitRelayCondition(t, time.Second, "two distinct observed endpoints", func() bool { return r.observedProbeEndpointCount() == 2 })
-			ab := r136WireEndpoint(t, f.service, f.leader, 100)
-			ba := r136WireEndpoint(t, f.service, f.follower, 99)
-			r136Write(t, a, ab, probePayload(99))
-			// B has not sent to its directed leg: bootstrap must use its observed endpoint.
-			r136Read(t, b, probePayload(99), nil)
-			r136Learn(t, r, b, ba, 100, 99)
-			r136Read(t, a, probePayload(100), ab)
-			r136Write(t, a, ab, []byte("native-profile-A"))
-			r136Read(t, b, []byte("native-profile-A"), ba)
-			r136Write(t, b, ba, []byte("native-profile-B"))
-			r136Read(t, a, []byte("native-profile-B"), ab)
-		})
 	}
 }
 

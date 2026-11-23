@@ -175,7 +175,7 @@ func TestCurrentPartyUDPRelayCountsRejectedSourceDatagrams(t *testing.T) {
 	if _, err := forged.WriteToUDP([]byte("forged"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portAB)}); err != nil {
 		t.Fatalf("send forged datagram: %v", err)
 	}
-	waitRelayLog(t, recorder, "party UDP relay source rejected", 3*time.Second)
+	waitRelayCondition(t, time.Second, "RejectedSource counted", func() bool { return relayLegStatsFor(t, relay, 101, 202).RejectedSource > 0 })
 	stats := relayLegStatsFor(t, relay, 101, 202)
 	if stats.RejectedSource == 0 {
 		t.Fatalf("rejected source counter stayed 0: %+v", stats)
@@ -210,7 +210,7 @@ func TestCurrentPartyUDPRelayCountsUnlearnedPeerEndpoint(t *testing.T) {
 	if _, err := clientA.WriteToUDP([]byte("A-early"), endpointAB); err != nil {
 		t.Fatalf("send A early payload: %v", err)
 	}
-	waitRelayLog(t, recorder, "party UDP relay peer endpoint not learned", 3*time.Second)
+	waitRelayCondition(t, time.Second, "UnlearnedPeerEndpoint counted", func() bool { return relayLegStatsFor(t, relay, 101, 202).UnlearnedPeerEndpoint > 0 })
 	stats := relayLegStatsFor(t, relay, 101, 202)
 	if stats.UnlearnedPeerEndpoint == 0 {
 		t.Fatalf("unlearned peer endpoint counter stayed 0: %+v", stats)
@@ -235,7 +235,7 @@ func TestCurrentPartyUDPRelayCountsUnlearnedPeerEndpoint(t *testing.T) {
 			t.Fatalf("set client B deadline: %v", err)
 		}
 		n, _, err := clientB.ReadFromUDP(buffer)
-		return err == nil && n > 0
+		return err == nil && string(buffer[:n]) == "A-late"
 	})
 	if !bytes.Equal(buffer[:6], []byte("A-late")) {
 		t.Fatalf("relayed payload = %q, want A-late", buffer[:6])
@@ -256,7 +256,7 @@ func TestCurrentPartyUDPRelayCountsEmptyPayloadDatagrams(t *testing.T) {
 	if _, err := clientA.WriteToUDP(nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portAB)}); err != nil {
 		t.Fatalf("send zero-length datagram: %v", err)
 	}
-	waitRelayLog(t, recorder, "party UDP relay empty payload dropped", 3*time.Second)
+	waitRelayCondition(t, time.Second, "EmptyPayload counted", func() bool { return relayLegStatsFor(t, relay, 101, 202).EmptyPayload > 0 })
 	if stats := relayLegStatsFor(t, relay, 101, 202); stats.EmptyPayload == 0 {
 		t.Fatalf("empty payload counter stayed 0: %+v", stats)
 	}
@@ -277,11 +277,12 @@ func TestCurrentPartyUDPRelayCountsMissingOppositeLeg(t *testing.T) {
 	if orphan == nil {
 		t.Fatal("reverse relay leg missing before the test removed it")
 	}
+	orphan.retired.Store(true)
 	_ = orphan.conn.Close()
 	if _, err := clientA.WriteToUDP([]byte("A-orphan"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portAB)}); err != nil {
 		t.Fatalf("send orphan payload: %v", err)
 	}
-	waitRelayLog(t, recorder, "party UDP relay opposite leg missing", 3*time.Second)
+	waitRelayCondition(t, time.Second, "MissingOppositeLeg counted", func() bool { return relayLegStatsFor(t, relay, 101, 202).MissingOppositeLeg > 0 })
 	stats := relayLegStatsFor(t, relay, 101, 202)
 	if stats.MissingOppositeLeg == 0 {
 		t.Fatalf("missing opposite leg counter stayed 0: %+v", stats)
@@ -300,7 +301,7 @@ func TestCurrentPartyUDPRelayCloseSummaryCarriesDropCounters(t *testing.T) {
 	if _, err := forged.WriteToUDP([]byte("forged"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portAB)}); err != nil {
 		t.Fatalf("send forged datagram: %v", err)
 	}
-	waitRelayLog(t, recorder, "party UDP relay source rejected", 3*time.Second)
+	waitRelayCondition(t, time.Second, "RejectedSource counted", func() bool { return relayLegStatsFor(t, relay, 101, 202).RejectedSource > 0 })
 	relay.CloseParty(77)
 	if !recorder.contains("party UDP relay legs closed") {
 		t.Fatalf("close summary missing:\n%s", recorder.joined())

@@ -413,53 +413,8 @@ type options struct {
 	// 开关、证据与 A/B 判据见 dungeon_party_peer_position.go。
 	partyDungeonPeerPosition partyDungeonPeerPositionMode
 
-	// partyUDPRelayEndpointFallback 是 DNFBRIDGE_PARTY_UDP_RELAY_ENDPOINT_FALLBACK 的
-	// 归一化取值（零值 = off = 现行为：反向腿未学习时丢弃 + 计数 + 首次日志）。
-	// 打开（`advertised`）后用对端**自报**端口 + 其已被游戏 TCP 会话认证的 IPv4 再写一次。
-	// 证据、安全边界与判读串见 party_udp_relay_endpoint_fallback.go。
-	partyUDPRelayEndpointFallback partyUDPRelayEndpointFallbackMode
-
-	// partyUDPRelayProbeReplay 是 DNFBRIDGE_PARTY_UDP_RELAY_PROBE_REPLAY 的归一化取值。
-	// **零值 = Disabled = 加开关前的旧行为**（首包被丢），但 optionsFromConfig 的默认档
-	// 是 Enabled（env 空/未设置 = on），因为这是"单向死锁"的修法本身。
-	// 证据、安全边界与判读串见 party_udp_relay_probe_replay.go。
-	partyUDPRelayProbeReplay partyUDPRelayProbeReplayMode
-
-	// partyUDPRelayProbeListen / partyUDPRelaySeedForward / partyUDPRelayDatagramTrace 是
-	// party_udp_relay_probe_listener.go 的三个开关（第七次现场取证的根因修法）：
-	//   - PROBE_LISTEN（零值 off，默认 **on**）：常驻原生探针监听（默认 30000 + PORT_START），
-	//     把"客户端在组队前自己发到中继端口的端点"记下来；
-	//   - SEED_FORWARD（零值 off，默认 **on**）：腿建立时把该腿 owner 的观测端点写成种子目标，
-	//     让第一个到达的数据报被立即投递（厂商行为：组队前两端端点已 bind），并启动待投清扫器；
-	//   - DATAGRAM_TRACE（零值 off，默认 **off**）：每个入向数据报一行，复测判读用。
-	partyUDPRelayProbeListen   partyUDPRelayProbeListenMode
-	partyUDPRelaySeedForward   partyUDPRelaySeedForwardMode
-	partyUDPRelayDatagramTrace bool
-	// partyUDPRelayObservedEndpointFanout 是
-	// DNFBRIDGE_PARTY_UDP_RELAY_OBSERVED_ENDPOINT_FANOUT（**默认 on**）：把探针监听看到过的
-	// **每一个**源端点（无归属、不需要角色 id）接进反向腿的首包投递候选集
-	// （候选 kind = observed_probe_endpoint）。零值 false = 加本功能之前的行为。
-	partyUDPRelayObservedEndpointFanout bool
-	// partyUDPRelayViaPort 是 DNFBRIDGE_PARTY_UDP_RELAY_VIA_PORT（**默认 0 = off**）：
-	// >0 时 op11 通告给两端的对端端口改为这个**共享端口**（现场取 2312 = 客户端唯一持续保活的
-	// UDP 端口），P2P 载荷也从这个端口收与发。零值 = 现行为（各自腿口），见 party_udp_relay_via_port.go。
-	partyUDPRelayViaPort int
 	// partyUDPRelayProbePorts 是 DNFBRIDGE_PARTY_UDP_RELAY_PROBE_PORTS 的解析结果。
 	partyUDPRelayProbePorts []int
-	// partyUDPRelayMemoTTL 是 DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS（默认 30 秒）：
-	// 陈旧记忆（加速器 NAT 端口几十秒就回收，21:15 那次用的就是 8 分钟前的旧端口）不得单独使用。
-	partyUDPRelayMemoTTL time.Duration
-	// partyUDPRelaySilentPeerKick 是 DNFBRIDGE_PARTY_UDP_RELAY_SILENT_PEER_KICK（默认 on）：
-	// 反向腿从未发过包时，给沉默那个成员**重推一次名册**（含 op11 行）促使它自己发探测包。
-	partyUDPRelaySilentPeerKick bool
-	// partyUDPRelayKickMinAge 是 DNFBRIDGE_PARTY_UDP_RELAY_SILENT_PEER_KICK_SECONDS（默认 2s）：
-	// 腿建立后多久才允许第一次催（formation/进副本窗口内不打扰）。
-	partyUDPRelayKickMinAge time.Duration
-	// partyUDPRelayResendWindow 是 DNFBRIDGE_PARTY_UDP_RELAY_RESEND_SECONDS（默认 60s）：
-	// 对端仍沉默期间"周期重投待投首包"的总时长（每 3s 一轮）。
-	partyUDPRelayResendWindow time.Duration
-	// partyUDPRelayKickTiming 是上面两个 env 归一化后的节拍（minAge/interval/window/maxKicks）。
-	partyUDPRelayKickTiming partyUDPRelayKickTiming
 
 	// partyUDPRelayMode 是 DNFBRIDGE_PARTY_UDP_RELAY_MODE 的归一化取值。
 	// **零值 = embedded = 改动前行为**（自建内嵌中继）；optionsFromConfig 的默认档是
@@ -779,10 +734,10 @@ type options struct {
 	verboseDiagnosticsEnvRaw   string
 	verboseDiagnosticsEnvBad   bool
 
-	partyUDPSocketBufferBytes  int
-	partyUDPSocketBufferEnvRaw string
-	partyUDPSocketBufferEnvBad bool
-	guildPresenceCoalesceWindow time.Duration
+	partyUDPSocketBufferBytes       int
+	partyUDPSocketBufferEnvRaw      string
+	partyUDPSocketBufferEnvBad      bool
+	guildPresenceCoalesceWindow     time.Duration
 	guildPresencePersistMinInterval time.Duration
 }
 
@@ -1007,56 +962,7 @@ func optionsFromConfig(cfg config.ServiceConfig) options {
 		readPartyDungeonAllMemberUserState()
 	// 副本内"队友位移转发"开关（默认 off = 现行为：一条都不发）。
 	opts.partyDungeonPeerPosition = readPartyDungeonPeerPositionMode(envString(partyDungeonPeerPositionEnv, ""))
-	// 组队 UDP 中继的两个单变量实验开关（**默认都是现行为**，只有显式写非默认值才生效）：
-	//   DNFBRIDGE_PARTY_UDP_RELAY_ENDPOINT_FALLBACK=advertised
-	//     —— 反向腿未学习时用对端自报端口再写一次（party_udp_relay_endpoint_fallback.go）；
-	//   DNFBRIDGE_PARTY_PEER_SELF_ENDPOINT=reported
-	//     —— op11 里"自己那一行"改用客户端 CS op2 自报的 endpoint（party_peer_self_endpoint.go）。
-	opts.partyUDPRelayEndpointFallback = readPartyUDPRelayEndpointFallbackMode(
-		envString(partyUDPRelayEndpointFallbackEnv, ""))
-	// 首包留存重放（**默认 on = 修法生效**，写 `off` 一键回到"首包被丢"的旧行为）：
-	// 现场六次实测每次只有 1 个数据报到达中继、被 unlearned_peer_endpoint 丢掉后整场再无流量。
-	// 见 party_udp_relay_probe_replay.go。
-	opts.partyUDPRelayProbeReplay = readPartyUDPRelayProbeReplayMode(
-		envString(partyUDPRelayProbeReplayEnv, ""))
-	// 常驻原生探针监听 + 种子端点投递 + 每包 trace（**默认 on/on/off**）：
-	// 现场七次实测都是"整场只有 1 个数据报到达中继、0 转发"，根因是中继手上没有任何
-	// **自己观测到的**对端端点（客户端自报端口在加速器下必然不可达：61566 实发 21574）。
-	// 厂商靠"组队前就把两端端点 bind 好"从第一个数据报起双向可达（见本文件头部对照）。
-	// 见 party_udp_relay_probe_listener.go。
-	opts.partyUDPRelayProbeListen = readPartyUDPRelayProbeListenMode(
-		envString(partyUDPRelayProbeListenEnv, ""))
-	opts.partyUDPRelaySeedForward = readPartyUDPRelaySeedForwardMode(
-		envString(partyUDPRelaySeedForwardEnv, ""))
-	opts.partyUDPRelayDatagramTrace = readPartyUDPRelayDatagramTraceMode(
-		envString(partyUDPRelayDatagramTraceEnv, ""))
-	// 无归属观测端点进候选集（**默认 on**）：2026-09-26 02:13 现场实测客户端的原生探测载荷
-	// 只有 1 字节（`01`/`00`，= 第几个通告口），不含角色 id ⇒ 端点进不了 probes[charID]，
-	// 而它恰恰是两台客户端真实的加速器映射端点。见 party_udp_relay_probe_listener.go。
-	opts.partyUDPRelayObservedEndpointFanout = readPartyUDPRelayObservedEndpointFanoutMode(
-		envString(partyUDPRelayObservedEndpointFanoutEnv, ""))
-	// 共享端口档（默认 0 = off）：把对端端口从"各自腿口"换成"客户端唯一持续保活的口"。
-	opts.partyUDPRelayViaPort = envInt(partyUDPRelayViaPortEnv, 0)
-	if opts.partyUDPRelayViaPort < 0 || opts.partyUDPRelayViaPort > 65535 {
-		opts.partyUDPRelayViaPort = 0
-	}
-	opts.partyUDPRelayProbePorts = partyUDPRelayProbePorts(
-		envString(partyUDPRelayProbePortsEnv, ""), opts.partyUDPRelayPortStart)
-	// 陈旧记忆的新鲜度上限（默认 30 秒）：21:15 那次转发目标 21590 是 21:07 留下的旧 NAT 端口，
-	// 三份连续转发全被加速器丢掉 ⇒ 陈旧备忘只能作为多候选扇出里的一份。
-	opts.partyUDPRelayMemoTTL = readPartyUDPRelayMemoTTL(
-		envString(partyUDPRelayMemoTTLSecondsEnv, ""))
-	// "让沉默对端开口"（默认 on）：厂商证据显示 op11 行到达后 4~72 ms 客户端就会自己发 P2P 探测，
-	// 所以死锁时给沉默成员重推一次名册（严格限量，见 party_udp_relay_silent_peer_kick.go）。
-	opts.partyUDPRelaySilentPeerKick = readPartyUDPRelaySilentPeerKickMode(
-		envString(partyUDPRelaySilentPeerKickEnv, ""))
-	// 催沉默端的门槛（默认 2s）与"沉默期间重投待投首包"的总窗口（默认 60s、每 3s 一轮）：
-	// 23:31 那次唯一的数据报在腿龄 65ms 时到达 ⇒ 一次性判断必然错过，必须延迟+周期重试。
-	opts.partyUDPRelayKickTiming = readPartyUDPRelayKickTiming(
-		envString(partyUDPRelaySilentPeerKickDelayEnv, ""),
-		envString(partyUDPRelayProbeResendSecondsEnv, ""))
-	opts.partyUDPRelayKickMinAge = opts.partyUDPRelayKickTiming.minAge
-	opts.partyUDPRelayResendWindow = opts.partyUDPRelayKickTiming.window
+	opts.partyUDPRelayProbePorts = partyUDPRelayProbePorts(envString(partyUDPRelayProbePortsEnv, ""), opts.partyUDPRelayPortStart)
 	// remote 档（厂商架构）的共享密钥：只在 optionsFromConfig 里解析一次。
 	// **未配/非法 ⇒ 密钥为 nil ⇒ Service 构造时回退 embedded 并记一条具名事件**，
 	// 绝不因此启动失败；状态词只用于日志，不回显内容。见 party_udp_relay_remote.go。
