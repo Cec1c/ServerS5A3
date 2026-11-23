@@ -199,9 +199,6 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	if typ == partyNativeConnectionOpcode {
 		return s.handlePartyNativeConnectionReply(session, body)
 	}
-	if typ == dungeonPeerNativeRegistrationOpcode {
-		return s.handleDungeonPeerNativeRegistrationReply(session, body)
-	}
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)
 	}

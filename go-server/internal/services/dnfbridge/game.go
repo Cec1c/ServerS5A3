@@ -241,7 +241,6 @@ type gameSession struct {
 	// dungeonPeerActorResent 是"副本内队友 actor 补发"的幂等表（键 = 房间 + 地图 + party）。
 	// 只在 session.dungeonPartyRunMu 下读写，见 dungeon_party_peer_actor_resend.go。
 	dungeonPeerActorResent map[dungeonPeerActorResendKey]bool
-	dungeonPeerRecovery    map[dungeonPeerActorResendKey]*dungeonPeerActorRecovery
 	// vendorInjectEmitted 是"厂商登录相位包注入"的每会话幂等表（键 = 注入表行号）。
 	// 只在 session.wireMu 下读写，见 upper_vendor_inject.go。
 	vendorInjectEmitted                  map[int]bool

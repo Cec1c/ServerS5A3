@@ -97,7 +97,6 @@ func (s *Service) resendDungeonPartyPeerActorsAfterFinishLoading(session *gameSe
 			continue
 		}
 		resent = append(resent, member.UserID)
-		s.scheduleDungeonPeerActorRecovery(session, peer, runKey)
 	}
 	if len(resent) == 0 {
 		return

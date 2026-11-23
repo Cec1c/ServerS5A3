@@ -125,7 +125,6 @@ func dropDungeonPeerProjectionGenerationLocked(session *gameSession) dungeonPeer
 	session.dungeonPeerProjected = nil
 	session.dungeonOwnerOverrideLogged = nil
 	session.dungeonPeerActorResent = nil
-	session.dungeonPeerRecovery = nil
 	return counts
 }
 
