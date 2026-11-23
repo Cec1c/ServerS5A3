@@ -11,6 +11,7 @@ import (
 
 	dnfaura "longheng.io/server/internal/modules/dnf/auraskin"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	"longheng.io/server/internal/modules/dnf/inventory"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -35,13 +36,39 @@ func (s *Service) handleCurrentOpenAuraSkinSlot(session *gameSession, body []byt
 			"reason", err.Error())
 		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketOpenAuraSkinSlot), 4)
 	}
+	return s.openAuraSlot(session, request, uint16(dnfenum.CmdPacketOpenAuraSkinSlot))
+}
+
+const guildAuraTicketAction uint32 = 126
+
+func (s *Service) handleGuildAuraTicketAction(session *gameSession, body []byte) (bool, error) {
+	if len(body) < 11 || binary.LittleEndian.Uint32(body[7:11]) != guildAuraTicketAction {
+		return false, nil
+	}
+	slot := int16(binary.LittleEndian.Uint16(body))
+	op := uint16(dnfenum.CmdPacketUseStackableAction)
+	if len(body) != currentQuestClearCouponBodySize || slot < 0 || body[2] != dnfrepo.MainInventoryListType ||
+		binary.LittleEndian.Uint32(body[3:7]) != 0 || binary.LittleEndian.Uint32(body[11:15]) != 0 ||
+		binary.LittleEndian.Uint32(body[15:19]) != 0 || currentExpertJobSessionInDungeon(session) {
+		return true, s.sendGameUpperRawClass(session, op, inventory.BuildStackableActionFailure(slot, body[2], byte(guildAuraTicketAction), 4), 1)
+	}
+	return true, s.openAuraSlot(session, currentOpenAuraSkinSlotRequest{SourceSlot: slot}, op)
+}
+
+func (s *Service) openAuraSlot(session *gameSession, request currentOpenAuraSkinSlotRequest, opcode uint16) error {
+	reject := func() error {
+		if opcode == uint16(dnfenum.CmdPacketUseStackableAction) {
+			return s.sendGameUpperRawClass(session, opcode, inventory.BuildStackableActionFailure(request.SourceSlot, 0, byte(guildAuraTicketAction), 4), 1)
+		}
+		return s.sendGameUpperFailure(session, opcode, 4)
+	}
 	catalog, err := s.currentPVFItemCatalog()
 	if err != nil {
 		s.logGameEvent(session, "game-current-open-aura-skin-slot-rejected",
 			"source_slot", request.SourceSlot,
 			"reason", "pvf_catalog_unavailable",
 			"error", err.Error())
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketOpenAuraSkinSlot), 4)
+		return reject()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
@@ -50,10 +77,19 @@ func (s *Service) handleCurrentOpenAuraSkinSlot(session *gameSession, body []byt
 		s.logGameEvent(session, "game-current-open-aura-skin-slot-rejected",
 			"source_slot", request.SourceSlot,
 			"reason", err.Error())
-		return s.sendGameUpperFailure(session, uint16(dnfenum.CmdPacketOpenAuraSkinSlot), 4)
+		return reject()
 	}
 	// 当前固定 EXE 的1/op863登记到0x1FD6330，成功应答不读取来源格位。
-	if err := s.sendGameUpperSuccess(session, uint16(dnfenum.CmdPacketOpenAuraSkinSlot), nil); err != nil {
+	var ack []byte
+	if opcode == uint16(dnfenum.CmdPacketUseStackableAction) {
+		ack = inventory.BuildStackableActionAck(request.SourceSlot, 0, guildAuraTicketAction)
+	}
+	if ack != nil {
+		err = s.sendGameUpperRawClass(session, opcode, ack, 1)
+	} else {
+		err = s.sendGameUpperSuccess(session, opcode, nil)
+	}
+	if err != nil {
 		return err
 	}
 	if result.SourceChanged {
@@ -73,7 +109,7 @@ func (s *Service) handleCurrentOpenAuraSkinSlot(session *gameSession, body []byt
 	}
 	// 扣材事务提交后，用既有原生角色刷新同步0x08权限位；当前配套没有
 	// 识别“AURA”自定义标记的DLL，不能再次把该标记当成功应答发送。
-	if err := s.sendSelectedActorMode1AppearanceRefresh(session, "open_aura_skin_slot", "op863_ack_then_material_update_then_native_actor_state"); err != nil {
+	if err := s.sendSelectedActorMode1AppearanceRefresh(session, "open_aura_skin_slot", "action_ack_then_material_update_then_native_actor_state"); err != nil {
 		return err
 	}
 	s.logGameEvent(session, "game-current-open-aura-skin-slot-accepted",
@@ -184,7 +220,8 @@ func (c currentAuraSkinCatalog) ResolveItem(itemID uint32) (dnfaura.ItemDefiniti
 		return dnfaura.ItemDefinition{}, err
 	}
 	return dnfaura.ItemDefinition{
-		Kind:    string(definition.Kind),
-		PVFPath: definition.PVFPath,
+		Kind:       string(definition.Kind),
+		PVFPath:    definition.PVFPath,
+		ActionType: definition.ActionType,
 	}, nil
 }

@@ -226,7 +226,7 @@ func TestRealPVFPrivateLukeFiendwarManualAutomaticTwoPools(t *testing.T) {
 					teamRows := 0
 					for _, owner := range flow.Recipients {
 						for _, row := range flow.Squad[owner.CharacterID].Plan.Rewards {
-							key := r195FiendRewardDescriptor{kind: 3, owner: owner.CharacterID, id: row.Definition.ItemID, quantity: uint16(row.Count)}
+							key := r195FiendRewardDescriptor{kind: 3, objectKind: flow.Squad[owner.CharacterID].Plan.Choice.Flags, owner: owner.CharacterID, id: row.Definition.ItemID, quantity: uint16(row.Count)}
 							if wire.items[key] != 1 {
 								t.Fatalf("team wire lost/duplicated token or native row: %+v count=%d", key, wire.items[key])
 							}

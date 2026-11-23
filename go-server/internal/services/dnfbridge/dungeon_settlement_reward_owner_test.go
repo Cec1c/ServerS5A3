@@ -173,12 +173,8 @@ func assertCurrentDungeonSettlementProducerRewardBody(t *testing.T, body []byte,
 			t.Fatalf("unknown op35 score[%d]=%d, want zero", index, got)
 		}
 	}
-	if reader.u32() != 0 || reader.u8() != 1 {
-		t.Fatal("op35 quest/drop counts do not contain exactly one drop")
-	}
-	if reader.u16() != 65 || reader.u32() != 8474 || reader.u32() != 2 ||
-		reader.u16() != 0 || reader.u8() != 0 || reader.u16() != 0 {
-		t.Fatal("op35 committed pickup receipt does not match DB slot/item/post-count")
+	if reader.u32() != 0 || reader.u8() != 0 {
+		t.Fatal("settlement projected an item that was already delivered by pickup")
 	}
 	for index := 0; index < currentDungeonClearRewardGroupCount; index++ {
 		if reader.u8() != 0 {

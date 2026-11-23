@@ -4,7 +4,7 @@ V212 客户端已经包含双组 Buff 协议，服务端也实现了对应的 8 
 
 ## 积分商城与 Buff 配对
 
-1. 本批余额配方仅适用于公开 V216 的指定派生客户端。以公开 V216 及对应公开 PVF 为输入，按[公开团本配方](../resource-recipes/selected-raid-shop-20261118/README.md)生成中间文件，再按[积分增量配方](../resource-recipes/selected-gameplay-20261122/README.md)生成最终资源。EXE 应为 `fb2db71e…`，同时包含兵营进度时为 `21a9ed0b…`。PVF 应为 `f86090d9…`。保留 V216 的配套组件。
+1. 当前搭建优先安装[累计公开配套包](PUBLIC_FEATURE_DEPLOYMENT_20261123.md)，已含积分通知 427、双组 Buff 和后续修复。EXE 为 `19233532…`，PVF 为 `40c123c5…`，配套三个 DLL 与界面 NPK。需要从历史版本重建时，按[累计配方](../resource-recipes/selected-native-20261123/README.md)依次生成；旧 `fb2db71e…`/`21a9ed0b…` 仅是中间版本。
 2. 在 Linux 服务器放置这对文件，用 `prepare --pvf <Script.pvf路径> --client-dir <包含DNF.exe的目录>` 配置服务。给玩家安装同一份配对客户端。V212、V215 和 V216 原版均缺少积分余额通知接收位，服务端开启积分后仍会出现旧客户端余额不刷新的情况。
 3. 新建配套实例默认开启 `DNFBRIDGE_MILEAGE_SHOP_ENABLED`、`DNFBRIDGE_BUFF_GROUP_SYNC`、`DNFBRIDGE_BUFF_SWAP_REAPPLY`。帝国双组默认使用 `tag_buff_group_sync: "auto"`，识别到含配套接收器的 EXE 且普通双组开启时启用。只安装服务端时帝国保留旧格式，随配套目录重新准备后再切换。
 

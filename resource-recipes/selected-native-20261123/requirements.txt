@@ -1,0 +1,4 @@
+pefile==2024.8.26
+capstone==5.0.7
+keystone-engine==0.9.2
+unicorn==2.1.4

@@ -22,6 +22,7 @@ const (
 	// class0/S2C op39 is the ordinary scene-item pickup result.
 	currentDungeonPickupResultOpcode      uint16 = 39
 	currentDungeonPickupResultSize               = 19
+	currentDungeonPickupAbsoluteCountFlag byte   = 0x80
 	currentDungeonGoldPickupPartyRows            = 8
 	currentDungeonGoldPickupResultSize           = 6 + currentDungeonGoldPickupPartyRows*5 + 1 + 4 + 4
 	currentDungeonPickupRequestOpcode     uint16 = 43
@@ -51,7 +52,11 @@ func buildCurrentDungeonNormalPickupResultBody(
 
 func buildCurrentDungeonPickupResultForItem(dropObjectKey uint32, pickerActorObjectKey uint16, destinationSlot uint16, definition dungeonDropItemDefinition) ([]byte, error) {
 	c := currentPVFItemTargetContainer(definition)
-	return buildCurrentDungeonItemPickupResultBody(dropObjectKey, pickerActorObjectKey, destinationSlot, c.GuildMedal && c.ListType == 38 && c.SlotStart == 0)
+	body, err := buildCurrentDungeonItemPickupResultBody(dropObjectKey, pickerActorObjectKey, destinationSlot, c.GuildMedal && c.ListType == 38 && c.SlotStart == 0)
+	if err == nil {
+		body[18] = currentDungeonPickupAbsoluteCountFlag
+	}
+	return body, err
 }
 
 func buildCurrentDungeonItemPickupResultBody(dropObjectKey uint32, pickerActorObjectKey uint16, destinationSlot uint16, allowZero bool) ([]byte, error) {
@@ -318,12 +323,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			)
 		}
 		if len(drop.PickupItemUpdateBody) > 0 {
-			return s.sendGameUpperRawClass(
-				session,
-				uint16(dnfenum.CmdPacketWalkoutPartyMember),
-				append([]byte(nil), drop.PickupItemUpdateBody...),
-				0,
-			)
+			return s.refreshReplayedPickupSlot(session, drop)
 		}
 		return nil
 	}
@@ -359,12 +359,23 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			return nil
 		}
 		characterID := strconv.Itoa(int(session.selectedCharacterID))
+		now := s.gameplayNow()
+		creditedAmount := drop.Amount
 		goldAfter, err := grantCurrentDungeonPickupGold(
 			context.Background(),
 			repositories.CharacterAssets,
 			characterID,
 			drop.Amount,
-			time.Now().UTC(),
+			now,
+			func(equipment dnfrepo.EquipmentRecord, amount uint32) (uint32, error) {
+				adjusted, err := currentXunlongPickupGold(equipment, amount, now)
+				if err != nil {
+					return 0, err
+				}
+				creditedAmount = adjusted
+				responseBody, err = buildCurrentDungeonGoldPickupResultBody(drop.ObjectKey, pickerActorObjectKey, adjusted, goldPartySlot)
+				return adjusted, err
+			},
 		)
 		if err != nil {
 			s.logGameEvent(session, "game-dungeon-pickup-blocked",
@@ -389,6 +400,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			"scene_slot", drop.SceneSlot,
 			"item_id", drop.Item.ItemID,
 			"amount", drop.Amount,
+			"credited_amount", creditedAmount,
 			"gold_after", goldAfter,
 			"picker_actor_object_key", pickerActorObjectKey,
 			"request_context", request.ObjectContext,
@@ -451,10 +463,11 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 			}
 			return nil
 		}
-		responseBody, err := buildCurrentDungeonNormalPickupResultBody(
+		responseBody, err := buildCurrentDungeonPickupResultForItem(
 			drop.ObjectKey,
 			pickerActorObjectKey,
 			destinationSlot,
+			drop.Item,
 		)
 		if err != nil {
 			drop.Status = runtimeDungeonDropConsumed
@@ -672,6 +685,7 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		[]currentItemListEntry{itemUpdate},
 	)
 	drop.PickupItemUpdateBody = append([]byte(nil), itemUpdateBody...)
+	nativeStack := nativeMainBagStackPickup(drop.Item)
 	s.logGameEvent(session, "game-dungeon-pickup-accepted",
 		"dungeon_id", runtime.Dungeon.ID,
 		"room", scene.Coordinate.String(),
@@ -693,8 +707,15 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		"response_opcode", currentDungeonPickupResultOpcode,
 		"response_body_len", len(responseBody),
 		"asset_owner", "character_items_uow",
-		"item_update_opcode", uint16(dnfenum.CmdPacketWalkoutPartyMember),
-		"item_update_body_len", len(itemUpdateBody))
+		"native_stack_pickup", nativeStack,
+		"committed_slot_count", binary.LittleEndian.Uint32(itemUpdate.data[6:10]))
+	// The ground object already contains the rolled count. For ordinary bag
+	// stacks let the native pickup place or merge it once. Keep the committed
+	// absolute row for reconciliation on retry, movement and settlement.
+	if nativeStack {
+		responseBody[18] = 0
+		return s.sendGameUpperRawClass(session, currentDungeonPickupResultOpcode, responseBody, 0)
+	}
 	if err := s.sendGameUpperRawClass(session, currentDungeonPickupResultOpcode, responseBody, 0); err != nil {
 		return err
 	}
@@ -704,6 +725,21 @@ func (s *Service) handleCurrentDungeonPickup(session *gameSession, body []byte) 
 		itemUpdateBody,
 		0,
 	)
+}
+
+func nativeMainBagStackPickup(item dungeonDropItemDefinition) bool {
+	if item.Kind != dungeonDropItemStackable || !item.ExpirationDate.IsZero() || item.UsablePeriodDays != 0 || item.DailyDeleteItem || item.CeraOnly || item.TokenCeraOnly {
+		return false
+	}
+	container := currentPVFItemTargetContainer(item)
+	if container.ListType != dnfrepo.MainInventoryListType {
+		return false
+	}
+	switch container.SlotStart {
+	case currentPVFMainMaterialStart, currentPVFMainMaterialExtraStart, currentPVFMainConsumableStart, currentPVFMainExpertJobStart:
+		return true
+	}
+	return false
 }
 
 func grantCurrentDungeonPickupItemWithActivity(
@@ -769,6 +805,54 @@ func grantCurrentDungeonPickupItemWithActivity(
 		return 0, currentItemListEntry{}, mapCurrentDungeonPickupOwnerError(err)
 	}
 	return result.Slot, itemUpdate, nil
+}
+
+// The receipt proves the original grant, but its old slot count can become
+// stale after a split, consumption, or a subsequent pickup into the same slot.
+func (s *Service) refreshReplayedPickupSlot(session *gameSession, drop *runtimeDungeonDrop) error {
+	repos, ok := s.repositoryGroup()
+	if !ok {
+		return errDungeonPickupTransactionMissing
+	}
+	list := drop.PickupItemUpdateBody[0]
+	slot := int16(drop.DestinationSlot)
+	key := currentCeraShopInventorySlotKey(list, slot)
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	var stack dnfrepo.ItemStack
+	if drop.DiscardOrigin != nil && drop.DiscardOrigin.AccountOwned {
+		account := s.accountIDForSession(session)
+		if account == "" || repos.AccountInventory == nil {
+			return errDungeonPickupInventoryMissing
+		}
+		record, found, err := repos.AccountInventory.Load(ctx, account)
+		if err != nil {
+			return err
+		}
+		if !found || record.AccountID != account {
+			return errDungeonPickupInventoryMissing
+		}
+		stack = record.Slots[key]
+	} else {
+		if repos.Inventory == nil {
+			return errDungeonPickupInventoryMissing
+		}
+		record, found, err := repos.Inventory.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+		if err != nil {
+			return err
+		}
+		if !found {
+			return errDungeonPickupInventoryMissing
+		}
+		stack = record.Slots[key]
+	}
+	var entry currentItemListEntry
+	if stack.ItemID > 0 && stack.Count > 0 {
+		entry = currentItemListEntryFromStack(list, slot, stack)
+	} else {
+		patchEmptySlotRow(&entry, slot)
+	}
+	return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketWalkoutPartyMember), buildCurrentItemUpdateBody(list, []currentItemListEntry{entry}), 0)
 }
 
 func addCurrentDungeonPickupToInventory(

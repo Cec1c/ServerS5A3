@@ -77,7 +77,7 @@ func TestN2FiendWarDeclaredStartGuards(t *testing.T) {
 			}
 		})
 	}
-	for _, id := range []int64{4954, 4963, 4965} {
+	for _, id := range []int64{104, 4963, 4965} {
 		d, _ := table.FindDungeon(id)
 		index := r.byDungeon[id].mazes[0]
 		key := coordinateKey{d.Mazes[0].Start.X, d.Mazes[0].Start.Y}

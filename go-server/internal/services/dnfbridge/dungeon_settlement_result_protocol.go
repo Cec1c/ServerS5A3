@@ -156,16 +156,17 @@ type currentDungeonClearRewardSnapshot struct {
 	CommittedSPGain         int
 	CommittedTPGain         int
 
-	Base         [4]uint32
-	BaseFlag     byte
-	Bonus        [currentDungeonClearRewardBonusFieldCount]uint32
-	BonusGroupsA []currentDungeonClearRewardPair
-	BonusGroupsB []currentDungeonClearRewardPair
-	PostBase     [currentDungeonClearRewardPostBaseFieldCount]uint32
-	Score        [currentDungeonClearRewardScoreFieldCount]uint32
-	Quest        []currentDungeonClearRewardPair
-	Drops        []currentDungeonClearRewardDrop
-	CardSlots    [currentDungeonClearRewardGroupCount][]currentDungeonClearRewardPair
+	Base                    [4]uint32
+	BaseFlag                byte
+	Bonus                   [currentDungeonClearRewardBonusFieldCount]uint32
+	BonusGroupsA            []currentDungeonClearRewardPair
+	BonusGroupsB            []currentDungeonClearRewardPair
+	PostBase                [currentDungeonClearRewardPostBaseFieldCount]uint32
+	Score                   [currentDungeonClearRewardScoreFieldCount]uint32
+	Quest                   []currentDungeonClearRewardPair
+	Drops                   []currentDungeonClearRewardDrop
+	PickupsAlreadyProjected bool
+	CardSlots               [currentDungeonClearRewardGroupCount][]currentDungeonClearRewardPair
 	// 当前EXE 0x359C170写入UI+0x660的付费翻牌价格，并非奖励总额。
 	PaidCardCost uint32
 	AuxGroupsA   [currentDungeonClearRewardGroupCount][]currentDungeonClearRewardPair
@@ -199,8 +200,15 @@ func buildCurrentDungeonClearRewardBody(snapshot currentDungeonClearRewardSnapsh
 	}
 	writer.writeUint32(uint32(len(snapshot.Quest)))
 	writeCurrentDungeonRewardPairs(&writer, snapshot.Quest)
-	writer.writeByte(byte(len(snapshot.Drops)))
-	for _, drop := range snapshot.Drops {
+	// NOTI35 applies these rows to the client inventory. Receipts already
+	// delivered at pickup still validate the settlement, including zero-XP
+	// clears, but must not grant the same slot again on the client.
+	drops := snapshot.Drops
+	if snapshot.PickupsAlreadyProjected {
+		drops = nil
+	}
+	writer.writeByte(byte(len(drops)))
+	for _, drop := range drops {
 		writer.writeUint16(drop.ObjectKey)
 		writer.writeUint32(drop.TemplateID)
 		writer.writeUint32(drop.StackCount)

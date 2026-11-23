@@ -276,7 +276,7 @@ func TestCurrentEquipmentRecipeCompoundModuleOwnsProvenOp25Routes(t *testing.T) 
 	if handler, ok := module.UpperHandlers[currentEquipmentRecipeCompoundOpcode]; !ok || handler == nil {
 		t.Fatalf("upper handler for op25 missing: %+v", module.UpperHandlers)
 	}
-	if len(module.LegacyHandlers) != 1 || module.LegacyHandlers[25] == nil || len(module.LegacyNormalizers) != 0 {
+	if len(module.LegacyHandlers) != 2 || module.LegacyHandlers[25] == nil || module.LegacyHandlers[880] == nil || len(module.LegacyNormalizers) != 0 {
 		t.Fatalf("native legacy op25 must route without normalization: %+v", module)
 	}
 	registry, err := newGameplayModuleRegistry(module)
@@ -286,7 +286,7 @@ func TestCurrentEquipmentRecipeCompoundModuleOwnsProvenOp25Routes(t *testing.T) 
 	if _, ok := registry.upperHandlers[currentEquipmentRecipeCompoundOpcode]; !ok {
 		t.Fatal("op25 upper route not registered")
 	}
-	if len(registry.legacyHandlers) != 1 || registry.legacyHandlers[25].handler == nil || len(registry.legacyNormalizers) != 0 {
+	if len(registry.legacyHandlers) != 2 || registry.legacyHandlers[25].handler == nil || registry.legacyHandlers[880].handler == nil || len(registry.legacyNormalizers) != 0 {
 		t.Fatalf("registry native op25 route incorrect: %+v", registry.legacyHandlers)
 	}
 }

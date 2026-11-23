@@ -216,16 +216,32 @@ func (s *Service) handleSaveGameOption1(session *gameSession, body []byte) error
 			"guard_env", currentGameOptionEntryGuardEnv)
 		return nil
 	}
-	err := s.saveAccountGameOptionValues(session, accountID, map[string]string{
-		"main_game_option_hex": hex.EncodeToString(blob),
-		"main_game_option_len": strconv.Itoa(len(blob)),
-		"source":               "current_exe_op197",
-	})
+	var changed bool
+	var err error
+	awakeningHandled := false
+	if s.options.currentClientVersion == "official-24.9" && session.selectedCharacterID != 0 {
+		if value, known := currentAwakeningAvatarOption(blob); known {
+			awakeningHandled = true
+			changed, err = s.saveCurrentAwakeningAvatarGameOption(session, accountID, blob, value)
+		}
+	}
+	if !awakeningHandled {
+		err = s.saveAccountGameOptionValues(session, accountID, map[string]string{
+			"main_game_option_hex": hex.EncodeToString(blob),
+			"main_game_option_len": strconv.Itoa(len(blob)),
+			"source":               "current_exe_op197",
+		})
+	}
 	s.logGameEvent(session, "game-account-game-option-saved",
 		"account_id", accountID,
 		"blob_len", len(blob),
 		"save_error", err,
 		"wire_source", "current_exe_sub_1CF5280_u32_len_prefixed_blob")
+	if err == nil && changed {
+		if refreshErr := s.sendSelectedActorUserStateRefresh(session, "awakening_avatar_option_changed"); refreshErr != nil {
+			s.logGameEvent(session, "game-awakening-avatar-refresh-deferred", "error", refreshErr)
+		}
+	}
 	return nil
 }
 
@@ -501,7 +517,23 @@ func (s *Service) saveSettingsValues(session *gameSession, scope string, values 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	record, found, err := repos.Settings.Load(ctx, scope)
+	return s.saveSettingsValuesUsingRepository(ctx, repos.Settings, session, scope, values)
+}
+
+func (s *Service) saveSettingsValuesUsingRepository(
+	ctx context.Context,
+	settings dnfrepo.SettingsRepository,
+	session *gameSession,
+	scope string,
+	values map[string]string,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if settings == nil || strings.TrimSpace(scope) == "" {
+		return errSettingsRepositoryUnavailable
+	}
+	record, found, err := settings.Load(ctx, scope)
 	if err != nil {
 		return err
 	}
@@ -515,9 +547,10 @@ func (s *Service) saveSettingsValues(session *gameSession, scope string, values 
 	for key, value := range values {
 		record.Values[key] = value
 	}
-	record.Values["updated_at"] = time.Now().UTC().Format(time.RFC3339Nano)
-	record.UpdatedAt = time.Now().UTC()
-	if err := repos.Settings.Save(ctx, record); err != nil {
+	now := time.Now().UTC()
+	record.Values["updated_at"] = now.Format(time.RFC3339Nano)
+	record.UpdatedAt = now
+	if err := settings.Save(ctx, record); err != nil {
 		if session != nil {
 			s.logWarn("dnfbridge settings save failed",
 				"conn_id", session.connID,

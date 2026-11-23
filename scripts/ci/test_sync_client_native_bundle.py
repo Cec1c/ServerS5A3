@@ -37,6 +37,29 @@ class NativeClientBundleTests(unittest.TestCase):
         self.write(self.files())
         self.assertEqual(sync.inspect_zip(self.archive), self.exe_pin)
 
+    def test_cumulative_bundle_requires_exact_atlas_and_pvf(self):
+        raw = b'MZcumulative-fixture'
+        exe = {'sha256': hashlib.sha256(raw).hexdigest(), 'length': len(raw)}
+        extra = {'AtlasWorkers101.dll': b'workers', 'Script.pvf': b'public-pvf'}
+        pins = {name: {'sha256': hashlib.sha256(value).hexdigest(), 'length': len(value)}
+                for name, value in extra.items()}
+        files = [('DNF.exe', raw), *self.sidecars.items(), *extra.items()]
+        with patch.object(sync, 'CUMULATIVE_NATIVE_EXE', exe), patch.object(sync, 'CUMULATIVE_NATIVE_EXTRA', pins):
+            self.write(files)
+            self.assertEqual(sync.inspect_zip(self.archive), exe)
+            for name, value in extra.items():
+                with self.subTest(missing=name):
+                    self.write([(n, v) for n, v in files if n != name])
+                    with self.assertRaisesRegex(sync.SyncError, 'complete exact'):
+                        sync.inspect_zip(self.archive)
+                with self.subTest(changed=name):
+                    self.write([(n, b'x' + v[1:] if n == name else v) for n, v in files])
+                    with self.assertRaisesRegex(sync.SyncError, 'sidecar'):
+                        sync.inspect_zip(self.archive)
+            self.write([('DNF.exe', self.exe), *self.sidecars.items(), *extra.items()])
+            with self.assertRaisesRegex(sync.SyncError, 'complete exact'):
+                sync.inspect_zip(self.archive)
+
     def test_recognized_exe_requires_all_dependencies_even_when_none_supplied(self):
         self.write([('DNF.exe', self.exe)])
         with self.assertRaisesRegex(sync.SyncError, 'complete exact'):

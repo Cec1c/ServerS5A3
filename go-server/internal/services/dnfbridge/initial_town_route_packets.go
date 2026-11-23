@@ -152,6 +152,13 @@ func (s *Service) sendCurrentInitialTownActorRoutePacketsWithOptionsLocked(
 		s.logWarn("dnfbridge selected character hotkey replay deferred",
 			"conn_id", session.connID, "char_id", characterID, "error", err)
 	}
+	if _, err := s.syncCurrentAwakeningAvatarOption(session, characterID); err != nil {
+		s.logWarn("dnfbridge awakening avatar entry sync deferred",
+			"conn_id", session.connID,
+			"char_id", characterID,
+			"source", "initial_town_before_actor_prerequisites",
+			"error", err)
+	}
 	// Character options must replay for every new selection on this connection.
 	// Keep the accepted account-option gate unchanged (P55).
 	if !session.characterOptionNoticeSent {

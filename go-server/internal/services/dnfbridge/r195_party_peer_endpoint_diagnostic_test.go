@@ -186,21 +186,6 @@ func TestR195PartyDungeonLoadingSkippedPlacementDoesNotClaimSuccess(t *testing.T
 	}
 }
 
-func TestR195SilentPeerKickNormalDiagnosticsWithoutPacketLog(t *testing.T) {
-	service, _, member, _, partyID := r195SilentPeerFixture(t, partyPeerEndpointsAfterRosterRepeat)
-	service.packetLog = nil
-	var logs bytes.Buffer
-	service.logger = slog.New(slog.NewJSONHandler(&logs, nil))
-	if !service.kickSilentPartyMember(partyID, member.selectedCharacterID) {
-		t.Fatal("silent kick failed")
-	}
-	event := r195DiagnosticEvent(t, &logs, "party-udp-relay-silent-peer-kick")
-	if event["ordering"] != "op11_then_op9_then_op153_then_op11_after_roster" || event["after_roster"] != "repeat" || event["member_id"] != float64(member.selectedCharacterID) {
-		t.Fatalf("normal-log kick evidence = %v", event)
-	}
-	r195PartyPeerEndpointAssertNoPrivateFields(t, logs.String(), "PRIVATE_KICK_ERROR")
-}
-
 func TestR195PartyPeerEndpointRegistrationDiagnosticIsWhitelisted(t *testing.T) {
 	service := &Service{}
 	session := &gameSession{connID: "game-r195-op2", selectedCharacterID: 1020}

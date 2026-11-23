@@ -30,8 +30,9 @@ var (
 )
 
 type ItemDefinition struct {
-	Kind    string
-	PVFPath string
+	Kind       string
+	PVFPath    string
+	ActionType string
 }
 
 type ItemCatalog interface {
@@ -162,7 +163,8 @@ func (o *Owner) resolveTicket(itemID uint32) (ItemDefinition, error) {
 		return ItemDefinition{}, fmt.Errorf("%w: item_id=%d resolve=%v", ErrTicketInvalid, itemID, err)
 	}
 	if strings.ToLower(strings.TrimSpace(definition.Kind)) != ItemStackable ||
-		cleanPVFPath(definition.PVFPath) != TicketPVFPath {
+		(cleanPVFPath(definition.PVFPath) != TicketPVFPath &&
+			strings.ToLower(strings.TrimSpace(definition.ActionType)) != "[open aura skin slot]") {
 		return ItemDefinition{}, fmt.Errorf(
 			"%w: item_id=%d kind=%s path=%s",
 			ErrTicketInvalid,

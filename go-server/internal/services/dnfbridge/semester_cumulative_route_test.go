@@ -33,6 +33,7 @@ func semesterRouteBody(index uint32) []byte {
 }
 func TestSemesterRouteDefaultOFFAndNon216Compatibility(t *testing.T) {
 	s, a, c, _ := seedSemesterAdapter(t)
+	s.options.currentClientVersion = "90cn"
 	if e := s.initializeActivityControls(context.Background()); e != nil {
 		t.Fatal(e)
 	}

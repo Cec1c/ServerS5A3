@@ -27,16 +27,16 @@
 | **选角或进城后客户端闪退（赛马活动冲突）** | 旧实例或旧数据库曾保存开启 2365 赛马活动 | 设 `"joust_event_enabled": false`；**旧数据库**还必须通过管理接口将活动 **2365** 保存为关闭并重启（库内保存值优先于环境变量） |
 | **登录后无频道、选频道转圈或无法进游戏** | 旧实例仍在使用不同频道表或PVF内置目录 | 新实例默认使用统一外部表；旧实例按迁移说明备份并显式选择 `--channel-info go-server/internal/services/dnfbridge/testdata/channel_info.etc`（[120 频道说明](Docs/CHANNEL_TABLE_DEPLOYMENT.md)） |
 | **积分没有入账或商城余额不刷新** | 旧实例保留了关闭配置，或实际客户端没有 427 号余额通知接收能力 | 按[积分与 Buff 配对步骤](Docs/BUFF_GROUP_DEPLOYMENT.md#积分商城与-buff-配对)核对服务端开关和实际 EXE |
-| **双组 Buff 登记不保存、切图清空或换装不重算** | 未开启双组 Buff 同步或换装重算开关，或客户端与开关未配对 | 配套 V212–V215 客户端设 `"buff_group_sync": "on"` 与 `"buff_swap_reapply": "on"`（详见 [Buff 部署说明](Docs/BUFF_GROUP_DEPLOYMENT.md)） |
+| **双组 Buff 登记不保存、切图清空或换装不重算** | 未开启双组 Buff 同步或换装重算开关，或客户端与开关未配对 | 配套[当前累计客户端](Docs/PUBLIC_FEATURE_DEPLOYMENT_20261123.md)设 `"buff_group_sync": "on"` 与 `"buff_swap_reapply": "on"`（详见 [Buff 部署说明](Docs/BUFF_GROUP_DEPLOYMENT.md)） |
 | **史诗分解不弹无色/灵魂结果框（V210+）、城镇非队友加载慢或异常（V211+）** | 漏开与新版客户端配套的服务端显示模式 | 设 `"disjoint_epic_display": "paired-v1"` 与 `"town_display_only": "on"` |
 | **公会排行/红包/守护神/精髓无法使用，或深渊锁槽、组队进图掉线/顺序错乱** | 公会子系统默认全关，且未注入 `runtime_compatibility` 17 项协议修复 | 配套旧实例可运行 `prepare --apply-recommended` 补齐缺项，再核对显式关闭项 |
-| **NPC 赠礼（好感度 op812）不刷新、黑钻 188 疲劳 / 加百利商店缺失** | 服务端提交过旧，或客户端/PVF 未同步到 2026-11-15 公开批次 | 拉取最新 `master` 重新构建，并在 [GitHub Releases](https://github.com/Cec1c/ServerS5A3/releases) 下载 **V215 客户端组件** 与 **`66482976` 正式服完整 PVF**（见 [公开功能清单](Docs/SELECTED_PUBLICATION_20261115.md)） |
+| **NPC 赠礼（好感度 op812）不刷新、黑钻 188 疲劳 / 加百利商店缺失** | 服务端提交过旧，或客户端/PVF 未同步到 2026-11-15 公开批次 | 拉取最新 `master` 重新构建，安装[累计公开配套包](Docs/PUBLIC_FEATURE_DEPLOYMENT_20261123.md)并核验全部六项组件 |
 
 完整的环境变量映射与线上运行进程只读核对脚本见 **[Docker 运行配置与脱敏参考](Docs/DOCKER_RUNTIME_REFERENCE.md)** 及参考文件 [`deploy/templates/docker-server.redacted.env`](deploy/templates/docker-server.redacted.env)。
 
 ## 快速开始：使用 Docker 运行配置包
 
-使用[积分与 Buff 配对步骤](Docs/BUFF_GROUP_DEPLOYMENT.md#积分商城与-buff-配对)准备 `DNF.exe` 和 `Script.pvf`，再把这对文件交给搭建入口。公开 Releases 的 V212、V215、V216 原版均缺少 427 号余额通知接收位。
+先按[累计公开功能搭建入口](Docs/PUBLIC_FEATURE_DEPLOYMENT_20261123.md)下载并核验完整配套包，再把其中 `DNF.exe` 与 `Script.pvf` 交给搭建入口。累计包已经包含此前分散配方；V212、V215、V216 原版缺少后续功能，不能替代当前累计包。
 
 ### 方式一：把仓库和配置包交给编程 Agent 自动部署（推荐）
 
@@ -48,7 +48,7 @@
 服务器连接信息和 Windows 客户端目录由我提供。
 
 要求：
-1. 按 Docs/BUFF_GROUP_DEPLOYMENT.md 准备积分与 Buff 配对资源，核对目标机器、源码提交、数据库容量及 EXE/PVF 摘要。Docker prepare 用 --client-dir 指向服务端可读取的配套 DNF.exe 目录。
+1. 按 Docs/PUBLIC_FEATURE_DEPLOYMENT_20261123.md 准备累计六项配套资源，核对目标机器、源码提交、数据库容量及 EXE/PVF 摘要。Docker prepare 用 --client-dir 指向服务端可读取的配套 DNF.exe 目录。
 2. 使用 deploy/docker/manage.sh 构建镜像并执行首次 prepare，默认使用 go-server/internal/services/dnfbridge/testdata/channel_info.etc（统一120频道外部表）；显式指定的表须匹配同一摘要，不能提取PVF目录代替。
 3. 配套新实例自动应用推荐配置，赛马 2365 默认关闭。旧配套实例可用 prepare --apply-recommended 补缺，检查 2365 的旧数据库保存值。公网搭建另设 --public-host，核对玩家通告地址、端口转发及登录器入口。
 4. 启动容器后，按 Docs/DOCKER_RUNTIME_REFERENCE.md 读取实际 DNF90Server 进程的 /proc/<pid>/environ 与活动生效状态核对无误。
@@ -84,19 +84,13 @@ curl http://127.0.0.1:17002/api/status
 > [!WARNING]
 > **截至目前，2365「竞技大赛（马战竞猜／赛马）」活动仍可能导致客户端闪退，必须保持关闭。** 首次部署通过上面的推荐预设包已将 `joust_event_enabled` 设为 `false`；若是**升级已有旧数据库**，数据库中保存的活动状态优先级高于环境变量，还必须通过 GM 或游戏管理接口把活动 **2365** 保存为 `enabled=false` 并重启游戏容器，详见[活动开关与赛马关闭方法](Docs/BUILD_AND_DEPLOY.md#当前活动开关与赛马关闭方法)。
 
-当前源码在未覆盖时默认开启史诗之路（350）、累计在线奖励（2347）、普通签到（331）、每周签到（2208）和每日签到（2370）；新学期累计奖励（216）和红尾乔纳森（2395）默认关闭。
+当前源码在未覆盖时默认开启史诗之路（350）、累计在线奖励（2347）、普通签到（331）、每周签到（2208）和每日签到（2370）；史诗之路累计通关奖励（216）在 official-24.9 下默认开启，旧数据库保存的关闭值保留；红尾乔纳森（2395）默认关闭。
 
 ## 下载配套 PVF 与客户端 EXE
 
-**`Script.pvf`、客户端 `DNF.exe` 及配套组件均发布在 [GitHub Releases](https://github.com/Cec1c/ServerS5A3/releases)**（镜像见 [GitGud Releases](https://gitgud.io/16ww/servers5a3/-/releases)）。注意进入 Releases 列表页同时查看 **Latest** 与 **Pre-release（预发行）**：
+当前推荐 [2026-11-23 累计配套包](https://github.com/Cec1c/ServerS5A3/releases/tag/client-v217-public-native-cumulative-20261123)，包含 EXE、PVF、三个 DLL 与界面 NPK。按[累计搭建说明](Docs/PUBLIC_FEATURE_DEPLOYMENT_20261123.md)核验清单、安装资源并检查新旧实例配置。
 
-| 资源类型 | 当前公开版本参考 | 配对与使用说明 |
-| --- | --- | --- |
-| **当前正式服完整 PVF** | `pvf-current-server-20261115-66482976`（Pre-release） | SHA256 `66482976…`，包含最新黑钻、加百利、团本与累计玩法资源；部署时保持文件名为 `Script.pvf`，玩家端、服务端与 GM 必须使用同一份 PVF |
-| **最新正式客户端组件** | `client-v215-blackdiamond-npc-formal-20261115`（Pre-release） | `DNF.exe` SHA256 `28e04d1d…`（含配套双 DLL 与界面 NPK），支持黑钻 188 疲劳、加百利商店、NPC 好感度与双组 Buff，细节见 [2026-11-15 公开说明](Docs/SELECTED_PUBLICATION_20261115.md) |
-| **已验收稳定客户端基线** | `client-v212-accepted-cumulative-20261110`（Latest） | `DNF.exe` SHA256 `69ea3a8b…`，含双组 Buff、擂台与安徒恩累计修复；不含 11 月 15 日新增黑钻/加百利客户端消息门 |
-
-分卷附件请按对应 Release 说明下载齐全后解压，不要用单 EXE 裸替换跳过配套 DLL/NPK 校验（配对准入规则见 `deploy/remote/client_pairing.py`）。
+旧 V212/V215/V216 及历次资源 Release 保留作历史和配方输入。它们不包含全部后续公开修复，不能仅凭 Releases 的 Latest 标记选作当前完整交付。[GitGud](https://gitgud.io/16ww/servers5a3/-/releases)是异步镜像，权威源码和本批下载以 GitHub 的明确版本及摘要为准。
 
 ## 项目结构、登录器与 GM 边界
 

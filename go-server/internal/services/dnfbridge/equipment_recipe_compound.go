@@ -81,11 +81,15 @@ func equipmentRecipeCompoundGameplayModule() gameplayModuleDefinition {
 	return gameplayModuleDefinition{
 		Name: "equipment-recipe-compound",
 		LegacyHandlers: map[uint16]gameplayHandler{
+			currentDimensionTransformOpcode: func(s *Service, session *gameSession, request gameplayRequest) error {
+				return s.handleCurrentDimensionTransform(session, request.Body)
+			},
 			opcode: func(s *Service, session *gameSession, request gameplayRequest) error {
 				return s.handleCurrentEquipmentRecipeCompound(session, request.Body)
 			},
 		},
 		UpperHandlers: map[uint16]gameplayHandler{
+			currentDimensionTransformOpcode: defaultClassGameplayHandler("game-dimension-equipment-transform-blocked", "current_exe_op880_command_class_mismatch", (*Service).handleCurrentDimensionTransform),
 			opcode: defaultClassGameplayHandler(
 				"game-equipment-recipe-compound-blocked",
 				"current_exe_op25_command_class_mismatch",
