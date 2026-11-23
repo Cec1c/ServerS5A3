@@ -20,6 +20,7 @@ import urllib.request
 import zipfile
 
 MAX_ASSET = 512 * 1024 * 1024
+GITGUD_PART_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 32
 MARKER = "<!-- client-release-sync:v1 "
 TAG = re.compile(r"client-[A-Za-z0-9][A-Za-z0-9._-]{0,120}\Z")
@@ -634,6 +635,8 @@ class Repository:
     def publish(self, item, cache, tags):
         if not self.writable:
             raise SyncError("Read-only repository")
+        if self.provider == "gitlab":
+            item = gitgud_transport_item(item, cache)
         draft = self.prepare(item,cache,publishing=True)
         observed = self.get(item["tag"])
         if observed is not None and not (draft and observed["id"] == draft["id"]):
@@ -680,8 +683,71 @@ def release_record(item):
     return {"format":1, "tag":item["tag"], "commit":item["commit"], "source":item["source"], "preview":item.get("preview",False), "assets":{n:{k:v for k,v in a.items() if k in ("sha256", "length", "exe", "split_archive")} for n,a in sorted(item["assets"].items())}}
 
 
+def logical_archives(assets):
+    """Transport parts and their exact original ZIP have the same identity."""
+    archives, groups = {}, {}
+    for name, asset in assets.items():
+        if "split_archive" in asset:
+            base, metadata = split_metadata(name, asset)
+            groups.setdefault(base, []).append((metadata, asset))
+        else:
+            archives[name] = (asset["sha256"], asset["length"])
+    for name, parts in groups.items():
+        expected = parts[0][0]
+        if name in archives or sorted(m["index"] for m, _ in parts) != list(range(1, expected["count"] + 1)):
+            raise SyncError("Incomplete or duplicate logical archive")
+        if (any(any(m[k] != expected[k] for k in ("count", "length", "sha256")) for m, _ in parts)
+                or sum(a["length"] for _, a in parts) != expected["length"]):
+            raise SyncError("Conflicting split archive provenance")
+        archives[name] = (expected["sha256"], expected["length"])
+    return tuple(sorted((name, *identity) for name, identity in archives.items()))
+
+
 def content_identity(item):
-    return (item["commit"], item.get("preview",False), tuple(sorted((n,a["sha256"],a["length"]) for n,a in item["assets"].items())))
+    return (item["commit"], item.get("preview", False), logical_archives(item["assets"]))
+
+
+def gitgud_transport_item(item, cache):
+    """Split verified large ZIPs below GitGud's request limit without changing bytes."""
+    assets = {}
+    split_names = []
+    for name, asset in item["assets"].items():
+        if "split_archive" in asset or asset["length"] <= GITGUD_PART_BYTES:
+            assets[name] = asset
+            continue
+        source = Path(asset["path"])
+        if (not NAME.fullmatch(name) or source.stat().st_size != asset["length"]
+                or digest(source) != asset["sha256"] or asset["length"] > MAX_ASSET):
+            raise SyncError("Cached archive changed before splitting")
+        directory = Path(cache) / ("transport-" + asset["sha256"])
+        directory.mkdir(parents=True, exist_ok=True)
+        count = (asset["length"] + GITGUD_PART_BYTES - 1) // GITGUD_PART_BYTES
+        with source.open("rb") as stream:
+            for index in range(1, count + 1):
+                data = stream.read(GITGUD_PART_BYTES)
+                part_name = f"{name}.{index:03}"
+                path = directory / part_name
+                path.write_bytes(data)
+                assets[part_name] = {"sha256": hashlib.sha256(data).hexdigest(), "length": len(data),
+                    "path": str(path), "split_archive": {"count": count, "index": index,
+                        "length": asset["length"], "sha256": asset["sha256"]}}
+            if stream.read(1):
+                raise SyncError("Cached archive grew during splitting")
+        # Catch same-length source changes during the bounded streaming copy.
+        combined = hashlib.sha256()
+        for index in range(1, count + 1):
+            with Path(assets[f"{name}.{index:03}"]["path"]).open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    combined.update(block)
+        if combined.hexdigest() != asset["sha256"]:
+            raise SyncError("Cached archive changed during splitting")
+        split_names.append(name)
+    result = dict(item, assets=assets)
+    if content_identity(result) != content_identity(item):
+        raise SyncError("Split transport changed archive identity")
+    if split_names:
+        result["body"] = item.get("body", "") + "\n\n镜像采用64 MiB分卷以适配上传限制。下载同名ZIP的全部 .001、.002 等文件，按编号顺序拼接后解压；拼接后的ZIP摘要与GitHub原包完全一致，见下方来源清单。"
+    return result
 
 
 def validate_configuration(github, target):
