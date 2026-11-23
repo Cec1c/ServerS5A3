@@ -60,7 +60,9 @@ func (s *mysqlBagStore) Load(ctx context.Context, characterID string) (repositor
 		snapshot := repository.CloneInventory(record)
 		s.loadedSnapshot = &snapshot
 	}
-	return repository.CloneInventory(record), true, nil
+	// The record and all nested maps were allocated by this Load. The tracked
+	// snapshot owns its own clone; no second copy is needed for the caller.
+	return record, true, nil
 }
 
 // Save 保存完整 DNF 背包记录到 MySQL。

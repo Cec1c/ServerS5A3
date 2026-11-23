@@ -20,6 +20,8 @@ type mysqlRouter struct {
 	levelUpChanges         *repository.LevelUpChangeFeed
 	guildSnapshotNamespace *repository.GuildSnapshotNamespace
 	battlePassChanges      *repository.BattlePassChangeFeed
+	env                    mysqlStoreEnvironment
+	sqlTemplates           *mysqlSQLTemplates
 	db                     SQLDB
 	readDBs                []string
 	writeDBs               []string
@@ -63,6 +65,8 @@ func newMySQLRouter(db SQLDB, options MySQLGroupOptions) (mysqlRouter, error) {
 		storedGuildFingerprint: options.storedGuildFingerprint,
 		levelUpChanges:         &repository.LevelUpChangeFeed{},
 		battlePassChanges:      repository.NewBattlePassChangeFeed(),
+		env:                    captureMySQLStoreEnvironment(),
+		sqlTemplates:           &mysqlSQLTemplates{},
 		db:                     db,
 		readDBs:                append([]string(nil), readDBs...),
 		writeDBs:               append([]string(nil), writeDBs...),

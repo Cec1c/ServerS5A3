@@ -8,6 +8,9 @@ func (s *Service) logTownSelectorDiagnostic(kind string, fields ...any) {
 	if phase == "" {
 		return
 	}
+	if !s.verboseDiagnosticsEnabled() && townSelectorRoutineSuccess(kind) {
+		return
+	}
 	args := []any{"kind", kind, "phase", phase}
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)
@@ -21,6 +24,22 @@ func (s *Service) logTownSelectorDiagnostic(kind string, fields ...any) {
 		}
 	}
 	s.logInfo("dnfbridge town selector diagnostic", args...)
+}
+
+// These are the normal selector decisions seen on routine entry and return
+// traffic. Rejections, blocked paths, deferred readiness, suppression and
+// failed projections remain visible in quiet mode.
+func townSelectorRoutineSuccess(kind string) bool {
+	switch kind {
+	case "game-dungeon-select-party-context",
+		"game-enter-select-dungeon-state-send",
+		"game-upper-town-enter-select-origin-bound",
+		"game-party-enter-select-member-self-prepared",
+		"game-party-enter-select-follower-synchronized":
+		return true
+	default:
+		return false
+	}
 }
 
 // Only bounded scalar fields from the selector call sites are retained. Never

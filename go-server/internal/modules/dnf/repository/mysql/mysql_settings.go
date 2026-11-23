@@ -85,7 +85,6 @@ func (s *mysqlSettingsStore) Load(ctx context.Context, scope string) (repository
 		return repository.SettingsRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
-	cloned := repository.CloneSettings(record)
 	if allowCacheFill {
 		s.lockedCacheMu.Lock()
 		if s.lockedWritesInFlight == 0 && s.lockedCacheGen == loadGen {
@@ -93,13 +92,14 @@ func (s *mysqlSettingsStore) Load(ctx context.Context, scope string) (repository
 				s.lockedCache = make(map[string]cachedSettingsRecord, 2)
 			}
 			s.lockedCache[scope] = cachedSettingsRecord{
-				record: repository.CloneSettings(cloned),
+				record: repository.CloneSettings(record),
 				found:  true,
 			}
 		}
 		s.lockedCacheMu.Unlock()
 	}
-	return cloned, true, nil
+	// The cache owns a clone; this Load owns the returned maps.
+	return record, true, nil
 }
 
 // Save 保存完整 DNF 设置记录到 MySQL。

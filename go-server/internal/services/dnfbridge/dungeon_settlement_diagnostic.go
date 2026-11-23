@@ -7,6 +7,9 @@ func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
 	if !isDungeonSettlementDiagnostic(kind) {
 		return
 	}
+	if !s.verboseDiagnosticsEnabled() && dungeonSettlementRoutineSuccess(kind) {
+		return
+	}
 	args := []any{"kind", kind}
 	for i := 0; i+1 < len(fields); i += 2 {
 		key, ok := fields[i].(string)
@@ -34,6 +37,19 @@ func (s *Service) logDungeonSettlementDiagnostic(kind string, fields ...any) {
 		}
 	}
 	s.logInfo("dnfbridge dungeon settlement diagnostic", args...)
+}
+
+// The P2-2 sample is dominated by these normal plan/send/return milestones.
+// Keep blocked, deferred, recovered and historical-check paths unconditional.
+func dungeonSettlementRoutineSuccess(kind string) bool {
+	switch kind {
+	case "game-dungeon-card-reward-plan-frozen",
+		"game-dungeon-settlement-entry-op31-send",
+		"game-dungeon-completed-town-route-committed":
+		return true
+	default:
+		return false
+	}
 }
 
 func isDungeonSettlementDiagnostic(kind string) bool {

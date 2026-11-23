@@ -8,6 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 // The paired client differs from the inherited dnfenum table above 1449.
@@ -25,9 +29,51 @@ const currentGuildPermanentBenefitExpires uint32 = math.MaxInt32
 const currentGuildMemberListChunkSize = 300
 const currentGuildGradeListChunkSize = 500
 
+// currentGuildMemberListApproxRowBytes sizes the pre-growth of one roster
+// frame. Rows carry two DSTRs; 64 bytes covers the fixed fields plus a typical
+// encoded name and memo without touching bytes.Buffer again per member.
+const currentGuildMemberListApproxRowBytes = 64
+
 type currentGuildPacketChunk struct {
 	opcode uint16
 	body   []byte
+}
+
+// currentGuildNameEncoder reuses one GB18030 transformer plus source and
+// destination scratch buffers for a whole roster projection. transform.Append
+// resets the transformer on each call, so one encoder may encode every name in
+// a build; it must still be owned by the goroutine performing that build.
+type currentGuildNameEncoder struct {
+	encoder *encoding.Encoder
+	scratch []byte
+	source  []byte
+}
+
+func newCurrentGuildNameEncoder() *currentGuildNameEncoder {
+	return &currentGuildNameEncoder{
+		encoder: simplifiedchinese.GB18030.NewEncoder(),
+		scratch: make([]byte, 0, 64),
+	}
+}
+
+func (e *currentGuildNameEncoder) writeDstr(w *packetWriter, name string) {
+	if e == nil || e.encoder == nil {
+		w.writeRawDstr([]byte(name))
+		return
+	}
+	if len(name) > cap(e.source) {
+		e.source = make([]byte, len(name))
+	} else {
+		e.source = e.source[:len(name)]
+	}
+	copy(e.source, name)
+	encoded, _, err := transform.Append(e.encoder, e.scratch[:0], e.source)
+	if err != nil {
+		w.writeRawDstr([]byte(name))
+		return
+	}
+	e.scratch = encoded
+	w.writeRawDstr(encoded)
 }
 
 type currentGuildSearchRequest struct {
@@ -305,7 +351,7 @@ func buildCurrentGuildMemberListBody(guild *dnfguild.Guild, includeGuildIdentity
 			total = uint16(len(members))
 		}
 	}
-	return buildCurrentGuildMemberListChunkBody(guild, includeGuildIdentity, includeCursor, total, members, onlineChannels, now, region)
+	return buildCurrentGuildMemberListChunkBodyWithEncoder(guild, includeGuildIdentity, includeCursor, total, members, onlineChannels, now, region, newCurrentGuildNameEncoder())
 }
 
 // DNF.exe VA 0x01fd2d10 / 0x02982940 appends op141 continuations into the
@@ -314,11 +360,13 @@ func buildCurrentGuildMemberListBody(guild *dnfguild.Guild, includeGuildIdentity
 // small guilds identical to a single-frame reply.
 func buildCurrentGuildMemberListChunks(guild *dnfguild.Guild, opcode uint16, full, cursor bool, onlineChannels map[string]byte, now time.Time, region byte) []currentGuildPacketChunk {
 	if !full || guild == nil {
+		// Continuation frames carry no member rows and therefore no names.
 		return []currentGuildPacketChunk{{
 			opcode: opcode,
-			body:   buildCurrentGuildMemberListChunkBody(guild, full, cursor, 0, nil, onlineChannels, now, region),
+			body:   buildCurrentGuildMemberListChunkBodyWithEncoder(guild, full, cursor, 0, nil, onlineChannels, now, region, nil),
 		}}
 	}
+	names := newCurrentGuildNameEncoder()
 	members := dnfguild.SortedMembers(guild)
 	if len(members) > 0xffff {
 		members = members[:0xffff]
@@ -327,25 +375,29 @@ func buildCurrentGuildMemberListChunks(guild *dnfguild.Guild, opcode uint16, ful
 	if len(members) <= currentGuildMemberListChunkSize {
 		return []currentGuildPacketChunk{{
 			opcode: opcode,
-			body:   buildCurrentGuildMemberListChunkBody(guild, true, cursor, total, members, onlineChannels, now, region),
+			body:   buildCurrentGuildMemberListChunkBodyWithEncoder(guild, true, cursor, total, members, onlineChannels, now, region, names),
 		}}
 	}
 	chunks := make([]currentGuildPacketChunk, 0, (len(members)+currentGuildMemberListChunkSize-1)/currentGuildMemberListChunkSize)
 	chunks = append(chunks, currentGuildPacketChunk{
 		opcode: opcode,
-		body:   buildCurrentGuildMemberListChunkBody(guild, true, cursor, total, members[:currentGuildMemberListChunkSize], onlineChannels, now, region),
+		body:   buildCurrentGuildMemberListChunkBodyWithEncoder(guild, true, cursor, total, members[:currentGuildMemberListChunkSize], onlineChannels, now, region, names),
 	})
 	for start := currentGuildMemberListChunkSize; start < len(members); start += currentGuildMemberListChunkSize {
 		end := min(start+currentGuildMemberListChunkSize, len(members))
 		chunks = append(chunks, currentGuildPacketChunk{
 			opcode: uint16(dnfenum.CmdPacketGuildAllMemberListNext),
-			body:   buildCurrentGuildMemberListChunkBody(guild, false, true, total, members[start:end], onlineChannels, now, region),
+			body:   buildCurrentGuildMemberListChunkBodyWithEncoder(guild, false, true, total, members[start:end], onlineChannels, now, region, names),
 		})
 	}
 	return chunks
 }
 
 func buildCurrentGuildMemberListChunkBody(guild *dnfguild.Guild, includeGuildIdentity, includeCursor bool, total uint16, members []dnfguild.Member, onlineChannels map[string]byte, now time.Time, region byte) []byte {
+	return buildCurrentGuildMemberListChunkBodyWithEncoder(guild, includeGuildIdentity, includeCursor, total, members, onlineChannels, now, region, newCurrentGuildNameEncoder())
+}
+
+func buildCurrentGuildMemberListChunkBodyWithEncoder(guild *dnfguild.Guild, includeGuildIdentity, includeCursor bool, total uint16, members []dnfguild.Member, onlineChannels map[string]byte, now time.Time, region byte, names *currentGuildNameEncoder) []byte {
 	var writer packetWriter
 	if guild == nil {
 		writer.writeUint32(0)
@@ -359,9 +411,16 @@ func buildCurrentGuildMemberListChunkBody(guild *dnfguild.Guild, includeGuildIde
 		}
 		return writer.bytes()
 	}
+	if len(members) > 0 {
+		grow := len(members)
+		if grow > 0xffff {
+			grow = 0xffff
+		}
+		writer.buffer.Grow(grow*currentGuildMemberListApproxRowBytes + 32)
+	}
 	writer.writeUint32(guild.ID)
 	if includeGuildIdentity {
-		writeClientNameDstr(&writer, guild.Name)
+		names.writeDstr(&writer, guild.Name)
 		writer.writeUint16(total)
 	}
 	if len(members) > 0xffff {
@@ -370,8 +429,8 @@ func buildCurrentGuildMemberListChunkBody(guild *dnfguild.Guild, includeGuildIde
 	writer.writeUint16(uint16(len(members)))
 	for _, member := range members {
 		writer.writeUint32(currentGuildNumericID(member.CharacterID))
-		writeClientNameDstr(&writer, member.Name)
-		writeClientNameDstr(&writer, member.Memo)
+		names.writeDstr(&writer, member.Name)
+		names.writeDstr(&writer, member.Memo)
 		writer.writeUint16(uint16(member.Level))
 		writer.writeByte(byte(numericCharacterStat(member.Job)))
 		writer.writeByte(byte(numericCharacterStat(member.GrowType)))

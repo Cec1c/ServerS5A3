@@ -17,14 +17,10 @@ func (s *Service) handleCurrentDecreaseDurability(session *gameSession, request 
 		return nil
 	}
 	op := uint16(dnfenum.CmdPacketDecreaseDurability)
-	s.logInfo("dnfbridge durability request received", "conn_id", session.connID,
-		"character_id", session.selectedCharacterID, "classification", request.Classification,
-		"body_len", len(request.Body), "has_sequence", request.Sequence != nil)
+	s.logDurabilityRequestReceived(session, request)
 	reject := func(reason any) error {
 		s.logGameEvent(session, "game-durability-rejected", "reason", reason, "body_len", len(request.Body))
-		s.logInfo("dnfbridge durability request rejected", "conn_id", session.connID,
-			"character_id", session.selectedCharacterID, "reason", reason,
-			"body_len", len(request.Body))
+		s.logDurabilityRequestRejected(session, reason, len(request.Body))
 		return s.sendGameUpperFailure(session, op, 17)
 	}
 	if len(request.Body) != 1 || request.Body[0] > 32 {
@@ -78,10 +74,7 @@ func (s *Service) handleCurrentDecreaseDurability(session *gameSession, request 
 		return reject(err)
 	}
 	s.logGameEvent(session, "game-durability-decreased", "slot", result.Entry.SlotIndex, "item", result.Entry.ItemID, "before", result.Previous, "after", result.Current, "auto_repaired", result.AutoRepaired)
-	s.logInfo("dnfbridge durability request settled", "conn_id", session.connID,
-		"character_id", session.selectedCharacterID, "slot", result.Entry.SlotIndex,
-		"item_id", result.Entry.ItemID, "before", result.Previous,
-		"after", result.Current, "auto_repaired", result.AutoRepaired)
+	s.logDurabilityRequestSettled(session, result)
 	if result.Previous > 0 {
 		if err := s.sendGameUpperSuccess(session, op, []byte{request.Body[0]}); err != nil {
 			return err
@@ -112,6 +105,36 @@ func (s *Service) handleCurrentDecreaseDurability(session *gameSession, request 
 		}
 	}
 	return s.sendGameUpperRawClass(session, 14, buildCurrentItemUpdateBody(3, entries), 0)
+}
+
+// A normal durability request is routine high-volume traffic. Keep its accepted
+// and committed milestones in verbose mode; the rejection and replay paths below
+// remain unconditional because they carry diagnostic value in quiet mode.
+func (s *Service) logDurabilityRequestReceived(session *gameSession, request gameplayRequest) {
+	if s == nil || session == nil || !s.verboseDiagnosticsEnabled() {
+		return
+	}
+	s.logInfo("dnfbridge durability request received", "conn_id", session.connID,
+		"character_id", session.selectedCharacterID, "classification", request.Classification,
+		"body_len", len(request.Body), "has_sequence", request.Sequence != nil)
+}
+
+func (s *Service) logDurabilityRequestSettled(session *gameSession, result dnfequip.DecreaseDurabilityResult) {
+	if s == nil || session == nil || !s.verboseDiagnosticsEnabled() {
+		return
+	}
+	s.logInfo("dnfbridge durability request settled", "conn_id", session.connID,
+		"character_id", session.selectedCharacterID, "slot", result.Entry.SlotIndex,
+		"item_id", result.Entry.ItemID, "before", result.Previous,
+		"after", result.Current, "auto_repaired", result.AutoRepaired)
+}
+
+func (s *Service) logDurabilityRequestRejected(session *gameSession, reason any, bodyLen int) {
+	if s == nil || session == nil {
+		return
+	}
+	s.logInfo("dnfbridge durability request rejected", "conn_id", session.connID,
+		"character_id", session.selectedCharacterID, "reason", reason, "body_len", bodyLen)
 }
 
 func (s *Service) commitCurrentDurability(ctx context.Context, character uint16, account string, slot int16) (dnfequip.DecreaseDurabilityResult, error) {

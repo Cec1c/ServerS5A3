@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"strings"
 
 	"longheng.io/server/internal/modules/dnf/repository"
@@ -68,7 +67,7 @@ func (s *mysqlCharStore) LoadProgressionCharacter(ctx context.Context, id string
 		if err := rows.Scan(&key, &value); err != nil {
 			return repository.CharacterRecord{}, false, err
 		}
-		mergeCharacterExtraStat(&record, key, value, characterMirrorStatsAuthoritative())
+		mergeCharacterExtraStat(&record, key, value, s.router.environment().mirrorStatsAuthoritative)
 	}
 	if err := rows.Err(); err != nil {
 		return repository.CharacterRecord{}, false, err
@@ -130,7 +129,7 @@ func (s *mysqlCharStore) SaveProgressionCharacter(ctx context.Context, before, a
 	if _, err := s.router.db.ExecContext(ctx, "UPDATE "+table+" SET "+strings.Join(sets, ", ")+" WHERE character_id = ? AND account_id = ?", args...); err != nil {
 		return err
 	}
-	if os.Getenv("DNFBRIDGE_EXPERIMENTAL_PEAK") == "on" {
+	if s.router.environment().experimentalPeak {
 		keys := make([]string, 0)
 		for _, key := range sortedStringKeys(after.Stats) {
 			if isMySQLCharacterMirrorStatKey(key) {

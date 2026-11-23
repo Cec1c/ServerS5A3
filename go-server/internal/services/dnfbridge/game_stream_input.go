@@ -75,6 +75,7 @@ func (s *Service) handleGameStreamInput(ctx context.Context, session *gameSessio
 				"pending_bytes", len(buffer),
 				"quiet", quiet,
 				"error", err)
+			s.logGameReadClose(session, len(buffer), gameReadCloseErrorKind(err))
 			if !quiet && ctx.Err() == nil {
 				s.logWarn("dnfbridge read game packet failed", "remote", conn.RemoteAddr().String(), "error", err)
 			}
