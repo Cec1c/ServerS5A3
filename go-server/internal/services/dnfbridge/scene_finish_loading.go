@@ -2,7 +2,6 @@ package dnfbridge
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -90,17 +89,14 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	// 互相投影都早于各自的 finish-loading ⇒ 两人互相看不见，要靠重新进出该区域才恢复。
 	// 这里在 finish-loading 之后补发一次，详见 town_copresence_actor_resend.go。
 	s.resendTownCopresencePeerActorsAfterFinishLoading(session, "finish_loading_after_player_state")
-	if err := s.sendCurrentCharacterFriendList(session, "finish_loading_after_player_state"); err != nil {
-		return err
-	}
-	if err := s.sendCurrentAccountFriendLists(session, "finish_loading_after_player_state"); err != nil {
-		return err
-	}
-	s.refreshCurrentAccountFriendPresence(session, "finish_loading_after_player_state")
 	if err := s.sendBuffSwapReapply(session, source+"_after_finish_loading_player_state"); err != nil {
 		return err
 	}
-	return errors.Join(s.queueCurrentWeddingBenefitsReplay(session, source), s.queueCurrentWeddingCeremonyRecovery(session))
+	if currentDungeonSceneActive(session) {
+		s.deferPartyLoadingSocial(session, source)
+		return nil
+	}
+	return s.sendLoadingSocial(session, source)
 }
 
 // sendCurrentFinishLoadingCharacterStateSnapshot writes the class0/op37
@@ -128,6 +124,7 @@ func (s *Service) sendCurrentFinishLoadingCharacterStateSnapshot(session *gameSe
 func (s *Service) prepareCurrentFinishLoadingCharacterStateSnapshot(session *gameSession, source string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID == 0 || !hasCharacter {
 		s.logGameEvent(session, "game-main-finish-loading-state-deferred",
@@ -268,6 +265,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID == 0 || !hasCharacter {
 		s.logGameEvent(session, "game-main-post-finish-loading-player-state-deferred",

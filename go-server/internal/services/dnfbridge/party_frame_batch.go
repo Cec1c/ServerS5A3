@@ -78,6 +78,7 @@ func (batch *partyFrameCharacterBatch) loadCharacter(
 	name := csharpSelectCharacterName(characterID)
 	var character dnfrepo.CharacterRecord
 	var hasCharacter bool
+	ctx = batch.service.withPartyLoadingSnapshot(ctx, identity.session)
 	if repos, ok := batch.service.repositoryGroupFor(ctx); ok && repos.Character != nil && characterID != 0 {
 		var err error
 		character, hasCharacter, err = repos.Character.Load(ctx, strconv.Itoa(int(characterID)))

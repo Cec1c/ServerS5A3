@@ -17,7 +17,8 @@ import (
 const currentGoldWalletProjectionSource = "character_gold_wallet_projection"
 
 func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, session *gameSession, listType byte) ([]byte, string, int, bool) {
-	repos, ok := s.repositoryGroup()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
+	repos, ok := s.repositoryGroupFor(ctx)
 	if !ok {
 		return nil, "", 0, false
 	}

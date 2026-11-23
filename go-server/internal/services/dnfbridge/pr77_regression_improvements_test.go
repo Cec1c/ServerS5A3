@@ -24,13 +24,11 @@ func TestPR77RelayLegPortsStayStableAcrossFreshRooms(t *testing.T) {
 		cycle := cycle
 		t.Run("cycle_"+string(rune('A'+cycle)), func(t *testing.T) {
 			relay, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
-				enabled:                true,
-				advertiseIP:            "127.0.0.1",
-				portStart:              portStart,
-				portCount:              64,
-				probeListen:            false,
-				seedForward:            false,
-				observedEndpointFanout: false,
+				enabled:     true,
+				advertiseIP: "127.0.0.1",
+				portStart:   portStart,
+				portCount:   64,
+				probeListen: false,
 			})
 			if err != nil {
 				t.Fatalf("create relay: %v", err)

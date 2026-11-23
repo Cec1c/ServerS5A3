@@ -57,7 +57,8 @@ func (s *Service) currentFateState(ctx context.Context, session *gameSession) (r
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return raidcurrency.State{}, false, nil
 	}
-	g, ok := s.repositoryGroup()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
+	g, ok := s.repositoryGroupFor(ctx)
 	if !ok || g.Character == nil || g.Account == nil {
 		return raidcurrency.State{}, false, fmt.Errorf("raid currency repositories unavailable")
 	}

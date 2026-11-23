@@ -47,8 +47,8 @@ func TestPartyReapplyRoutesClickedMemberToCurrentLeader(t *testing.T) {
 	}
 }
 
-func TestPartyReapplyPreservesDirectedPortsAcrossMemberTimeout(t *testing.T) {
-	relay, e := newCurrentPartyUDPRelay(true, "127.0.0.1", testCurrentPartyUDPRelayPortStart(t), 12, nil)
+func TestPartyReapplyKeepsSurvivorsAndQuarantinesRejoin(t *testing.T) {
+	relay, e := newCurrentPartyUDPRelay(true, "127.0.0.1", testCurrentPartyUDPRelayPortStart(t), 64, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -82,16 +82,18 @@ func TestPartyReapplyPreservesDirectedPortsAcrossMemberTimeout(t *testing.T) {
 		}
 		for pair, old := range before {
 			_, got, ok := relay.Endpoint(2, pair[0], pair[1])
-			if !ok || got != old {
-				t.Fatalf("round%d pair%v port changed %d -> %d", round, pair, old, got)
+			retired := pair[0] == 2 || pair[1] == 2
+			if !ok || (!retired && got != old) || (retired && got == old) {
+				t.Fatalf("round%d pair%v retired=%t port %d -> %d", round, pair, retired, old, got)
 			}
+			before[pair] = got
 		}
 	}
-	if len(relay.portOwners) > relay.portCount {
+	if len(relay.portAvailableAt) > relay.portCount {
 		t.Fatal("unbounded port history")
 	}
 	relay.CloseParty(2)
-	if len(relay.portOwners) != 0 {
-		t.Fatal("retired party retained history")
+	if len(relay.portAvailableAt) == 0 || len(relay.legs) != 0 {
+		t.Fatal("closed party must retain quarantine, not active legs")
 	}
 }

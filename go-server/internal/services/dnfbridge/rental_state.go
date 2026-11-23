@@ -81,7 +81,8 @@ func (s *Service) sendSelectedCurrentRentalInventoryItemUpdate(
 }
 
 func (s *Service) currentRentalSelectedCharacter(ctx context.Context, session *gameSession) (dnfrepo.Group, string, dnfrepo.CharacterRecord, error) {
-	repositories, ok := s.repositoryGroup()
+	ctx = s.withPartyLoadingSnapshot(ctx, session)
+	repositories, ok := s.repositoryGroupFor(ctx)
 	if !ok || repositories.RentalAssets == nil {
 		return dnfrepo.Group{}, "", dnfrepo.CharacterRecord{}, dnfrepo.ErrRentalAssetTransactionUnavailable
 	}

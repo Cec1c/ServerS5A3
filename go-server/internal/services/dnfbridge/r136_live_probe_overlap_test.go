@@ -22,8 +22,8 @@ func TestR136LiveProbePortOverlap(t *testing.T) {
 				}
 				r, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 					enabled: true, advertiseIP: "127.0.0.1", portStart: start, portCount: 64,
-					probeReplay: true, probeListen: true, seedForward: true, observedEndpointFanout: true,
-					probePorts: []int{start},
+					probeListen: true,
+					probePorts:  []int{start},
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -41,7 +41,6 @@ func TestR136LiveProbePortOverlap(t *testing.T) {
 				probe := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start}
 				r136Write(t, a, probe, []byte{keepalive})
 				r136Write(t, b, probe, []byte{keepalive})
-				waitRelayCondition(t, time.Second, "pre-party native probes", func() bool { return r.observedProbeEndpointCount() == 2 })
 				r136Register(t, f.service, f.leader, uint16(a.LocalAddr().(*net.UDPAddr).Port), 10)
 				r136Register(t, f.service, f.follower, uint16(b.LocalAddr().(*net.UDPAddr).Port), 11)
 				r136Invite(t, f.service, f.leader, f.follower)
@@ -63,20 +62,16 @@ func TestR136LiveProbePortOverlap(t *testing.T) {
 				since := time.Now()
 				t.Cleanup(func() {
 					if t.Failed() {
-						t.Logf("probe observations=%+v since=%s ports=%v", r.observedProbeEndpointEntries(nil), since, r.probeListenerPorts())
+						t.Logf("probe observations=%+v since=%s ports=%v", r.ForwardedDatagramTotal(), since, r.probeListenerPorts())
 					}
 				})
 				r136Write(t, a, probe, []byte{keepalive})
 				r136Write(t, b, probe, []byte{keepalive})
-				waitRelayCondition(t, time.Second, "both ordinary keepalives stay on probe listener", func() bool {
-					refreshed := 0
-					for _, e := range r.observedProbeEndpointEntries(nil) {
-						if !e.seenAt.Before(since) && e.hitPort == start && (int(e.port) == a.LocalAddr().(*net.UDPAddr).Port || int(e.port) == b.LocalAddr().(*net.UDPAddr).Port) {
-							refreshed++
-						}
+				for _, c := range []*net.UDPConn{a, b} {
+					if payload := readClientDatagram(t, c, 50*time.Millisecond); payload != nil {
+						t.Fatalf("native probe reached a party leg: %x", payload)
 					}
-					return refreshed == 2
-				})
+				}
 				if ep := r136Leg(t, r, 99, 100).learnedEndpointSnapshot(); ep.String() != a.LocalAddr().String() {
 					t.Fatal("A endpoint overwritten by native keepalive")
 				}

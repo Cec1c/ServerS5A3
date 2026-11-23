@@ -1554,35 +1554,15 @@ func (s *Service) newPartyUDPRelayBackends() (*currentPartyUDPRelayRemote, *curr
 			"port_count", s.options.partyUDPRelayPortCount)
 	}
 	relay, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
-		enabled:          s.options.partyUDPRelayEnabled,
-		advertiseIP:      s.options.serverIP,
-		bindHost:         s.options.gameListenHost,
-		portStart:        s.options.partyUDPRelayPortStart,
-		portCount:        s.options.partyUDPRelayPortCount,
-		endpointFallback: s.partyUDPRelayEndpointFallbackMode().enabled(),
-		probeReplay:      s.partyUDPRelayProbeReplayMode().enabled(),
-		probeListen:      s.partyUDPRelayProbeListenMode().enabled(),
-		probePorts:       s.options.partyUDPRelayProbePorts,
-		seedForward:      s.partyUDPRelaySeedForwardMode().enabled(),
-		datagramTrace:    s.partyUDPRelayDatagramTraceMode(),
-		// 无归属观测端点进候选集（**唯一一处把新开关接进 embedded 中继的管线**；
-		// 本行只透传 options，不触碰本文件的 remote 后端逻辑）。
-		observedEndpointFanout: s.partyUDPRelayObservedEndpointFanoutMode(),
-		// 共享端口档（0 = off）：把"定向腿口"换成"客户端唯一持续保活的那个 UDP 端口"，
-		// 见 party_udp_relay_via_port.go。零值 = 现行为。
-		viaPort:            s.partyUDPRelayViaPort(),
-		socketBufferBytes:  s.options.partyUDPSocketBufferBytes,
-		memoTTL:            s.partyUDPRelayMemoTTL(),
-		kickTiming:         s.partyUDPRelayKickTiming(),
-		pendingWindow:      s.partyUDPRelayKickTiming().window,
-		prepareStalledPeer: s.prepareStalledPartyMemberRecovery,
-		onSilentPeer: func(partyID, memberID uint16) bool {
-			if !s.partyUDPRelaySilentPeerKickMode() {
-				return false
-			}
-			return s.kickSilentPartyMember(partyID, memberID)
-		},
-		logWarn: func(message string, args ...any) { s.logWarn(message, args...) },
+		enabled:           s.options.partyUDPRelayEnabled,
+		advertiseIP:       s.options.serverIP,
+		bindHost:          s.options.gameListenHost,
+		portStart:         s.options.partyUDPRelayPortStart,
+		portCount:         s.options.partyUDPRelayPortCount,
+		probeListen:       true,
+		probePorts:        s.options.partyUDPRelayProbePorts,
+		socketBufferBytes: s.options.partyUDPSocketBufferBytes,
+		logWarn:           func(message string, args ...any) { s.logWarn(message, args...) },
 	})
 	if err != nil {
 		return nil, nil, err

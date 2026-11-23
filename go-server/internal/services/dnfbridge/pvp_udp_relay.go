@@ -21,7 +21,7 @@ import (
 // 都拿到 30001/30002，客户端看到的 (对端 IP, 对端端口) 一字不差 ⇒ 它的 UDP 会话四元组
 // 跨局不变，新一局的数据会被当成上一局的残留。换端口就等于换一条全新会话。
 //
-// ★ 只是"优先避开"，不是硬性禁用：端口池被抽干时 newLegLocked 会忽略静默期再扫一遍。
+// The shared allocator enforces this interval even when the pool is exhausted.
 const pvpRelayPortQuarantine = 180 * time.Second
 
 func (r *currentPartyUDPRelay) closePVPRoom(id uint16) {
@@ -32,9 +32,10 @@ func (r *currentPartyUDPRelay) closePVPRoom(id uint16) {
 	var legs []*currentPartyUDPRelayLeg
 	for k, v := range r.legs {
 		if k.pvp && k.partyID == id {
+			v.retired.Store(true)
 			delete(r.legs, k)
 			delete(r.usedPorts, int(v.port))
-			r.notePVPPortReleasedLocked(int(v.port))
+			r.notePortReleasedLocked(v)
 			legs = append(legs, v)
 		}
 	}

@@ -77,8 +77,8 @@ func r137NewRelay(t *testing.T, start int, ports []int, on bool, via int) *curre
 	t.Helper()
 	r, err := newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
 		enabled: true, advertiseIP: "127.0.0.1", portStart: start, portCount: 64,
-		probeListen: on, probePorts: ports, probeReplay: true, seedForward: true,
-		observedEndpointFanout: true, viaPort: via,
+		probeListen: on, probePorts: ports,
+
 		logWarn: func(message string, fields ...any) {
 			if message == "party UDP relay native probe listener unavailable" {
 				t.Logf("%s %v", message, fields)
@@ -120,7 +120,7 @@ func r137AssertPool(t *testing.T, r *currentPartyUDPRelay, want int) {
 }
 
 func TestR137ProbeReservationCapacityMatrix(t *testing.T) {
-	for _, name := range []string{"one", "multiple", "outside", "off", "empty", "bind_failure", "socket_closed", "via_port", "kernel_assigned"} {
+	for _, name := range []string{"one", "multiple", "outside", "off", "empty", "bind_failure", "socket_closed", "kernel_assigned"} {
 		t.Run(name, func(t *testing.T) {
 			start := r137FreeRange(t)
 			ports := []int{start}
@@ -306,6 +306,14 @@ func TestR137ProbeReservationAtomicExhaustion(t *testing.T) {
 		t.Fatal("exhaustion stole probe")
 	}
 	r.CloseParty(530)
+	if r.Sync(900, r137Bindings(2000, 2001)) {
+		t.Fatal("exhaustion bypassed port quarantine")
+	}
+	r.mu.Lock()
+	for port := range r.portAvailableAt {
+		r.portAvailableAt[port] = time.Now().Add(-time.Second)
+	}
+	r.mu.Unlock()
 	if runtime.GOOS == "windows" {
 		waitRelayCondition(t, time.Second, "pool recovers after Windows UDP close", func() bool {
 			return r.Sync(900, r137Bindings(2000, 2001))
@@ -314,27 +322,6 @@ func TestR137ProbeReservationAtomicExhaustion(t *testing.T) {
 		t.Fatal("pool did not recover after party close")
 	}
 	r137AssertPool(t, r, 62)
-}
-
-func TestR137ProbeReservationViaPortOverlap(t *testing.T) {
-	start := r137FreeRange(t)
-	r := r137NewRelay(t, start, []int{start}, true, start)
-	ab, ba := syncTwoMemberRoom(t, r)
-	if int(ab) != start || int(ba) != start {
-		t.Fatal("shared advertisement changed")
-	}
-	r137AssertPool(t, r, 2)
-	a, b := testCurrentPartyUDPClient(t, "127.0.0.1"), testCurrentPartyUDPClient(t, "127.0.0.1")
-	defer a.Close()
-	defer b.Close()
-	sendOneByteNativeProbe(t, a, start, 0)
-	sendOneByteNativeProbe(t, b, start, 1)
-	waitRelayCondition(t, time.Second, "via-port peers observed", func() bool { return r.observedProbeEndpointCount() == 2 })
-	dst := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: start}
-	r136Write(t, a, dst, probePayload(101))
-	r136Read(t, b, probePayload(101), dst)
-	r136Write(t, b, dst, probePayload(202))
-	r136Read(t, a, probePayload(202), dst)
 }
 
 func TestR137ProbeReservationHandlerExhaustionFallback(t *testing.T) {

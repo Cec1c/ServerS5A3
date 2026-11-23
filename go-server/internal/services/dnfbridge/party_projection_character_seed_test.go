@@ -1,15 +1,10 @@
 package dnfbridge
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"fmt"
+	r "longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
 	"testing"
-
-	r "longheng.io/server/internal/modules/dnf/repository"
 )
 
 func TestPartyProjectionCharacterSeedIsDetachedAndBindingScoped(t *testing.T) {
@@ -64,69 +59,5 @@ func TestPartyProjectionCharacterSeedIsDetachedAndBindingScoped(t *testing.T) {
 	batch.loadCharacter(context.Background(), latest)
 	if len(f.counter.loadIDs) != 2 {
 		t.Fatal("new generation reused old record", f.counter.loadIDs)
-	}
-}
-
-func TestPartyProjectionSixRecoveryRoundsReuseOnlyCurrentActorConstruction(t *testing.T) {
-	f, q := peerRecoveryFixture(t)
-	loads := wrapCurrentCrossSceneProfileBatchCharacterLoads(t, f.service, nil)
-	key, _ := f.service.currentDungeonPartyRunKey(f.leader)
-	f.service.scheduleDungeonPeerActorRecovery(f.leader, f.member, key)
-	hash := sha256.New()
-	for i := 0; i < 6; i++ {
-		q.fire(q.task(t, i), false)
-		frames := peerRecoveryFrames(t, f.leaderConn.write.Bytes())
-		created, bound, roster := r160UpperPeerActorCounts(frames, f.member.selectedCharacterID)
-		if created != 1 || bound != 1 || roster != 1 {
-			t.Fatal(i, created, bound, roster)
-		}
-		for _, frame := range frames {
-			var header [6]byte
-			binary.LittleEndian.PutUint16(header[:], frame.msgID)
-			binary.LittleEndian.PutUint32(header[2:], uint32(len(frame.body)))
-			hash.Write(header[:])
-			hash.Write(frame.body)
-		}
-		f.leaderConn.write.Reset()
-	}
-	t.Logf("six-round-frame-body-sha256=%x character-loads=%v", hash.Sum(nil), loads)
-	actorID := strconv.Itoa(int(f.member.selectedCharacterID))
-	receiverID := strconv.Itoa(int(f.leader.selectedCharacterID))
-	if loads[actorID] != 12 || loads[receiverID] != 6 {
-		t.Fatal("redundant op9 source read", loads)
-	}
-}
-
-func TestPartyProjectionRecoveryReloadsAfterDurableCharacterChange(t *testing.T) {
-	f, q := peerRecoveryFixture(t)
-	key, _ := f.service.currentDungeonPartyRunKey(f.leader)
-	f.service.scheduleDungeonPeerActorRecovery(f.leader, f.member, key)
-	q.fire(q.task(t, 0), false)
-	peerRecoveryFrames(t, f.leaderConn.write.Bytes())
-	f.leaderConn.write.Reset()
-	repos, ok := f.service.repositoryGroup()
-	if !ok {
-		t.Fatal("missing repositories")
-	}
-	ctx := context.Background()
-	id := fmt.Sprint(f.member.selectedCharacterID)
-	character, found, err := repos.Character.Load(ctx, id)
-	if err != nil || !found {
-		t.Fatal(found, err)
-	}
-	character.Name = "fresh-peer"
-	if err := repos.Character.Save(ctx, character); err != nil {
-		t.Fatal(err)
-	}
-	q.fire(q.task(t, 1), false)
-	frames := peerRecoveryFrames(t, f.leaderConn.write.Bytes())
-	seen := false
-	for _, frame := range frames {
-		if bytes.Contains(frame.body, []byte("fresh-peer")) {
-			seen = true
-		}
-	}
-	if !seen {
-		t.Fatal("later recovery reused old character projection")
 	}
 }

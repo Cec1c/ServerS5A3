@@ -286,11 +286,7 @@ func (m *RuntimePartyManager) leaveLocked(userID uint16, generation uint64, allo
 	}
 	previous := snapshotRuntimeParty(party)
 	previousCopy := previous
-	retired := RuntimePartySnapshot{}
 	wasLeader := party.leader == userID
-	if wasLeader && party.count() > 1 {
-		retired = snapshotRuntimeParty(party)
-	}
 	party.remove(userID)
 	delete(m.byUser, userID)
 	m.clearInvitesForLocked(userID, generation)
@@ -304,26 +300,12 @@ func (m *RuntimePartyManager) leaveLocked(userID uint16, generation uint64, allo
 		return result
 	}
 
-	// The current client cannot safely consume a same-id leader replacement.
-	// Retire the generation and rebuild surviving members under a new id. The
-	// successor keeps its fixed slot; leadership is carried by Leader/UserID and
-	// the roster's separate leader-row field, not by renumbering slot zero.
-	members := party.membersBySlot()
-	newLeader := members[0]
-	delete(m.parties, party.id)
-	for _, survivor := range members {
-		delete(m.byUser, survivor.UserID)
-	}
-	rebuilt := m.rebuildLocked(party, newLeader, members)
-	m.parties[rebuilt.id] = rebuilt
-	for _, survivor := range rebuilt.membersBySlot() {
-		m.byUser[survivor.UserID] = rebuilt.id
-	}
-	retiredCopy := retired
-	result := runtimePartySuccess(rebuilt, userID)
-	result.Previous = &previousCopy
-	result.LeaderMoved = true
-	result.Retired = &retiredCopy
+	// Leadership changes within the existing identity, as for a dungeon leave.
+	// Keep survivor slots and relay endpoints stable.
+	party.leader = party.membersBySlot()[0].UserID
+	party.settings.UserID, party.settings.IsLeader = party.leader, true
+	result := runtimePartySuccess(party, userID)
+	result.Previous, result.LeaderMoved = &previousCopy, true
 	return result
 }
 
@@ -360,8 +342,7 @@ func (m *RuntimePartyManager) Kick(byUser uint16, byGeneration uint64, targetUse
 }
 
 // TransferLeader changes authority within the existing party. Membership,
-// fixed slots and relay endpoints remain valid. Leave retains its separate
-// retirement behavior when the leader actually leaves the party.
+// fixed slots and relay endpoints remain valid, including when a leader leaves.
 func (m *RuntimePartyManager) TransferLeader(byUser uint16, byGeneration uint64, newLeader uint16, newLeaderGeneration uint64) RuntimePartyResult {
 	if m == nil || byUser == 0 || newLeader == 0 || byGeneration == 0 || newLeaderGeneration == 0 {
 		return runtimePartyFailure("invalid_leader_transfer")
@@ -583,22 +564,6 @@ func (m *RuntimePartyManager) nextPartyIDLocked() uint16 {
 		}
 	}
 	return 0
-}
-
-func (m *RuntimePartyManager) rebuildLocked(source *runtimeParty, leader RuntimePartyMember, members []RuntimePartyMember) *runtimeParty {
-	rebuilt := &runtimeParty{id: m.nextPartyIDLocked(), leader: leader.UserID, settings: cloneRuntimePartySettings(source.settings)}
-	rebuilt.settings.PartyID = int(rebuilt.id)
-	rebuilt.settings.UserID = leader.UserID
-	rebuilt.settings.IsLeader = true
-	for _, member := range members {
-		if member.UserID == leader.UserID {
-			member = leader
-		}
-		if !rebuilt.addAt(member, member.Slot) {
-			_ = rebuilt.add(member)
-		}
-	}
-	return rebuilt
 }
 
 func (m *RuntimePartyManager) partyMemberLocked(userID uint16) (*runtimeParty, *RuntimePartyMember) {

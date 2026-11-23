@@ -26,7 +26,7 @@ func (p *partyLoadingPreparation) finishAfterActivation() error {
 
 func (s *Service) markPartyLoadingPrepared(partyID uint16, cycle *partyDungeonLoadingCycle, id uint16, plan *partyLoadingPreparation, trigger string) {
 	s.partyDungeonLoadingMu.Lock()
-	if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.preparing[id] != plan {
+	if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.preparing[id] != plan || cycle.expiring {
 		s.partyDungeonLoadingMu.Unlock()
 		return
 	}
@@ -70,14 +70,24 @@ func (s *Service) markPartyLoadingPrepared(partyID uint16, cycle *partyDungeonLo
 	}
 }
 
-// Snapshot liveness outside loadingMu. A slow connected member never expires;
-// only a departed member can be removed from the preparation set. Retry failed
-// preparation on its own event loop, with the original scene/binding guards.
+// Preparation shares the loading cycle deadline. Queue retries and member
+// retirement retain the original scene and character binding guards.
 func (s *Service) checkPartyLoadingPreparation(partyID uint16, cycle *partyDungeonLoadingCycle, trigger string) {
 	s.partyDungeonLoadingMu.Lock()
-	if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.activationScheduled {
+	if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.activationScheduled || cycle.expiring {
 		s.partyDungeonLoadingMu.Unlock()
 		return
+	}
+	if trigger != "deadline_retired" && !cycle.started.IsZero() && time.Since(cycle.started) >= partyLoadingDeadline {
+		s.partyDungeonLoadingMu.Unlock()
+		if s.expirePartyLoadingCycle(partyID, cycle, true) {
+			return
+		}
+		s.partyDungeonLoadingMu.Lock()
+		if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.activationScheduled || cycle.expiring {
+			s.partyDungeonLoadingMu.Unlock()
+			return
+		}
 	}
 	plans := make(map[uint16]*partyLoadingPreparation, len(cycle.preparing))
 	for id, plan := range cycle.preparing {
@@ -125,8 +135,18 @@ func (s *Service) checkPartyLoadingPreparation(partyID uint16, cycle *partyDunge
 		s.partyDungeonLoadingMu.Unlock()
 		return
 	}
-	cycle.Timer = time.AfterFunc(partyDungeonLoadingBarrierTimeout, func() { s.checkPartyLoadingPreparation(partyID, cycle, "prepare_watchdog") })
+	var missing []uint16
+	if !cycle.started.IsZero() && time.Since(cycle.started) >= 10*time.Second && !cycle.warned {
+		cycle.warned = true
+		for id := range retry {
+			missing = append(missing, id)
+		}
+	}
+	cycle.Timer = time.AfterFunc(partyLoadingWatchdogDelay(cycle), func() { s.checkPartyLoadingPreparation(partyID, cycle, "prepare_watchdog") })
 	s.partyDungeonLoadingMu.Unlock()
+	if len(missing) > 0 {
+		s.logWarn("party loading preparation slow", "party_id", partyID, "cycle", cycle.Cycle, "missing_members", missing)
+	}
 	if readyPlan != nil {
 		s.markPartyLoadingPrepared(partyID, cycle, readyID, readyPlan, trigger)
 	}

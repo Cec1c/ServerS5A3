@@ -50,11 +50,7 @@ func TestPVPRelayRotatesPortBetweenConsecutiveRooms(t *testing.T) {
 	}
 }
 
-// TestPVPRelayPortQuarantineNeverBlocksAllocation 锁定「静默期不能把端口池抽干就开不了局」。
-//
-// 静默期只是**优先避开**：端口全在静默期时 newLegLocked 必须忽略静默期再扫一遍，
-// 否则一次端口紧张就会让所有决斗都建不起来（比黑屏更糟）。
-func TestPVPRelayPortQuarantineNeverBlocksAllocation(t *testing.T) {
+func TestPVPRelayPortQuarantineExhaustionDefersAllocation(t *testing.T) {
 	start := r137FreeRange(t)
 	r, err := newCurrentPartyUDPRelay(true, "127.0.0.1", start, 64, nil)
 	if err != nil {
@@ -64,7 +60,7 @@ func TestPVPRelayPortQuarantineNeverBlocksAllocation(t *testing.T) {
 
 	r.mu.Lock()
 	for offset := 0; offset < 64; offset++ {
-		r.pvpReleasedAt[start+offset] = time.Now()
+		r.portAvailableAt[start+offset] = time.Now().Add(180 * time.Second)
 	}
 	r.mu.Unlock()
 
@@ -72,7 +68,15 @@ func TestPVPRelayPortQuarantineNeverBlocksAllocation(t *testing.T) {
 		{characterID: 101, generation: 1, address: [4]byte{127, 0, 0, 1}},
 		{characterID: 102, generation: 1, address: [4]byte{127, 0, 0, 1}},
 	}
+	if r.syncGroup(true, 1, pair) {
+		t.Fatal("exhaustion must not bypass quarantine")
+	}
+	r.mu.Lock()
+	for port := range r.portAvailableAt {
+		r.portAvailableAt[port] = time.Now().Add(-time.Second)
+	}
+	r.mu.Unlock()
 	if !r.syncGroup(true, 1, pair) {
-		t.Fatal("端口全部处于静默期时仍然必须能建出决斗中继")
+		t.Fatal("expired quarantine blocked allocation")
 	}
 }

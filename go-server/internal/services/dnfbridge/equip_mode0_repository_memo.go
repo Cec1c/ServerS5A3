@@ -160,6 +160,11 @@ func (s *Service) repositoryGroupFor(ctx context.Context) (dnfrepo.Group, bool) 
 	if !ok {
 		return repos, false
 	}
+	if ctx != nil {
+		if cache, _ := ctx.Value(partyLoadingSnapshotKey{}).(*partyLoadingSnapshots); cache != nil {
+			repos = cache.wrap(repos)
+		}
+	}
 	memo := repositoryMemoFromContext(ctx)
 	if memo == nil {
 		return repos, true
