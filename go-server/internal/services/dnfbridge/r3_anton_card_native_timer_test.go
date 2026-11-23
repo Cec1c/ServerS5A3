@@ -111,7 +111,7 @@ func r3WantCommittedCardWire(t *testing.T, got r195FiendRewardWire, flow *curren
 				count = *card.Plan.FateGranted
 			}
 			if count != 0 {
-				want[r195FiendRewardDescriptor{kind: kind, owner: id, id: reward.Definition.ItemID, quantity: uint16(count)}]++
+				want[r195FiendRewardDescriptor{kind: kind, objectKind: card.Plan.Choice.Flags, owner: id, id: reward.Definition.ItemID, quantity: uint16(count)}]++
 			}
 		}
 	}

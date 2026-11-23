@@ -21,7 +21,7 @@ func (s *Service) initializeActivityControls(ctx context.Context) error {
 		{ID: 116, Name: "升级大挑战（旧预约模式）", Description: "旧版预约模式，与Lv预约222不能同时开启；需配套客户端验证。", Source: "event/decidelevelupevent.evt / 496、497、567、1122", DefaultEnabled: false},
 		{ID: 2348, Name: "劳动节登录和在线送礼", Description: "默认关闭登录和在线两类奖励；开启后账号前三个登录日发PVF登录奖励，每日在线10分钟一档，最多10档，06点重置。", Source: "event/chn_event/chn_playdnfatlaborday.evt / 活动2348", DefaultEnabled: false},
 		{ID: 145, Name: "大富翁骰子（幸运热舞派对）", Description: "角色基础2次，推荐地下城4/8/12次各加2次；28格及圈数奖励读取现用PVF，奖励邮件发放，06点重置每日次数。", Source: "event/attendancemarble.evt / 原生活动145、查询629、掷骰630", DefaultEnabled: true},
-		{ID: 216, Name: "新学期累计奖励（需兼容客户端）", Description: "默认关闭；需独立审核客户端654/689许可后启用。角色通关6062按中国06时活动日累计，8、16、24天领取邮件；每日表为空，不发日奖。", Source: "实际新学期216及event53模型 / 累计689、状态654", DefaultEnabled: false},
+		{ID: 216, Name: "史诗之路累计通关奖励", Description: "当前客户端随史诗之路开放；角色每日通关寂静之森一次计一天，06时换日，8、16、24天领取邮件奖励。保留已累计天数与领取记录；没有额外日奖。", Source: "event/newsemesterattendanceevent.evt / 原生活动216、状态654、领取689", DefaultEnabled: s.options.currentClientVersion == "official-24.9"},
 		{ID: 350, Name: "史诗之路：超越征程", Description: "开放当前湍流NPC及任务；祥瑞溪谷仍要求等级17和完成5579，三个高级地下城等级85且按实际PVF扣邀请函。", Source: "实际npc3135/event350及2018_epciroad2资源", DefaultEnabled: true},
 		{ID: 2347, Name: "累计在线得好礼", Description: "现用PVF使用原生展开面板，显示每日在线、累计天数及奖励；点击按钮后通过邮件领取，每日06:00重置。保留旧配置键。", Source: "当前PVF PCRoomTimePoint / 原生事件228、状态561；旧版PVF保留2347", DefaultEnabled: true},
 		{ID: 331, Name: "普通签到", Description: "等级17起，合法选角在线按每日06:00活动日计一次，账号共享最多28日，不补漏日；已登记未领邮件可重试。", Source: "实际AttendanceDailyEvent.evt / 原生331、1386、688", DefaultEnabled: true},

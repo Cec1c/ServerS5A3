@@ -52,7 +52,10 @@ func currentEquipmentRecipeUpgradeDocument(entry equipmentRecipeEntry, source dn
 	}
 	shopPrice, err := currentHeblonOwnedUpgradeShopPrice(entry, document)
 	if err != nil {
-		return nil, err
+		shopPrice, err = currentInfiniteDevourerOwnedUpgradeShopPrice(entry, document)
+		if err != nil {
+			return nil, err
+		}
 	}
 	plain := entry
 	plain.MaintainAbility, plain.MinimumItemmakingField = "", ""

@@ -38,6 +38,7 @@ func TestRealPVFEquipmentRecipeUpgradeTransactions(t *testing.T) {
 	rejected := map[string]int{}
 	lukeArmor := map[int64]bool{}
 	heblon := map[int64]bool{}
+	devourer := map[int64]bool{}
 	for _, entry := range entries {
 		if entry.MaintainAbility != "normal" {
 			continue
@@ -126,10 +127,13 @@ func TestRealPVFEquipmentRecipeUpgradeTransactions(t *testing.T) {
 			if entry.ItemID >= 10304471 && entry.ItemID <= 10304473 {
 				heblon[entry.ItemID] = true
 			}
+			if _, ok := currentInfiniteDevourerUpgradeShapes[entry.ItemID]; ok {
+				devourer[entry.ItemID] = true
+			}
 		})
 	}
-	t.Logf("coverage=%+v normal=%d admitted=%d committed=%d luke90Barmor=%d rejected=%v", coverage, normal, admitted, committed, len(lukeArmor), rejected)
-	if normal != 287 || admitted != 93 || committed != 93 || len(lukeArmor) != 25 || len(heblon) != 3 {
+	t.Logf("coverage=%+v normal=%d admitted=%d committed=%d luke90Barmor=%d devourer=%d rejected=%v", coverage, normal, admitted, committed, len(lukeArmor), len(devourer), rejected)
+	if normal != 287 || admitted != 102 || committed != 102 || len(lukeArmor) != 25 || len(heblon) != 3 || len(devourer) != 9 {
 		t.Fatalf("coverage changed normal=%d admitted=%d committed=%d", normal, admitted, committed)
 	}
 	for id := int64(10159634); id <= 10159638; id++ {

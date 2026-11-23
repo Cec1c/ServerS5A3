@@ -1,173 +1,62 @@
 package dnfbridge
 
 import (
-	"bytes"
 	"net"
-	"sync"
 	"testing"
 	"time"
 )
 
-// Hold an old read after receiving its datagram, then retire and rejoin the
-// same pair. The old payload must not enter the replacement sockets.
-func TestEmbeddedRelayOldReadMustNotReachRejoinedPair(t *testing.T) {
-	const (
-		partyID                   = uint16(77)
-		oldPayload                = "embedded-relay-old-read-probe"
-		fallbackLearnedLogMessage = "party UDP relay endpoint fallback learned real endpoint"
-	)
-
-	oldLoggerPaused := make(chan struct{})
-	releaseOldLogger := make(chan struct{})
-	var pauseOnce sync.Once
-	var releaseOnce sync.Once
-	releaseOldReadLoop := func() {
-		releaseOnce.Do(func() {
-			close(releaseOldLogger)
-		})
-	}
-	logWarn := func(message string, _ ...any) {
-		if message != fallbackLearnedLogMessage {
-			return
-		}
-		pauseOnce.Do(func() {
-			close(oldLoggerPaused)
-		})
-		<-releaseOldLogger
-	}
-
-	relay, err := newCurrentPartyUDPRelay(
-		true,
-		"127.0.0.1",
-		testCurrentPartyUDPRelayPortStart(t),
-		12,
-		logWarn,
-	)
+// Resume a payload captured by an old reader after both peers rejoin. A stale
+// reader keeps its own retired socket and cannot use the replacement route.
+func TestEmbeddedRelayStaleForwardMustNotReachRejoinedPair(t *testing.T) {
+	relay, err := newCurrentPartyUDPRelay(true, "127.0.0.1", testCurrentPartyUDPRelayPortStart(t), 12, nil)
 	if err != nil {
-		t.Fatalf("new loopback UDP relay: %v", err)
+		t.Fatal(err)
 	}
-	// Cleanups run in reverse order. Release a diagnostic pause before Close,
-	// otherwise a failing assertion while readLoop is paused would deadlock.
-	t.Cleanup(func() {
-		_ = relay.Close()
-	})
-	t.Cleanup(releaseOldReadLoop)
-
-	oldBindings := []currentPartyUDPRelayBinding{
+	t.Cleanup(func() { _ = relay.Close() })
+	bindings := []currentPartyUDPRelayBinding{
 		{characterID: 101, generation: 1, address: [4]byte{127, 0, 0, 1}},
 		{characterID: 202, generation: 1, address: [4]byte{127, 0, 0, 1}},
 	}
-	if !relay.Sync(partyID, oldBindings) {
-		t.Fatal("initial two-member relay sync failed")
+	if !relay.Sync(77, bindings) {
+		t.Fatal("first sync")
 	}
-
-	keyAB := currentPartyUDPRelayLegKey{
-		partyID: partyID,
-		ownerID: 101,
-		peerID:  202,
+	oldAB, oldBA := testCurrentPartyUDPRelayPair(t, relay, 77, 101, 202)
+	relay.CloseParty(77)
+	bindings[0].generation++
+	bindings[1].generation++
+	if !relay.Sync(77, bindings) {
+		t.Fatal("rejoin sync")
 	}
-	keyBA := currentPartyUDPRelayLegKey{
-		partyID: partyID,
-		ownerID: 202,
-		peerID:  101,
+	newAB, newBA := testCurrentPartyUDPRelayPair(t, relay, 77, 101, 202)
+	if oldAB == newAB || oldBA == newBA || !oldAB.retired.Load() || !oldBA.retired.Load() {
+		t.Fatal("old generation was not retired")
 	}
-	relay.mu.Lock()
-	oldAB := relay.legs[keyAB]
-	oldBA := relay.legs[keyBA]
-	relay.mu.Unlock()
-	if oldAB == nil || oldBA == nil {
-		t.Fatal("initial directed legs missing")
+	client := testCurrentPartyUDPClient(t, "127.0.0.1")
+	defer client.Close()
+	port := uint32(client.LocalAddr().(*net.UDPAddr).Port)
+	oldBA.learnedPort.Store(port)
+	newBA.learnedPort.Store(port)
+	relay.forwardDatagram(oldAB, oldBA, []byte("stale-old-route"))
+	relay.forwardDatagram(oldAB, newBA, []byte("stale-new-route"))
+	if err := client.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
 	}
-	if oldAB == oldBA {
-		t.Fatal("initial directed legs unexpectedly share a pointer")
+	var buf [128]byte
+	if n, _, e := client.ReadFromUDP(buf[:]); e == nil {
+		t.Fatalf("stale payload escaped: %q", buf[:n])
+	} else if timeout, ok := e.(net.Error); !ok || !timeout.Timeout() {
+		t.Fatal(e)
 	}
-
-	// Borrow the existing one-shot fallback-learned log as a deterministic
-	// pause point immediately before readLoop reacquires r.mu.
-	oldAB.mu.Lock()
-	oldAB.endpointFallbackDatagrams = 1
-	oldAB.mu.Unlock()
-
-	addressAB, portAB, ok := relay.Endpoint(partyID, 101, 202)
-	if !ok {
-		t.Fatal("initial A-to-B relay endpoint missing")
+	relay.forwardDatagram(newAB, newBA, []byte("current"))
+	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
 	}
-	if _, _, ok := relay.Endpoint(partyID, 202, 101); !ok {
-		t.Fatal("initial B-to-A relay endpoint missing")
+	n, from, err := client.ReadFromUDP(buf[:])
+	if err != nil || string(buf[:n]) != "current" || from.Port != int(newBA.port) {
+		t.Fatalf("current route failed: %q %v %v", buf[:n], from, err)
 	}
-
-	clientA := testCurrentPartyUDPClient(t, "127.0.0.1")
-	defer clientA.Close()
-	clientB := testCurrentPartyUDPClient(t, "127.0.0.1")
-	defer clientB.Close()
-
-	endpointAB := &net.UDPAddr{
-		IP:   net.IPv4(addressAB[0], addressAB[1], addressAB[2], addressAB[3]),
-		Port: int(portAB),
-	}
-	if _, err := clientA.WriteToUDP([]byte(oldPayload), endpointAB); err != nil {
-		t.Fatalf("send old A payload: %v", err)
-	}
-
-	select {
-	case <-oldLoggerPaused:
-	case <-time.After(2 * time.Second):
-		t.Fatal("old readLoop did not reach the fallback-learned log pause within 2s")
-	}
-
-	relay.CloseParty(partyID)
-	newBindings := []currentPartyUDPRelayBinding{
-		{characterID: 101, generation: 2, address: [4]byte{127, 0, 0, 1}},
-		{characterID: 202, generation: 2, address: [4]byte{127, 0, 0, 1}},
-	}
-	if !relay.Sync(partyID, newBindings) {
-		t.Fatal("generation-2 relay sync failed")
-	}
-
-	relay.mu.Lock()
-	newAB := relay.legs[keyAB]
-	newBA := relay.legs[keyBA]
-	relay.mu.Unlock()
-	if newAB == nil || newBA == nil {
-		t.Fatal("generation-2 directed legs missing")
-	}
-	if newAB == oldAB || newBA == oldBA {
-		t.Fatal("generation-2 relay reused an old leg pointer")
-	}
-	if newAB.binding.generation != 2 || newBA.binding.generation != 2 {
-		t.Fatalf(
-			"generation-2 relay legs have wrong bindings: AB=%d BA=%d",
-			newAB.binding.generation,
-			newBA.binding.generation,
-		)
-	}
-
-	clientBAddress, ok := clientB.LocalAddr().(*net.UDPAddr)
-	if !ok {
-		t.Fatalf("client B local address has unexpected type %T", clientB.LocalAddr())
-	}
-	newBA.mu.Lock()
-	newBA.learnedEndpoint = cloneCurrentPartyUDPRelayAddr(clientBAddress)
-	newBA.mu.Unlock()
-
-	releaseOldReadLoop()
-
-	if err := clientB.SetReadDeadline(time.Now().Add(750 * time.Millisecond)); err != nil {
-		t.Fatalf("set client B read deadline: %v", err)
-	}
-	buffer := make([]byte, 128)
-	n, source, err := clientB.ReadFromUDP(buffer)
-	if err == nil {
-		if bytes.Equal(buffer[:n], []byte(oldPayload)) {
-			t.Fatalf(
-				"stale old readLoop payload reached rejoined generation-2 pair: payload=%q source=%s",
-				buffer[:n],
-				source,
-			)
-		}
-		t.Fatalf("client B unexpectedly received payload=%q source=%s", buffer[:n], source)
-	}
-	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
-		t.Fatalf("receive on client B: %v", err)
+	if oldAB.traffic.forwarded.Load() != 0 || newAB.traffic.forwarded.Load() != 1 {
+		t.Fatal("generation forwarding counters mismatch")
 	}
 }

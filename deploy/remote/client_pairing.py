@@ -38,6 +38,13 @@ for _identity in (ROSCH_CLIENT_SHA,
     FEATURE_CLIENT_VARIANTS[_identity] = {**BLACKDIAMOND_FORMAL_FILES,
         'DNF.exe': {'sha256': _identity, 'bytes': 112820224}}
 
+NATIVE_CUMULATIVE_SHA = '19233532acda5b6cea91e70662157a34dac769f6a5755222fe04fbd8cd41019f'
+FEATURE_CLIENT_VARIANTS[NATIVE_CUMULATIVE_SHA] = {
+    **BLACKDIAMOND_FORMAL_FILES,
+    'DNF.exe': {'sha256': NATIVE_CUMULATIVE_SHA, 'bytes': 112828416},
+    'AtlasWorkers101.dll': {'sha256': '83b5bdec6cd3d3e81f951e945a1d8de19abf99d0757d1d3819aceb86d25ea6d9', 'bytes': 168960},
+}
+
 def checked_client_files(pair):
     """Bounded EXE/NPK plus exact reviewed plugin pair; GM assets stay separate."""
     import re
@@ -59,7 +66,7 @@ def checked_client_files(pair):
             any(pins.get(name) != pin for name, pin in required_feature_files.items())):
         raise ValueError('feature client requires exact EXE, both plugin DLLs and native skin pins')
     for name, pin in pins.items():
-        plugin = feature_client and name in ('DpsMeter.dll', 'CombatPower.dll')
+        plugin = feature_client and name in required_feature_files and name.endswith('.dll')
         if name != 'DNF.exe' and not plugin and not re.fullmatch(r'ImagePacks2/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,159}\.NPK', name):
             raise ValueError('only bounded NPK paths and exact reviewed plugin dependencies are allowed')
         if (not isinstance(pin, dict) or set(pin) != {'sha256', 'bytes'} or

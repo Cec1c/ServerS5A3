@@ -104,7 +104,7 @@ func r195WantFiendRewardWire(t *testing.T, got r195FiendRewardWire, flow *curren
 				if reward.Count == 0 || reward.Count > 65535 {
 					t.Fatalf("unrepresentable committed quantity %d", reward.Count)
 				}
-				want[r195FiendRewardDescriptor{kind: kind, owner: id, objectKind: 0,
+				want[r195FiendRewardDescriptor{kind: kind, owner: id, objectKind: card.Plan.Choice.Flags,
 					id: reward.Definition.ItemID, quantity: uint16(reward.Count), flags: 0}]++
 			}
 		}

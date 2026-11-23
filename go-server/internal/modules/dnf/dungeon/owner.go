@@ -76,10 +76,15 @@ type CardRewardResult struct {
 	OverflowMailID string
 }
 
+// GoldPickupAdjuster runs before the wallet write, using the equipment snapshot
+// read under the same character asset transaction.
+type GoldPickupAdjuster func(dnfrepo.EquipmentRecord, uint32) (uint32, error)
+
 type GoldPickupCommand struct {
 	CharacterID string
 	Amount      uint32
 	UpdatedAt   time.Time
+	Adjust      GoldPickupAdjuster
 }
 
 type GoldPickupResult struct {
@@ -305,7 +310,7 @@ func (o *Owner) GrantPickupGold(ctx context.Context, cmd GoldPickupCommand) (Gol
 	err := o.assets.WithinCharacterAssets(ctx, cmd.CharacterID, func(
 		characters dnfrepo.CharacterRepository,
 		_ dnfrepo.InventoryRepository,
-		_ dnfrepo.EquipmentRepository,
+		equipmentRepo dnfrepo.EquipmentRepository,
 	) error {
 		character, found, err := characters.Load(ctx, cmd.CharacterID)
 		if err != nil {
@@ -319,7 +324,30 @@ func (o *Owner) GrantPickupGold(ctx context.Context, cmd GoldPickupCommand) (Gol
 			character.Stats = make(map[string]int64)
 		}
 		result.GoldBefore = character.Stats["gold"]
-		delta := int64(cmd.Amount)
+		amount := cmd.Amount
+		if cmd.Adjust != nil {
+			if equipmentRepo == nil {
+				return ErrOwnerUnavailable
+			}
+			equipment, found, err := equipmentRepo.Load(ctx, cmd.CharacterID)
+			if err != nil {
+				return err
+			}
+			if !found {
+				equipment = dnfrepo.EquipmentRecord{CharacterID: cmd.CharacterID}
+			}
+			if equipment.CharacterID != cmd.CharacterID {
+				return ErrRewardInvalid
+			}
+			amount, err = cmd.Adjust(equipment, amount)
+			if err != nil {
+				return err
+			}
+			if amount == 0 {
+				return ErrRewardInvalid
+			}
+		}
+		delta := int64(amount)
 		if result.GoldBefore < 0 || result.GoldBefore > math.MaxInt64-delta {
 			return ErrGoldOverflow
 		}

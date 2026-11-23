@@ -388,6 +388,13 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 							"error", optionErr)
 					}
 				}
+				if _, err := s.syncCurrentAwakeningAvatarOption(session, charID); err != nil {
+					s.logWarn("dnfbridge awakening avatar entry sync deferred",
+						"conn_id", session.connID,
+						"char_id", charID,
+						"source", "select_character_after_ack_tutorial_before_op15",
+						"error", err)
+				}
 				if err := timing.measureProjection(selectProjectionTutorial, func() error {
 					return s.sendEnterSelectDungeonState(session, "select_character_after_ack_15", false, false)
 				}); err != nil {

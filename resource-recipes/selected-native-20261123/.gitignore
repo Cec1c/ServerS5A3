@@ -1,0 +1,6 @@
+__pycache__/
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp

@@ -38,6 +38,11 @@ NATIVE_CLIENT_SIDECARS = {
     "DpsMeter.dll": {"sha256": "6e907abd58551c06e58242d31e4a8a62c57d7d2440d88b7184f9844c34be5a17", "length": 493056},
     "ImagePacks2/sprite_interface_private_features20261113.NPK": {"sha256": "fc8d96ccb192e3bdaed211b2bfb81a59ee96daab50e9d69e495766019c56ac42", "length": 125034},
 }
+CUMULATIVE_NATIVE_EXE = {"sha256": "19233532acda5b6cea91e70662157a34dac769f6a5755222fe04fbd8cd41019f", "length": 112828416}
+CUMULATIVE_NATIVE_EXTRA = {
+    "AtlasWorkers101.dll": {"sha256": "83b5bdec6cd3d3e81f951e945a1d8de19abf99d0757d1d3819aceb86d25ea6d9", "length": 168960},
+    "Script.pvf": {"sha256": "40c123c53e31009d7e0ff2568413221ccb4fdbb417f37387cbc730890fa51cb4", "length": 128723509},
+}
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip\Z", re.I)
 SPLIT_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]{0,150}\.zip)\.([0-9]{3})\Z", re.I)
 
@@ -208,6 +213,7 @@ def download(url, cache, expected=None, fresh=False, missing=False, *, package_r
 
 
 def inspect_zip(path, *, with_pvf=False):
+    reviewed_sidecars = {**NATIVE_CLIENT_SIDECARS, **CUMULATIVE_NATIVE_EXTRA}
     try:
         with zipfile.ZipFile(path) as z:
             names = set()
@@ -240,8 +246,8 @@ def inspect_zip(path, *, with_pvf=False):
                         for block in iter(lambda: stream.read(1024 * 1024), b""):
                             h.update(block)
                     exe = {"sha256": h.hexdigest(), "length": entry.file_size}
-                elif raw_name in NATIVE_CLIENT_SIDECARS:
-                    expected = NATIVE_CLIENT_SIDECARS[raw_name]
+                elif raw_name in reviewed_sidecars:
+                    expected = reviewed_sidecars[raw_name]
                     if entry.file_size != expected["length"]:
                         raise SyncError("Native client sidecar length differs")
                     h = hashlib.sha256()
@@ -251,6 +257,8 @@ def inspect_zip(path, *, with_pvf=False):
                     if h.hexdigest() != expected["sha256"]:
                         raise SyncError("Native client sidecar digest differs")
                     native_sidecars.add(raw_name)
+                    if raw_name == "Script.pvf":
+                        pvf = dict(expected)
                 elif with_pvf and raw_name == "client/Script.pvf":
                     if entry.file_size == 0:
                         raise SyncError("Empty client PVF")
@@ -270,9 +278,12 @@ def inspect_zip(path, *, with_pvf=False):
                             pass
             if exe is None:
                 raise SyncError("Client ZIP has no DNF.exe")
-            reviewed_native_exes = (NATIVE_CLIENT_EXE, FORMAL_BLACKDIAMOND_EXE, *PAIRED_FEEDBACK_EXES)
+            reviewed_native_exes = (NATIVE_CLIENT_EXE, FORMAL_BLACKDIAMOND_EXE, *PAIRED_FEEDBACK_EXES, CUMULATIVE_NATIVE_EXE)
+            required_sidecars = set(NATIVE_CLIENT_SIDECARS)
+            if exe == CUMULATIVE_NATIVE_EXE:
+                required_sidecars.update(CUMULATIVE_NATIVE_EXTRA)
             if ((native_sidecars or exe in reviewed_native_exes) and
-                    (native_sidecars != set(NATIVE_CLIENT_SIDECARS) or
+                    (native_sidecars != required_sidecars or
                      exe not in reviewed_native_exes)):
                 raise SyncError("Native client bundle must match the complete exact EXE/plugin/skin set")
             if with_pvf:

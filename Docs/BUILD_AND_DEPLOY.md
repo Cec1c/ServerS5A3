@@ -3,7 +3,7 @@
 [返回项目首页](../README.md)
 
 > [!IMPORTANT]
-> **首次 `prepare --pvf <路径>` 默认使用 [完整的 120 频道外部 ETC](../go-server/internal/services/dnfbridge/testdata/channel_info.etc)（详见[频道表说明](CHANNEL_TABLE_DEPLOYMENT.md)）。准备完成后，将官方推荐预设包 [`docker-instance.recommended.json`](../deploy/templates/docker-instance.recommended.json) 合并进 `runtime/docker/instance.json`。** 仅下载构建程序而不合入 Docker 运行配置包，会导致青龙/黄龙/魂大会进图不出怪（漏设 `dungeon_tournament: "vendor"`）、2365 赛马闪退、双组 Buff 与公会功能关闭等问题；环境变量说明与进程核验见[Docker 运行配置包与脱敏环境参考](DOCKER_RUNTIME_REFERENCE.md)。
+> 首次搭建按[累计公开功能搭建入口](PUBLIC_FEATURE_DEPLOYMENT_20261123.md)准备资源。配套新实例的 `prepare` 自动应用推荐预设，并使用完整 120 频道外部 ETC；旧实例用 `prepare --apply-recommended` 补缺，显式设置保留。实际环境核对见[Docker 运行配置参考](DOCKER_RUNTIME_REFERENCE.md)。
 
 你准备服务器、客户端和想法，Agent 负责读源码、运行命令、配置服务和排查问题。第一步的目标很具体：让自己的账号能进入游戏，创建角色，打一张图，退出后还能读到存档。
 
@@ -12,7 +12,7 @@
 ## 当前活动开关与赛马关闭方法
 
 > [!WARNING]
-> **截至 2026-10-22，赛马活动可能导致客户端闪退，应保持关闭，修复后另行通知。** 它在活动管理中叫 **2365「竞技大赛（马战竞猜）」**。当前源码和 Docker 模板仍默认开启，首次部署和已有服都要主动核对关闭状态。
+> **截至 2026-10-22，赛马活动可能导致客户端闪退，应保持关闭，修复后另行通知。** 它在活动管理中叫 **2365「竞技大赛（马战竞猜）」**。当前 Docker 推荐预设将它关闭；直接启动程序和旧数据库保存值须单独核对。
 
 下表是当前源码在**未设置环境覆盖、未保存活动设置**时的默认值。已有服的当前生效状态读取活动管理的 `effectiveEnabled`；是否有待重启的修改看 `pendingRestart`。
 
@@ -23,15 +23,15 @@
 | 331 | 普通签到 | 开启 | 等级 17 起，账号共享签到进度 |
 | 2208 | 每周签到得好礼 | 开启 | 依推荐地下城通关进度签到，首次启用绑定活动周期 |
 | 2370 | 每日签到得好礼 | 开启 | 每日通关 2 次推荐地下城签到，账号共享进度 |
-| 216 | 新学期累计奖励 | 关闭 | 需先核对客户端兼容性再启用 |
+| 216 | 史诗之路累计通关奖励 | official-24.9 开启 | 与活动 350 配合；旧数据库关闭值须按需迁移 |
 | **2365** | **竞技大赛（马战竞猜／赛马）** | **开启** | **本次部署应改为关闭，修复后另行通知** |
 | 2395 | 红尾乔纳森 | 关闭 | 按需开启，控制中央公园该 NPC 的可见性 |
 
-默认值来源：[活动控制定义](../go-server/internal/services/dnfbridge/activity_controls.go)。这是活动管理中的八项开关；开启某项后，仍按对应 PVF 和玩法条件提供入口与奖励。
+默认值来源：[活动控制定义](../go-server/internal/services/dnfbridge/activity_controls.go)。这是活动管理中与搭建相关的部分开关；开启某项后，仍按对应 PVF 和玩法条件提供入口与奖励。
 
 ### 新部署：在第一次启动前关闭赛马
 
-先执行带外部频道表的 `prepare`，再编辑它生成的 `runtime/docker/instance.json`，**只把 `joust_event_enabled` 改为 `false`，保留其他字段**：
+配套新实例的 `prepare` 已自动设置以下值。启动前核对 `runtime/docker/instance.json`；旧实例若不同，只修改这一项并保留其他字段：
 
 ```json
 "joust_event_enabled": false

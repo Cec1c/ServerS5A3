@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	platformpvf "longheng.io/server/internal/platform/pvf"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -271,25 +273,13 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 		t.Fatal(err)
 	}
 	pickupPacket, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
-	itemUpdate, trailing := splitGameServerUpperPacket(t, rest)
 	wantPickup, err := buildCurrentDungeonNormalPickupResultBody(firstDropObjectKey, currentSceneActorObjectKey(99), 121)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pickupPacket.Header.MsgID != currentDungeonPickupResultOpcode ||
-		pickupPacket.Header.Classification != 0 ||
-		!bytes.Equal(pickupPacket.Body, wantPickup) || len(trailing) != 0 {
-		t.Fatalf("pickup packet header=%+v body=%x trailing=%x", pickupPacket.Header, pickupPacket.Body, trailing)
-	}
-	if itemUpdate.Header.MsgID != uint16(dnfenum.CmdPacketWalkoutPartyMember) ||
-		itemUpdate.Header.Classification != 0 ||
-		len(itemUpdate.Body) != 3+currentItemListEntryWireSize ||
-		itemUpdate.Body[0] != dnfrepo.MainInventoryListType ||
-		binary.LittleEndian.Uint16(itemUpdate.Body[1:3]) != 1 ||
-		binary.LittleEndian.Uint16(itemUpdate.Body[3:5]) != 121 ||
-		binary.LittleEndian.Uint32(itemUpdate.Body[5:9]) != 3227 ||
-		binary.LittleEndian.Uint32(itemUpdate.Body[9:13]) != 1 {
-		t.Fatalf("pickup item update header=%+v body=%x", itemUpdate.Header, itemUpdate.Body)
+	if pickupPacket.Header.MsgID != currentDungeonPickupResultOpcode || pickupPacket.Header.Classification != 0 ||
+		!bytes.Equal(pickupPacket.Body, wantPickup) || len(rest) != 0 {
+		t.Fatalf("pickup body=%x extra bytes=%d", pickupPacket.Body, len(rest))
 	}
 	inventory, found, err := repositories.Inventory.Load(context.Background(), "99")
 	if err != nil || !found {
@@ -334,13 +324,43 @@ func TestCurrentDungeonNormalPickupIsOwnedTransactionalAndIdempotent(t *testing.
 	}
 	replayPacket, replayRest := splitGameServerUpperPacket(t, connection.write.Bytes())
 	replayUpdate, replayTrailing := splitGameServerUpperPacket(t, replayRest)
+	wantPickup[18] = currentDungeonPickupAbsoluteCountFlag
 	if !bytes.Equal(replayPacket.Body, wantPickup) || len(replayTrailing) != 0 ||
-		!bytes.Equal(replayUpdate.Body, itemUpdate.Body) {
+		replayUpdate.Header.MsgID != 14 || !bytes.Equal(replayUpdate.Body, drop.PickupItemUpdateBody) {
 		t.Fatalf("replay body=%x update=%x trailing=%x", replayPacket.Body, replayUpdate.Body, replayTrailing)
 	}
 	inventory, _, err = repositories.Inventory.Load(context.Background(), "99")
 	if err != nil || inventory.Slots["0:121"].Count != 1 {
 		t.Fatalf("duplicate pickup changed inventory=%+v err=%v", inventory.Slots, err)
+	}
+	// The same drop may be retried after a later grant or consumption.
+	original := append([]byte(nil), drop.PickupItemUpdateBody...)
+	for _, count := range []int64{6, 3, 0} {
+		if count == 0 {
+			delete(inventory.Slots, "0:121")
+		} else {
+			stack.Count = count
+			inventory.Slots["0:121"] = stack
+		}
+		if err := repositories.Inventory.Save(context.Background(), inventory); err != nil {
+			t.Fatal(err)
+		}
+		connection.write.Reset()
+		if err := service.handleCurrentDungeonPickup(session, pickupBody); err != nil {
+			t.Fatal(err)
+		}
+		_, rest := splitGameServerUpperPacket(t, connection.write.Bytes())
+		update, tail := splitGameServerUpperPacket(t, rest)
+		wantID := uint32(3227)
+		if count == 0 {
+			wantID = emptySlotItemID()
+		}
+		if len(tail) != 0 || binary.LittleEndian.Uint32(update.Body[5:9]) != wantID || binary.LittleEndian.Uint32(update.Body[9:13]) != uint32(count) {
+			t.Fatalf("count=%d replay=%x", count, update.Body)
+		}
+		if !bytes.Equal(original, drop.PickupItemUpdateBody) {
+			t.Fatal("pickup proof was overwritten")
+		}
 	}
 }
 
@@ -569,4 +589,104 @@ func (unit pickupTestItemUnitOfWork) WithinCharacterItems(
 	apply func(dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error,
 ) error {
 	return apply(unit.inventory, unit.equipment)
+}
+
+func TestCurrentDungeonNormalPickupReplayAfterSplit(t *testing.T) {
+	s, r, repos := prepareCurrentDungeonDropTest(t, 2, 3227)
+	conn := &bufferConn{}
+	session := &gameSession{conn: conn, connID: "pickup-split", selectedCharacterID: 99, dungeon: dungeonSessionState{runtime: r}}
+	key := seedCurrentDungeonPickupDrop(t, s, r, 3227, currentSceneActorObjectKey(99))
+	r.DropOwner.byObjectKey[key].Amount = 2
+	payload := currentDungeonPickupTestBody(key)
+	if err := s.handleCurrentDungeonPickup(session, payload); err != nil {
+		t.Fatal(err)
+	}
+	inv, ok, err := repos.Inventory.Load(context.Background(), "99")
+	if err != nil || !ok {
+		t.Fatal("missing pickup", err)
+	}
+	slot := currentDungeonPickupMainSlotKey(int16(r.DropOwner.byObjectKey[key].DestinationSlot))
+	stack := inv.Slots[slot]
+	if stack.Count != 2 {
+		t.Fatalf("initial grant=%d", stack.Count)
+	}
+	stack.Count = 1
+	inv.Slots[slot] = stack
+	if err := repos.Inventory.Save(context.Background(), inv); err != nil {
+		t.Fatal(err)
+	}
+	conn.write.Reset()
+	if err := s.handleCurrentDungeonPickup(session, payload); err != nil {
+		t.Fatal(err)
+	}
+	_, rest := splitGameServerUpperPacket(t, conn.write.Bytes())
+	update, tail := splitGameServerUpperPacket(t, rest)
+	if len(tail) != 0 || update.Header.MsgID != 14 || len(update.Body) < 13 {
+		t.Fatalf("unexpected slot update: %x", update.Body)
+	}
+	if got := binary.LittleEndian.Uint32(update.Body[9:13]); got != 1 {
+		t.Fatalf("replayed count=%d, stored count=1", got)
+	}
+}
+
+func TestMainBagStackPickupUsesGroundCountOnce(t *testing.T) {
+	path := os.Getenv("DNFBRIDGE_REAL_PVF_SMOKE")
+	if path == "" {
+		t.Skip("runtime PVF required")
+	}
+	archive, err := platformpvf.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := newPVFDungeonDropCatalog(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uint32{3341, 1016} {
+		item, err := catalog.ResolveItem(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(item.Name, func(t *testing.T) {
+			s, runtime, repos := prepareCurrentDungeonDropTest(t, 0, 3227)
+			conn := &bufferConn{}
+			session := &gameSession{conn: conn, selectedCharacterID: 99, dungeon: dungeonSessionState{runtime: runtime}}
+			var slot uint16
+			for attempt, amount := range []uint32{2, 3} {
+				key := seedCurrentDungeonPickupDrop(t, s, runtime, 3227, 99)
+				drop := runtime.DropOwner.byObjectKey[key]
+				drop.Item = item
+				drop.Amount = amount
+				ground, err := currentDungeonDeathDropItemState(drop.SceneSlot, drop.Item, amount)
+				if err != nil || binary.LittleEndian.Uint32(ground.data[6:10]) != amount {
+					t.Fatalf("ground count %d: %v", amount, err)
+				}
+				conn.write.Reset()
+				if err := s.handleCurrentDungeonPickup(session, currentDungeonPickupTestBody(key)); err != nil {
+					t.Fatal(err)
+				}
+				pkt, tail := splitGameServerUpperPacket(t, conn.write.Bytes())
+				if pkt.Header.MsgID != 39 || pkt.Body[18] != 0 || len(tail) != 0 {
+					t.Fatalf("first pickup body=%x extra=%d", pkt.Body, len(tail))
+				}
+				if attempt == 0 {
+					slot = drop.DestinationSlot
+				}
+				if slot != drop.DestinationSlot {
+					t.Fatal("second pickup failed to merge")
+				}
+				inv, _, err := repos.Inventory.Load(context.Background(), "99")
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := int64(2)
+				if attempt == 1 {
+					want = 5
+				}
+				if got := inv.Slots[currentDungeonPickupMainSlotKey(int16(slot))].Count; got != want {
+					t.Fatalf("got %d want %d", got, want)
+				}
+			}
+		})
+	}
 }

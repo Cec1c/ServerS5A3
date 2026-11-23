@@ -83,7 +83,17 @@ func currentDungeonCommittedPickupProof(drop *runtimeDungeonDrop) (uint16, bool)
 		return 0, false
 	}
 	proof, err := buildCurrentDungeonPickupResultForItem(drop.ObjectKey, picker, drop.DestinationSlot, drop.Item)
-	return picker, err == nil && bytes.Equal(proof, drop.PickupResponseBody)
+	if err != nil {
+		return 0, false
+	}
+	// The display marker is not ownership evidence. Keep legacy committed
+	// receipts valid while checking every object, picker and destination byte.
+	marker := drop.PickupResponseBody[18]
+	if marker != 0 && marker != currentDungeonPickupAbsoluteCountFlag {
+		return 0, false
+	}
+	proof[18] = marker
+	return picker, bytes.Equal(proof, drop.PickupResponseBody)
 }
 
 // This is a read-only presentation check, never a grant. The cached op14 row

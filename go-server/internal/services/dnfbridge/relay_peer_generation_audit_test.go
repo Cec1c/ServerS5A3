@@ -52,11 +52,9 @@ func TestCurrentPartyUDPRelayPeerGenerationReplacesBothLegs(t *testing.T) {
 	_, oldABPort, _ := relay.Endpoint(77, a.characterID, b1.characterID)
 	_, oldBAPort, _ := relay.Endpoint(77, b1.characterID, a.characterID)
 
-	// The default constructor keeps replay disabled, so seed only the old A leg's
-	// pending bytes to audit whether Sync copies this state into its replacement.
-	oldAB.mu.Lock()
-	oldAB.pending.bytes = 37
-	oldAB.mu.Unlock()
+	// Seed a published initial datagram on the old generation.
+	oldAB.initial[0].size = 37
+	oldAB.initial[0].state.Store(2)
 
 	if !relay.Sync(77, []currentPartyUDPRelayBinding{a, b2}) {
 		t.Fatal("generation-change relay sync failed")
@@ -72,16 +70,16 @@ func TestCurrentPartyUDPRelayPeerGenerationReplacesBothLegs(t *testing.T) {
 	}
 
 	newAB.mu.Lock()
-	abBinding, abPeer, abPendingBytes := newAB.binding, newAB.peerBinding, newAB.pending.bytes
+	abBinding, abPeer, abPendingBytes := newAB.binding, newAB.peerBinding, newAB.initial[0].state.Load()
 	newAB.mu.Unlock()
 	newBA.mu.Lock()
-	baBinding, baPeer, baPendingBytes := newBA.binding, newBA.peerBinding, newBA.pending.bytes
+	baBinding, baPeer, baPendingBytes := newBA.binding, newBA.peerBinding, newBA.initial[0].state.Load()
 	newBA.mu.Unlock()
 	if abBinding != a || abPeer != b2 || baBinding != b2 || baPeer != a {
 		t.Fatalf("new leg bindings are stale: AB=(%+v,%+v) BA=(%+v,%+v)", abBinding, abPeer, baBinding, baPeer)
 	}
 	if abPendingBytes != 0 || baPendingBytes != 0 {
-		t.Fatalf("old pending inherited by replacement legs: AB=%d BA=%d", abPendingBytes, baPendingBytes)
+		t.Fatalf("old initial datagram inherited by replacement legs: AB=%d BA=%d", abPendingBytes, baPendingBytes)
 	}
 }
 

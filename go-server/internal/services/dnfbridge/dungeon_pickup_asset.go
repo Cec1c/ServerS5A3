@@ -15,6 +15,7 @@ func grantCurrentDungeonPickupGold(
 	characterID string,
 	amount uint32,
 	now time.Time,
+	adjust ...dnfdungeon.GoldPickupAdjuster,
 ) (int64, error) {
 	if uow == nil || characterID == "" || amount == 0 {
 		return 0, errDungeonPickupTransactionMissing
@@ -23,9 +24,14 @@ func grantCurrentDungeonPickupGold(
 	if err != nil {
 		return 0, errDungeonPickupTransactionMissing
 	}
+	var modifier dnfdungeon.GoldPickupAdjuster
+	if len(adjust) > 0 {
+		modifier = adjust[0]
+	}
 	result, err := owner.GrantPickupGold(ctx, dnfdungeon.GoldPickupCommand{
 		CharacterID: characterID,
 		Amount:      amount,
+		Adjust:      modifier,
 		UpdatedAt:   now,
 	})
 	if err != nil {

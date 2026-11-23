@@ -11,8 +11,8 @@ import (
 	oe "longheng.io/server/internal/modules/dnf/onlineevent"
 )
 
-// Separate operator opt-in. A nil catalog and the new control's default both
-// leave the route OFF. Client permits654/689 require their own release review.
+// The matching current client receives the daily panel alongside Epic Road.
+// A missing catalog or an explicit activity shutdown still leaves this route OFF.
 func (s *Service) currentSemesterCumulativeEnabled() bool {
 	return s != nil && s.currentEpicBenefitsEnabled() && s.activityControls != nil && s.activityControls.Enabled(216)
 }
