@@ -691,4 +691,178 @@ func TestPR1FiendWarClockSameProjectionSuppressesIdleTicks(t *testing.T) {
 	}
 }
 
+func countRaidsContainingCharacter(s *Service, charID uint16) int {
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	count := 0
+	for _, r := range s.raids {
+		if r != nil && runtimeRaidMemberIndex(*r, charID) >= 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func TestPR1RaidCreatePreloadRejectsMemberWhoLeftPartyAndCreatedOwnRaid(t *testing.T) {
+	// 1. Current layout: B leaves party and creates B's own raid while A is preloading B.
+	t.Run("current_layout", func(t *testing.T) {
+		f := newInviteAcceptDungeonFixture(t)
+		f.service.options.currentClientVersion = "official-24.9"
+		f.formPartyThroughClientAccept(t)
+
+		repos, ok := f.service.repositoryGroup()
+		if !ok {
+			t.Fatal("fixture missing repositories")
+		}
+		loadCount := 0
+		repos.Character = &raidMuProbeCharRepo{
+			CharacterRepository: repos.Character,
+			onLoad: func() {
+				loadCount++
+				if loadCount != 2 {
+					return
+				}
+				// While A is preloading B (2nd Load), B leaves the ordinary party and creates B's own raid.
+				if err := f.service.handleOnlineLeaveParty(f.follower, uint16(dnfenum.CmdPacketLeaveParty)); err != nil {
+					t.Errorf("B handleOnlineLeaveParty during A preload: %v", err)
+				}
+				if _, err := f.service.createCurrentRuntimeRaid(f.follower, raid.CurrentInfoRequest{
+					Route:     0,
+					NameBytes: []byte("B-Raid"),
+				}); err != nil {
+					t.Errorf("B createCurrentRuntimeRaid during A preload: %v", err)
+				}
+			},
+		}
+		f.service.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
+
+		if _, err := f.service.createCurrentRuntimeRaid(f.leader, raid.CurrentInfoRequest{
+			Route:     0,
+			NameBytes: []byte("A-Raid"),
+		}); err == nil {
+			t.Fatal("expected A createCurrentRuntimeRaid to fail when preloaded member B left party and created own raid")
+		}
+		if got := countRaidsContainingCharacter(f.service, inviteAcceptFollowerCharacterID); got != 1 {
+			t.Fatalf("character %d belongs to %d raids, want 1", inviteAcceptFollowerCharacterID, got)
+		}
+		if got := countRaidsContainingCharacter(f.service, inviteAcceptLeaderCharacterID); got != 0 {
+			t.Fatalf("character %d belongs to %d raids after rejected create, want 0", inviteAcceptLeaderCharacterID, got)
+		}
+	})
+
+	// 2. Legacy layout: same race must never register B into two raids.
+	t.Run("legacy_layout", func(t *testing.T) {
+		f := newInviteAcceptDungeonFixture(t)
+		f.formPartyThroughClientAccept(t)
+
+		repos, ok := f.service.repositoryGroup()
+		if !ok {
+			t.Fatal("fixture missing repositories")
+		}
+		loadCount := 0
+		repos.Character = &raidMuProbeCharRepo{
+			CharacterRepository: repos.Character,
+			onLoad: func() {
+				loadCount++
+				if loadCount != 2 {
+					return
+				}
+				if err := f.service.handleOnlineLeaveParty(f.follower, uint16(dnfenum.CmdPacketLeaveParty)); err != nil {
+					t.Errorf("B handleOnlineLeaveParty during legacy A preload: %v", err)
+				}
+				f.service.createRuntimeRaid(f.follower, inviteAcceptFollowerCharacterID, raid.InfoRequest{
+					RouteOrRaidType: 0,
+					NameBytes:       []byte("B-Legacy"),
+				})
+			},
+		}
+		f.service.repositoryProvider = func() (dnfrepo.Group, bool) { return repos, true }
+
+		stateA := f.service.createRuntimeRaid(f.leader, inviteAcceptLeaderCharacterID, raid.InfoRequest{
+			RouteOrRaidType: 0,
+			NameBytes:       []byte("A-Legacy"),
+		})
+		if len(stateA.Members) != 1 || stateA.Members[0].CharID != inviteAcceptLeaderCharacterID {
+			t.Fatalf("legacy A raid retained stale/owned member B: %+v", stateA.Members)
+		}
+		if got := countRaidsContainingCharacter(f.service, inviteAcceptFollowerCharacterID); got != 1 {
+			t.Fatalf("character %d belongs to %d raids in legacy create, want 1", inviteAcceptFollowerCharacterID, got)
+		}
+	})
+}
+
+func TestPR1RaidStartingBlocksOrdinaryPartyRegroupAndMutations(t *testing.T) {
+	// 1. Starting=true blocks op11 invite accept, direct createOrJoin, raid group sync, and solo update.
+	f := newInviteAcceptDungeonFixture(t)
+	state := installPartyRaidStateForTest(t, f, 0, nil)
+	f.service.raidMu.Lock()
+	state.Starting = true
+	f.service.raidMu.Unlock()
+
+	f.formPartyThroughClientAccept(t)
+
+	// Ordinary party manager must NOT have grouped 99 and 100 while Starting=true.
+	mgr := f.service.runtimePartyManagerForService()
+	if snap, found := mgr.SnapshotByUser(inviteAcceptFollowerCharacterID, 0); found && len(snap.Members) >= 2 {
+		t.Fatalf("Starting=true allowed ordinary party join via op11 accept: %+v", snap)
+	}
+	f.service.raidMu.Lock()
+	member100 := state.Members[1]
+	f.service.raidMu.Unlock()
+	if member100.GroupIndex != 2 || member100.SlotOrder != 0 {
+		t.Fatalf("Starting=true allowed raid regroup for character 100: group/slot=%d/%d want 2/0", member100.GroupIndex, member100.SlotOrder)
+	}
+
+	// Direct createOrJoinManagedRuntimeParty must reject with raid_starting.
+	if _, res, joined := f.service.createOrJoinManagedRuntimeParty(f.follower, f.leader); joined || res.Reason != "raid_starting" {
+		t.Fatalf("createOrJoinManagedRuntimeParty while Starting=true: joined=%t reason=%q want false/raid_starting", joined, res.Reason)
+	}
+
+	// 2. Existing ordinary party formed BEFORE Starting=true cannot leave, kick, transfer leader, or reposition while Starting=true.
+	f.service.raidMu.Lock()
+	state.Starting = false
+	f.service.raidMu.Unlock()
+
+	if _, _, joined := f.service.createOrJoinManagedRuntimeParty(f.follower, f.leader); !joined {
+		t.Fatal("failed to form baseline party before Starting=true")
+	}
+	beforeParty, found := mgr.SnapshotByUser(inviteAcceptLeaderCharacterID, 0)
+	if !found || len(beforeParty.Members) != 2 {
+		t.Fatalf("expected 2-member party before Starting=true, got found=%t members=%d", found, len(beforeParty.Members))
+	}
+
+	f.service.raidMu.Lock()
+	state.Starting = true
+	f.service.raidMu.Unlock()
+
+	// Leave (op13) rejected, manager untouched.
+	if err := f.service.handleOnlineLeaveParty(f.follower, uint16(dnfenum.CmdPacketLeaveParty)); err != nil {
+		t.Fatalf("handleOnlineLeaveParty during Starting=true returned fatal error: %v", err)
+	}
+	// Kick (op14) rejected, manager untouched.
+	if err := f.service.handleOnlineWalkoutPartyMember(f.leader, uint16(dnfenum.CmdPacketWalkoutPartyMember), []byte{1}); err != nil {
+		t.Fatalf("handleOnlineWalkoutPartyMember during Starting=true returned fatal error: %v", err)
+	}
+	// Transfer host (op121) rejected, manager untouched.
+	if err := f.service.handleOnlineChangePartyHost(f.leader, []byte{1}); err != nil {
+		t.Fatalf("handleOnlineChangePartyHost during Starting=true returned fatal error: %v", err)
+	}
+	// Reposition rejected, manager untouched.
+	if err := f.service.handleOnlineChangePartyMemberPosition(f.leader, uint16(dnfenum.CmdPacketChangePartyMemberPosition), []byte{1, 2}); err != nil {
+		t.Fatalf("handleOnlineChangePartyMemberPosition during Starting=true returned fatal error: %v", err)
+	}
+	// Direct synchronizeOrdinaryPartyRaidGroups and updateCurrentRaidSoloForPartyMembers no-op during Starting=true.
+	if f.service.synchronizeOrdinaryPartyRaidGroups(beforeParty.StateFor(inviteAcceptLeaderCharacterID), "pr1_starting_test", beforeParty) {
+		t.Fatal("synchronizeOrdinaryPartyRaidGroups committed during Starting=true")
+	}
+	if snaps := f.service.updateCurrentRaidSoloForPartyMembers([]uint16{inviteAcceptLeaderCharacterID, inviteAcceptFollowerCharacterID}, true); len(snaps) != 0 {
+		t.Fatalf("updateCurrentRaidSoloForPartyMembers returned %d snapshots during Starting=true, want 0", len(snaps))
+	}
+
+	afterParty, afterFound := mgr.SnapshotByUser(inviteAcceptLeaderCharacterID, 0)
+	if !afterFound || afterParty.ID != beforeParty.ID || afterParty.MembershipRevision != beforeParty.MembershipRevision || len(afterParty.Members) != 2 || afterParty.Leader != inviteAcceptLeaderCharacterID {
+		t.Fatalf("Starting=true allowed ordinary party mutation: before=%+v after=%+v", beforeParty, afterParty)
+	}
+}
+
 var _ net.Conn = (*pr1FailingWriteConn)(nil)

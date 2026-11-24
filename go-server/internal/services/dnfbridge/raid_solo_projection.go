@@ -89,7 +89,7 @@ func (s *Service) updateCurrentRaidSoloForPartyMembers(ids []uint16, forceBroadc
 	affected := make(map[uint32]*affectedRaid)
 	for _, id := range ids {
 		live := s.runtimeRaidByMemberLocked(id)
-		if live == nil || !live.CurrentLayout || live.RouteOrRaidType > 1 {
+		if live == nil || live.Starting || !live.CurrentLayout || live.RouteOrRaidType > 1 {
 			continue
 		}
 		index := runtimeRaidMemberIndex(*live, id)

@@ -346,6 +346,11 @@ func (s *Service) handleOnlineLeaveParty(session *gameSession, typ uint16) error
 		}
 	}
 	nextState, result, removed := s.leaveManagedRuntimeParty(identity, "client_leave_party_op13")
+	if !removed && result.Reason == "raid_starting" {
+		return s.answerPartyCommandRejection(session, typ, "leave_party", walkoutPartyFailureInvalid,
+			"source_char_id", sourceID,
+			"reason", result.Reason)
+	}
 	if !removed && s.partyLeaveRepair() == partyLeaveRepairOn {
 		// 缺陷（操作者："p2 点击的是退出队伍，但是仍然在队伍里面"）：
 		// `removed=false` 有两种完全不同的成因，改动前被当成同一种处理。
@@ -453,8 +458,13 @@ func (s *Service) repairManagedRuntimePartyLeave(identity boundGameSessionCharac
 		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "party_manager_unavailable"}, false
 	}
 	before, _ := manager.SnapshotByUser(identity.character, 0)
-	result := manager.LeaveCurrent(identity.character)
-	if !result.OK {
+	result, allowed := s.runPartyMutationWithoutStartingRaid(
+		[]uint16{identity.character},
+		func() party.RuntimePartyResult {
+			return manager.LeaveCurrent(identity.character)
+		},
+	)
+	if !allowed || !result.OK {
 		return alignedcmd.PartyState{}, result, false
 	}
 	s.logRuntimePartyMembershipRemoved("leave_repair_by_character", identity.character, identity.generation, before, result)
@@ -516,8 +526,13 @@ func (s *Service) handleOnlineWalkoutPartyMember(session *gameSession, typ uint1
 		}
 		session.dungeon.mu.Unlock()
 	}
-	result := manager.Kick(identity.character, identity.generation, target.UserID, target.SessionGeneration)
-	if !result.OK {
+	result, allowed := s.runPartyMutationWithoutStartingRaid(
+		[]uint16{identity.character, target.UserID},
+		func() party.RuntimePartyResult {
+			return manager.Kick(identity.character, identity.generation, target.UserID, target.SessionGeneration)
+		},
+	)
+	if !allowed || !result.OK {
 		return s.sendPartyCommandFailure(session, typ, walkoutPartyFailureInvalid)
 	}
 	s.logRuntimePartyMembershipRemoved("leader_kick_walkout", target.UserID, target.SessionGeneration, kickedSnapshot, result)
@@ -650,11 +665,20 @@ func (s *Service) handleOnlineChangePartyHost(session *gameSession, body []byte)
 			"char_id", identity.character, "party_id", snapshot.ID, "selected_slot", body[0],
 			"available_slots", runtimePartySlotList(snapshot), "reason", "target_slot_not_found")
 	}
-	result := manager.TransferLeader(identity.character, identity.generation, target.UserID, target.SessionGeneration)
-	if !result.OK || result.Previous == nil {
+	result, allowed := s.runPartyMutationWithoutStartingRaid(
+		[]uint16{identity.character, target.UserID},
+		func() party.RuntimePartyResult {
+			return manager.TransferLeader(identity.character, identity.generation, target.UserID, target.SessionGeneration)
+		},
+	)
+	if !allowed || !result.OK || result.Previous == nil {
+		reason := "manager_transfer_failed"
+		if !allowed && result.Reason != "" {
+			reason = result.Reason
+		}
 		return s.answerPartyCommandRejection(session, changeHostOpcode, "change_host", partyCommandFailureGeneric,
 			"char_id", identity.character, "party_id", snapshot.ID, "selected_slot", body[0],
-			"target_char_id", target.UserID, "reason", "manager_transfer_failed")
+			"target_char_id", target.UserID, "reason", reason)
 	}
 
 	// Host transfer keeps the party ID and all peer endpoints. No relay close,
@@ -766,8 +790,13 @@ func (s *Service) handleOnlineChangePartyMemberPosition(session *gameSession, ty
 	if destination, destinationOK := runtimePartyMemberBySlot(visibleState, parsed.Position); destinationOK && destination.UserID != 0 {
 		toSlot = destination.Slot
 	}
-	result := manager.Reposition(identity.character, identity.generation, fromSlot, toSlot)
-	if !result.OK {
+	result, allowed := s.runPartyMutationWithoutStartingRaid(
+		[]uint16{identity.character, fromMember.UserID},
+		func() party.RuntimePartyResult {
+			return manager.Reposition(identity.character, identity.generation, fromSlot, toSlot)
+		},
+	)
+	if !allowed || !result.OK {
 		s.logGameEvent(session, "game-party-change-position-noop",
 			"type", typ,
 			"source_char_id", identity.character,
@@ -1097,6 +1126,15 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 		}
 	}
 
+	if isPartyInviteResponse(parsed) && !peerResponseRejected(parsed) &&
+		s.anyStartingRuntimeRaidMember(acceptorIdentity.character, targetIdentity.character) {
+		return s.answerPartyCommandRejection(session, typ, "response_peer", partyCommandFailureGeneric,
+			"source_char_id", selectedCharacterID(session),
+			"target_id", parsed.TargetID,
+			"mode", parsed.Mode,
+			"reason", "raid_starting")
+	}
+
 	ackPayload := party.BuildResponsePeerAckPayload(parsed.TargetID, parsed.Mode)
 	if err := s.sendGameUpperSuccess(session, typ, ackPayload); err != nil {
 		return err
@@ -1140,7 +1178,8 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 	if recordedRequest.JoinerID == targetIdentity.character && recordedRequest.AnchorID == acceptorIdentity.character {
 		joiner, anchor = targetSession, session
 	}
-	if invitePartyID := runtimePartyStateSnapshot(joiner).PartyID; invitePartyID > 0 {
+	if invitePartyID := runtimePartyStateSnapshot(joiner).PartyID; invitePartyID > 0 &&
+		!s.anyStartingRuntimeRaidMember(joiner.selectedCharacterID, anchor.selectedCharacterID) {
 		if targetPartyID := runtimePartyStateSnapshot(anchor).PartyID; invitePartyID != targetPartyID {
 			if err := s.sendRuntimePartySnapshot(joiner, alignedcmd.PartyState{}); err != nil {
 				if joiner == session {

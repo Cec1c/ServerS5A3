@@ -140,7 +140,7 @@ func (s *Service) createCurrentRuntimeRaid(session *gameSession, req raid.Curren
 		return runtimeRaidState{}, fmt.Errorf("current raid key owner exceeds native byte fields")
 	}
 	// Preload member profiles outside raidMu so repository latency never stalls other raids or channels.
-	members := s.preloadInitialRuntimeRaidMembers(session, sourceID)
+	members, preload := s.preloadInitialRuntimeRaidMembers(session, sourceID)
 	if req.Route == 2 {
 		for i := range members {
 			members[i].GroupIndex = byte(i + 1)
@@ -153,8 +153,13 @@ func (s *Service) createCurrentRuntimeRaid(session *gameSession, req raid.Curren
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	s.ensureRuntimeRaidMapsLocked()
-	if old := s.runtimeRaidByMemberLocked(sourceID); old != nil {
-		return runtimeRaidState{}, fmt.Errorf("character already owns raid membership")
+	for _, member := range members {
+		if old := s.runtimeRaidByMemberLocked(member.CharID); old != nil {
+			return runtimeRaidState{}, fmt.Errorf("character %d already owns raid membership", member.CharID)
+		}
+	}
+	if !s.initialRuntimeRaidPreloadValidLocked(session, sourceID, preload) {
+		return runtimeRaidState{}, fmt.Errorf("ordinary party or member binding changed during raid creation")
 	}
 	state := runtimeRaidState{RaidKey: s.nextRuntimeRaidKeyLocked(session, sourceID), LeaderID: sourceID, RouteOrRaidType: req.Route, NameBytes: append([]byte(nil), req.NameBytes...), Members: members, CurrentLayout: true, CurrentUIFlags: req.UIFlags}
 	s.raids[state.RaidKey] = &state

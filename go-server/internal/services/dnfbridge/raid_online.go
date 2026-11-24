@@ -759,12 +759,28 @@ func normalizeRuntimeRaidMemberState(state byte) byte {
 }
 
 func (s *Service) createRuntimeRaid(session *gameSession, sourceID uint16, req raid.InfoRequest) runtimeRaidState {
-	members := s.preloadInitialRuntimeRaidMembers(session, sourceID)
+	members, preload := s.preloadInitialRuntimeRaidMembers(session, sourceID)
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	s.ensureRuntimeRaidMapsLocked()
 	if existing := s.runtimeRaidByMemberLocked(sourceID); existing != nil && existing.Starting {
 		return cloneRuntimeRaidState(*existing)
+	}
+	filtered := make([]runtimeRaidMemberState, 0, len(members))
+	if len(members) > 0 {
+		filtered = append(filtered, members[0])
+	}
+	if s.initialRuntimeRaidPreloadValidLocked(session, sourceID, preload) {
+		for _, member := range members[1:] {
+			if member.CharID == 0 || member.CharID == sourceID {
+				continue
+			}
+			if s.runtimeRaidByMemberLocked(member.CharID) != nil {
+				continue
+			}
+			member.SlotOrder = byte(len(filtered) % runtimeRaidGroupSize)
+			filtered = append(filtered, member)
+		}
 	}
 	s.removeRuntimeRaidMemberLocked(sourceID)
 	key := s.nextRuntimeRaidKeyLocked(session, sourceID)
@@ -774,7 +790,7 @@ func (s *Service) createRuntimeRaid(session *gameSession, sourceID uint16, req r
 		RouteOrRaidType: req.RouteOrRaidType,
 		NameBytes:       append([]byte(nil), req.NameBytes...),
 		TailFlag:        req.TailFlag,
-		Members:         members,
+		Members:         filtered,
 	}
 	s.raids[key] = &state
 	return cloneRuntimeRaidState(state)
@@ -1259,20 +1275,160 @@ func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
 	return nil
 }
 
-func (s *Service) preloadInitialRuntimeRaidMembers(session *gameSession, sourceID uint16) []runtimeRaidMemberState {
-	members := []runtimeRaidMemberState{s.loadRuntimeRaidMemberProfile(sourceID, runtimeRaidDefaultGroup, 0)}
+type initialRuntimeRaidPreload struct {
+	hasLeaderIdentity bool
+	leaderIdentity    boundGameSessionCharacter
+	hasManagedParty   bool
+	managedPartyID    uint16
+	managedPartyRev   uint64
+	cachedPartyID     int
+	cachedMemberIDs   []uint16
+	memberIdentities  map[uint16]boundGameSessionCharacter
+}
+
+func (s *Service) preloadInitialRuntimeRaidMembers(session *gameSession, sourceID uint16) ([]runtimeRaidMemberState, initialRuntimeRaidPreload) {
+	preload := initialRuntimeRaidPreload{}
+	if session != nil {
+		if id, bound := s.boundGameSessionCharacterSnapshot(session); bound && id.character == sourceID {
+			preload.hasLeaderIdentity = true
+			preload.leaderIdentity = id
+		}
+	}
+	if manager := s.runtimePartyManagerForService(); manager != nil && sourceID != 0 {
+		if snap, found := manager.SnapshotByUser(sourceID, 0); found {
+			preload.hasManagedParty = true
+			preload.managedPartyID = snap.ID
+			preload.managedPartyRev = snap.MembershipRevision
+		}
+	}
 	state := runtimePartyStateSnapshot(session)
-	for _, member := range runtimePartyMembers(state) {
+	preload.cachedPartyID = state.PartyID
+	partyMembers := runtimePartyMembers(state)
+	preload.cachedMemberIDs = make([]uint16, 0, len(partyMembers))
+	for _, member := range partyMembers {
+		preload.cachedMemberIDs = append(preload.cachedMemberIDs, member.UserID)
+	}
+	members := []runtimeRaidMemberState{s.loadRuntimeRaidMemberProfile(sourceID, runtimeRaidDefaultGroup, 0)}
+	for _, member := range partyMembers {
 		if member.UserID == 0 || member.UserID == sourceID || len(members) >= raid.MaxAttackPartyMembers {
 			continue
 		}
+		if id, ok := s.onlineGameSessionCharacterSnapshot(member.UserID); ok {
+			if preload.memberIdentities == nil {
+				preload.memberIdentities = make(map[uint16]boundGameSessionCharacter)
+			}
+			preload.memberIdentities[member.UserID] = id
+		}
 		members = append(members, s.loadRuntimeRaidMemberProfile(member.UserID, runtimeRaidDefaultGroup, byte(len(members)%runtimeRaidGroupSize)))
 	}
-	return members
+	return members, preload
+}
+
+func (s *Service) initialRuntimeRaidPreloadValidLocked(session *gameSession, sourceID uint16, preload initialRuntimeRaidPreload) bool {
+	if preload.hasLeaderIdentity && !s.boundGameSessionCharacterCurrent(preload.leaderIdentity) {
+		return false
+	}
+	if manager := s.runtimePartyManagerForService(); manager != nil && sourceID != 0 {
+		liveSnap, liveManaged := manager.SnapshotByUser(sourceID, 0)
+		if preload.hasManagedParty {
+			if !liveManaged || liveSnap.ID != preload.managedPartyID || liveSnap.MembershipRevision != preload.managedPartyRev {
+				return false
+			}
+		} else if liveManaged {
+			return false
+		}
+	}
+	liveCached := runtimePartyStateSnapshot(session)
+	if liveCached.PartyID != preload.cachedPartyID {
+		return false
+	}
+	liveCachedMembers := runtimePartyMembers(liveCached)
+	if len(liveCachedMembers) != len(preload.cachedMemberIDs) {
+		return false
+	}
+	for i, member := range liveCachedMembers {
+		if member.UserID != preload.cachedMemberIDs[i] {
+			return false
+		}
+	}
+	for _, identity := range preload.memberIdentities {
+		if !s.boundGameSessionCharacterCurrent(identity) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) anyStartingRuntimeRaidMemberLocked(ids ...uint16) bool {
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if raid := s.runtimeRaidByMemberLocked(id); raid != nil && raid.Starting {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) anyStartingRuntimeRaidMember(ids ...uint16) bool {
+	if s == nil || len(ids) == 0 {
+		return false
+	}
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	if s.anyStartingRuntimeRaidMemberLocked(ids...) {
+		return true
+	}
+	if manager := s.runtimePartyManagerForService(); manager != nil {
+		for _, id := range ids {
+			if id == 0 {
+				continue
+			}
+			if snap, found := manager.SnapshotByUser(id, 0); found {
+				for _, m := range snap.Members {
+					if raid := s.runtimeRaidByMemberLocked(m.UserID); raid != nil && raid.Starting {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// runPartyMutationWithoutStartingRaid enforces the raid Starting freeze across
+// ordinary-party manager mutations while preserving the raidMu -> manager.mu
+// lock order. Mutations are pure in-memory operations with zero DB/wire I/O.
+func (s *Service) runPartyMutationWithoutStartingRaid(ids []uint16, mutate func() party.RuntimePartyResult) (party.RuntimePartyResult, bool) {
+	if s == nil {
+		return mutate(), true
+	}
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	if s.anyStartingRuntimeRaidMemberLocked(ids...) {
+		return party.RuntimePartyResult{Reason: "raid_starting"}, false
+	}
+	if manager := s.runtimePartyManagerForService(); manager != nil {
+		for _, id := range ids {
+			if id == 0 {
+				continue
+			}
+			if snap, found := manager.SnapshotByUser(id, 0); found {
+				for _, m := range snap.Members {
+					if raid := s.runtimeRaidByMemberLocked(m.UserID); raid != nil && raid.Starting {
+						return party.RuntimePartyResult{Reason: "raid_starting"}, false
+					}
+				}
+			}
+		}
+	}
+	return mutate(), true
 }
 
 func (s *Service) initialRuntimeRaidMembersLocked(session *gameSession, sourceID uint16) []runtimeRaidMemberState {
-	return s.preloadInitialRuntimeRaidMembers(session, sourceID)
+	members, _ := s.preloadInitialRuntimeRaidMembers(session, sourceID)
+	return members
 }
 
 func (s *Service) loadRuntimeRaidMemberProfile(charID uint16, group byte, slot byte) runtimeRaidMemberState {
@@ -1724,7 +1880,7 @@ func (s *Service) synchronizeOrdinaryPartyRaidGroups(partyState alignedcmd.Party
 	}
 	s.raidMu.Lock()
 	raid := s.runtimeRaidByMemberLocked(partyState.UserID)
-	if raid == nil {
+	if raid == nil || raid.Starting {
 		s.raidMu.Unlock()
 		return false
 	}
