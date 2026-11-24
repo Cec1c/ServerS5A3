@@ -954,9 +954,19 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	// Queue peers' visual death before their experience transaction and before
 	// the killer's SQL work; otherwise each peer waits behind reward I/O.
 	// Keep progression exactly once even when the killer transport fails.
+	partyDeathStateOnlyPending := false
 	if deathResponseErr == nil && deathNotifyErr == nil {
 		s.broadcastPartyDungeonInstanceDeathNotification(session, runtime,
 			request.RuntimeObjectKey, responseBody, "op39_authoritative_death_before_experience", partyDeathVisualOnly)
+		partyDeathStateOnlyPending = true
+		defer func() {
+			if !partyDeathStateOnlyPending {
+				return
+			}
+			runtime.Room.RecordDeathResponseBody(request.RuntimeObjectKey, responseBody)
+			s.broadcastPartyDungeonInstanceDeathNotification(session, runtime,
+				request.RuntimeObjectKey, responseBody, "op39_authoritative_death_state_fallback", partyDeathStateOnly)
+		}()
 	}
 	timing.mark(3)
 	var monsterExperience currentDungeonMonsterExperienceCommitResult
@@ -1033,6 +1043,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	}
 	// Completion remains after progression. The earlier mailbox entry owns
 	// the visual frame; this one applies scene/quest/final-room state only.
+	partyDeathStateOnlyPending = false
 	s.broadcastPartyDungeonInstanceDeathNotification(session, runtime,
 		request.RuntimeObjectKey, responseBody, "op39_authoritative_progression_committed", partyDeathStateOnly)
 	if stagedStoryForcedCombatEnd != nil {
@@ -1432,7 +1443,12 @@ func (s *Service) replayPartyDungeonAuthoritativeDeathWithBodyLocked(
 				}
 			}
 		case errors.Is(markErr, worldmap.ErrHostileNotBound):
-			// 请求方这一侧没有这个 actor（非敌对 actor 不参与阻挡怪扫描）：只重放通知。
+			if runtime.Room != nil {
+				if repaired, cleared := runtime.Room.ReconcileDefeatedHostiles(runtime.Session); repaired > 0 {
+					sessionSceneMarked = true
+					sessionRoomCleared = cleared
+				}
+			}
 		default:
 			s.logGameEvent(session, "game-dungeon-monster-death-replay-scene-deferred",
 				"dungeon_id", runtime.Dungeon.ID,

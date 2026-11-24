@@ -148,17 +148,20 @@ func (s *Service) advanceCurrentRaidClocks(now time.Time) ([]runtimeRaidState, [
 				errors = append(errors, err)
 				continue
 			}
+			changed := !b.FiendWar.SameProjection(next)
 			b.FiendWar = next
-			syncCurrentFiendWarDungeons(b)
-			b.ProgressVersion++
-			if next.Failed {
-				b.FiendWarEndedAt = now
-				b.TimedOut = true
-				if err := s.freezeCurrentRaidFailureRefundLocked(*state, now); err != nil {
-					errors = append(errors, fmt.Errorf("fiendwar failure refund entitlement: %w", err))
+			if changed {
+				syncCurrentFiendWarDungeons(b)
+				b.ProgressVersion++
+				if next.Failed {
+					b.FiendWarEndedAt = now
+					b.TimedOut = true
+					if err := s.freezeCurrentRaidFailureRefundLocked(*state, now); err != nil {
+						errors = append(errors, fmt.Errorf("fiendwar failure refund entitlement: %w", err))
+					}
 				}
+				states = append(states, cloneRuntimeRaidState(*state))
 			}
-			states = append(states, cloneRuntimeRaidState(*state))
 			continue
 		}
 		if b.Single || b.Anton == nil {

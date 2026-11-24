@@ -367,6 +367,9 @@ func (s *Service) createOrJoinManagedRuntimeParty(joiner, anchor *gameSession) (
 	if manager == nil || !joinerMemberOK || !anchorMemberOK {
 		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "stale_session"}, false
 	}
+	if s.anyStartingRuntimeRaidMember(joinerIdentity.character, anchorIdentity.character) {
+		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "raid_starting"}, false
+	}
 	// SET_PARTY_INFO (op12) is a local client-window operation. It can create
 	// a one-member projection on the invitee before that player accepts an
 	// incoming invite, but it must never steal leadership from the inviter.
@@ -374,8 +377,7 @@ func (s *Service) createOrJoinManagedRuntimeParty(joiner, anchor *gameSession) (
 	// target always joins the target's party, creating that target's lobby when
 	// it does not yet own one. A joiner's old central party is then detached by
 	// RuntimePartyManager.Join as one atomic transition.
-	anchorParty, anchorFound := s.bootstrapManagedRuntimePartyForSession(anchor)
-	var result party.RuntimePartyResult
+	_, anchorFound := s.bootstrapManagedRuntimePartyForSession(anchor)
 	if anchorFound {
 		// Import a pre-central joiner's legacy projection only after the target
 		// is known to own a party. This retains a real old-party survivor
@@ -385,20 +387,28 @@ func (s *Service) createOrJoinManagedRuntimeParty(joiner, anchor *gameSession) (
 			runtimePartyStateSnapshot(joiner).PartyID > 0 {
 			s.bootstrapManagedRuntimePartyForSession(joiner)
 		}
-		result = manager.Join(anchorParty.ID, joinerMember)
-	} else {
-		// EnsureLeader is idempotent for concurrent invite/entry packets. It
-		// never detaches a just-created target lobby as Create would.
-		created := manager.EnsureLeader(anchorMember, runtimePartyStateSnapshot(anchor))
-		if !created.OK {
-			return alignedcmd.PartyState{}, created, false
-		}
-		result = manager.Join(created.Party.ID, joinerMember)
-		if result.PriorLeave == nil && created.PriorLeave != nil {
-			result.PriorLeave = created.PriorLeave
-		}
 	}
-	if !result.OK {
+	anchorCachedState := runtimePartyStateSnapshot(anchor)
+	result, allowed := s.runPartyMutationWithoutStartingRaid(
+		[]uint16{joinerIdentity.character, anchorIdentity.character},
+		func() party.RuntimePartyResult {
+			if liveAnchorParty, liveFound := manager.SnapshotByUser(anchorIdentity.character, anchorIdentity.generation); liveFound {
+				return manager.Join(liveAnchorParty.ID, joinerMember)
+			}
+			// EnsureLeader is idempotent for concurrent invite/entry packets. It
+			// never detaches a just-created target lobby as Create would.
+			created := manager.EnsureLeader(anchorMember, anchorCachedState)
+			if !created.OK {
+				return created
+			}
+			joined := manager.Join(created.Party.ID, joinerMember)
+			if joined.PriorLeave == nil && created.PriorLeave != nil {
+				joined.PriorLeave = created.PriorLeave
+			}
+			return joined
+		},
+	)
+	if !allowed || !result.OK {
 		return alignedcmd.PartyState{}, result, false
 	}
 	if err := s.reconcileManagedPriorPartyLeave(result.PriorLeave, joinerIdentity.character); err != nil {
@@ -568,11 +578,28 @@ func (s *Service) leaveManagedRuntimeParty(identity boundGameSessionCharacter, s
 	if manager == nil {
 		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "party_manager_unavailable"}, false
 	}
+	if !strings.HasPrefix(source, "detach:") && s.anyStartingRuntimeRaidMember(identity.character) {
+		return alignedcmd.PartyState{}, party.RuntimePartyResult{Reason: "raid_starting"}, false
+	}
 	if _, found := manager.SnapshotByUser(identity.character, identity.generation); !found {
 		s.bootstrapManagedRuntimePartyForSession(identity.session)
 	}
 	before, _ := manager.SnapshotByUser(identity.character, 0)
-	result := manager.Leave(identity.character, identity.generation)
+	var result party.RuntimePartyResult
+	if strings.HasPrefix(source, "detach:") {
+		result = manager.Leave(identity.character, identity.generation)
+	} else {
+		var allowed bool
+		result, allowed = s.runPartyMutationWithoutStartingRaid(
+			[]uint16{identity.character},
+			func() party.RuntimePartyResult {
+				return manager.Leave(identity.character, identity.generation)
+			},
+		)
+		if !allowed {
+			return alignedcmd.PartyState{}, result, false
+		}
+	}
 	if !result.OK {
 		return alignedcmd.PartyState{}, result, false
 	}
@@ -706,6 +733,10 @@ func (s *Service) publishAllManagedRuntimeParties() {
 }
 
 func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) error {
+	return s.sendManagedRuntimePartySnapshotsForInitiator(nil, state)
+}
+
+func (s *Service) sendManagedRuntimePartySnapshotsForInitiator(initiator *gameSession, state alignedcmd.PartyState) error {
 	if state.PartyID <= 0 || state.PartyID >= int(^uint16(0)) {
 		return nil
 	}
@@ -714,13 +745,22 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	if !found {
 		return fmt.Errorf("runtime party %d is no longer current", state.PartyID)
 	}
+	var initiatorErr error
 	for _, member := range snapshot.Members {
 		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || identity.generation != member.SessionGeneration {
 			continue
 		}
 		if err := s.sendRuntimePartySnapshot(identity.session, snapshot.StateFor(member.UserID)); err != nil {
-			return err
+			if initiator != nil && identity.session == initiator {
+				initiatorErr = err
+				continue
+			}
+			s.logGameEvent(identity.session, "game-party-snapshot-peer-failed",
+				"party_id", snapshot.ID,
+				"receiver_char_id", member.UserID,
+				"leader_char_id", snapshot.Leader,
+				"error", err)
 		}
 	}
 	// 上面这一轮（op153/op11/op9）里 op9 只描述"收包人自己"；队友那条记录在城镇靠
@@ -729,7 +769,7 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	// 这里对同一场副本里的成员再补一轮完整队伍帧（op153 + 每人一条 op9）。
 	s.sendDungeonPartyFrameRoster(state, "runtime_party_snapshot_dungeon_roster")
 	s.sendCurrentPartyCrossSceneProfiles(snapshot)
-	return nil
+	return initiatorErr
 }
 
 // sendChangeHostRuntimePartySnapshots publishes the committed host projection

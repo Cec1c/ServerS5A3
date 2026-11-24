@@ -633,6 +633,36 @@ func (b *FiendWarBattle) Abandon(dungeon int, now time.Time) error {
 	return nil
 }
 
+// SameProjection reports whether two battle states produce identical client
+// projections so an idle 1s gameplay tick does not replay unchanged progress.
+func (b *FiendWarBattle) SameProjection(other *FiendWarBattle) bool {
+	if b == nil || other == nil {
+		return b == other
+	}
+	return b.MerchantArea == other.MerchantArea &&
+		b.MerchantKind == other.MerchantKind &&
+		b.MerchantDuration == other.MerchantDuration &&
+		b.MerchantExpiresAt.Equal(other.MerchantExpiresAt) &&
+		b.NextUnitID == other.NextUnitID &&
+		b.Complete == other.Complete &&
+		b.Failed == other.Failed &&
+		b.BossWindowDone == other.BossWindowDone &&
+		maps.Equal(b.Symbols, other.Symbols) &&
+		maps.EqualFunc(b.Areas, other.Areas, func(x, y FiendWarAreaState) bool {
+			return x.Enemy == y.Enemy && x.Monster == y.Monster && x.Group == y.Group && x.Warning == y.Warning && x.Deadline.Equal(y.Deadline)
+		}) &&
+		maps.EqualFunc(b.Timers, other.Timers, func(x, y FiendWarTimer) bool {
+			return x.StartedAt.Equal(y.StartedAt) && x.Deadline.Equal(y.Deadline)
+		}) &&
+		maps.Equal(b.DungeonStates, other.DungeonStates) &&
+		maps.Equal(b.GroupAreas, other.GroupAreas) &&
+		maps.Equal(b.MemberAreas, other.MemberAreas) &&
+		maps.EqualFunc(b.RecoveryUntil, other.RecoveryUntil, time.Time.Equal) &&
+		maps.Equal(b.ImprisonCounts, other.ImprisonCounts) &&
+		maps.Equal(b.Retreats, other.Retreats) &&
+		maps.Equal(b.FixtureMazes, other.FixtureMazes)
+}
+
 func (b *FiendWarBattle) Tick(now time.Time) error {
 	if b.MerchantArea != 0 && !b.MerchantExpiresAt.IsZero() && !now.Before(b.MerchantExpiresAt) {
 		b.MerchantArea = 0

@@ -106,6 +106,16 @@ func (s *Service) upgradeTownDisplayPeersForParty(target *gameSession, state ali
 	if len(members) < 2 {
 		return nil
 	}
+	targetIsPartyMember := false
+	for _, member := range members {
+		if member.UserID == target.selectedCharacterID && target.selectedCharacterID != 0 {
+			targetIsPartyMember = true
+			break
+		}
+	}
+	if !targetIsPartyMember {
+		return nil
+	}
 	var identities []boundGameSessionCharacter
 	target.townDisplayMu.Lock()
 	for _, member := range members {

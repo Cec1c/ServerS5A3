@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -472,7 +471,13 @@ func (s *Service) synchronizeRuntimePartyMembersEnterSelect(initiator *gameSessi
 		})
 		cancel()
 		if err != nil {
-			return fmt.Errorf("synchronize party member %d dungeon selector: %w", member.UserID, err)
+			s.logWarn("dnfbridge party enter-select follower sync failed",
+				"party_id", state.PartyID,
+				"leader_char_id", state.UserID,
+				"member_char_id", member.UserID,
+				"source", source,
+				"error", err)
+			continue
 		}
 	}
 	return nil

@@ -18,7 +18,7 @@ func (s *Service) handleCurrentRaidMemberKick(requester *gameSession, op uint16,
 	wasWaiting := s.currentAntonWaitingAreaPresence(target.session)
 	s.raidMu.Lock()
 	live := s.runtimeRaidByMemberLocked(owner.character)
-	if live == nil || live.RaidKey != state.RaidKey || live.LeaderID != owner.character || runtimeRaidMemberIndex(*live, targetID) < 0 || !s.boundGameSessionCharacterCurrent(owner) || !s.boundGameSessionCharacterCurrent(target) {
+	if live == nil || live.RaidKey != state.RaidKey || live.LeaderID != owner.character || live.Starting || runtimeRaidMemberIndex(*live, targetID) < 0 || !s.boundGameSessionCharacterCurrent(owner) || !s.boundGameSessionCharacterCurrent(target) {
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(requester, op)
 	}

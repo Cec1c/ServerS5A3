@@ -29,9 +29,7 @@ func (s *Service) currentRaidAdmissionRule(session *gameSession) (raid.Admission
 	default:
 		return raid.AdmissionRule{}, fmt.Errorf("unsupported raid channel type=%d", session.channel.Type)
 	}
-	s.initialEquipmentMu.Lock()
-	source, err := s.initialEquipmentArchiveLocked()
-	s.initialEquipmentMu.Unlock()
+	source, err := s.currentDungeonRuleSource()
 	if err != nil {
 		return raid.AdmissionRule{}, err
 	}

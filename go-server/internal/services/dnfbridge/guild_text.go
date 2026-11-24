@@ -133,10 +133,7 @@ func (s *Service) refreshCurrentGuildText(ctx context.Context, guildID uint32, s
 			continue
 		}
 		if !notice && peer != source && peer.session.events != nil && peer.session.events.loop != nil {
-			peer.session.guild.mu.Lock()
-			requested := peer.session.guild.memberListRequested
-			peer.session.guild.mu.Unlock()
-			if requested {
+			if s.isCurrentGuildMemberListActive(peer.session) {
 				s.requestCurrentGuildMembershipRefresh(peer, shared)
 			}
 			continue
@@ -175,15 +172,18 @@ func (s *Service) refreshCurrentGuildTextPeerShared(ctx context.Context, guildID
 	if notice {
 		return s.sendCurrentGuildManagementState(peer.session, g)
 	}
-	peer.session.guild.mu.Lock()
-	requested := peer.session.guild.memberListRequested
-	peer.session.guild.mu.Unlock()
-	if requested || peer == source {
-		trigger := "membership"
-		if source.session == nil {
-			trigger = "presence"
+	if peer != source {
+		if !s.isCurrentGuildMemberListActive(peer.session) {
+			return nil
 		}
-		return s.handleCurrentGuildMemberListObservedShared(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger, shared)
+		if sessionInDungeon(peer.session) {
+			s.guildRosterCounter(guildRefreshDeferred, 1)
+			return nil
+		}
 	}
-	return nil
+	trigger := "membership"
+	if source.session == nil {
+		trigger = "presence"
+	}
+	return s.handleCurrentGuildMemberListObservedShared(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger, shared)
 }

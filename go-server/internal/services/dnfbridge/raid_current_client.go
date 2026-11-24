@@ -139,13 +139,8 @@ func (s *Service) createCurrentRuntimeRaid(session *gameSession, req raid.Curren
 	if session == nil || session.channel.ID <= 0 || session.channel.ID > 255 || s.channelAdvertiseID() < 0 || s.channelAdvertiseID() > 255 {
 		return runtimeRaidState{}, fmt.Errorf("current raid key owner exceeds native byte fields")
 	}
-	s.raidMu.Lock()
-	defer s.raidMu.Unlock()
-	s.ensureRuntimeRaidMapsLocked()
-	if old := s.runtimeRaidByMemberLocked(sourceID); old != nil {
-		return runtimeRaidState{}, fmt.Errorf("character already owns raid membership")
-	}
-	members := s.initialRuntimeRaidMembersLocked(session, sourceID)
+	// Preload member profiles outside raidMu so repository latency never stalls other raids or channels.
+	members, preload := s.preloadInitialRuntimeRaidMembers(session, sourceID)
 	if req.Route == 2 {
 		for i := range members {
 			members[i].GroupIndex = byte(i + 1)
@@ -154,6 +149,17 @@ func (s *Service) createCurrentRuntimeRaid(session *gameSession, req raid.Curren
 	}
 	if req.UIFlags[0] != 0 && len(members) != 1 {
 		return runtimeRaidState{}, fmt.Errorf("single raid has existing party members")
+	}
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	s.ensureRuntimeRaidMapsLocked()
+	for _, member := range members {
+		if old := s.runtimeRaidByMemberLocked(member.CharID); old != nil {
+			return runtimeRaidState{}, fmt.Errorf("character %d already owns raid membership", member.CharID)
+		}
+	}
+	if !s.initialRuntimeRaidPreloadValidLocked(session, sourceID, preload) {
+		return runtimeRaidState{}, fmt.Errorf("ordinary party or member binding changed during raid creation")
 	}
 	state := runtimeRaidState{RaidKey: s.nextRuntimeRaidKeyLocked(session, sourceID), LeaderID: sourceID, RouteOrRaidType: req.Route, NameBytes: append([]byte(nil), req.NameBytes...), Members: members, CurrentLayout: true, CurrentUIFlags: req.UIFlags}
 	s.raids[state.RaidKey] = &state
@@ -171,7 +177,7 @@ func (s *Service) handleCurrentModifyRaid(session *gameSession, op uint16, body 
 	}
 	s.raidMu.Lock()
 	state := s.runtimeRaidByMemberLocked(selectedCharacterID(session))
-	if state == nil || !state.CurrentLayout || state.LeaderID != selectedCharacterID(session) || state.Started || state.RouteOrRaidType != req.Route || (state.RouteOrRaidType == 2 && req.UIFlags != [2]byte{}) || (req.UIFlags[0] != 0 && len(state.Members) != 1) {
+	if state == nil || !state.CurrentLayout || state.LeaderID != selectedCharacterID(session) || state.Started || state.Starting || state.RouteOrRaidType != req.Route || (state.RouteOrRaidType == 2 && req.UIFlags != [2]byte{}) || (req.UIFlags[0] != 0 && len(state.Members) != 1) {
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}

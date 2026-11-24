@@ -131,7 +131,7 @@ func (s *Service) handleCurrentRaidApproval(session *gameSession, op uint16, req
 	}
 	s.raidMu.Lock()
 	state := s.raids[pending.raidKey]
-	if s.currentRaidApplications[req.TargetID] != pending || !pending.expires.After(time.Now()) || state == nil || state != pending.raidOwner || !state.CurrentLayout || state.LeaderID != leader.character || state.Started || state.CurrentUIFlags[0] != 0 || len(state.Members) >= currentRaidMemberMaximum(*state) || applicant.channel.ID != session.channel.ID || applicant.channel.Type != session.channel.Type || s.runtimeRaidByMemberLocked(req.TargetID) != nil || !s.currentRaidInfoContextVisible(applicant, *state) || row.CharKey != pending.applicant.character {
+	if s.currentRaidApplications[req.TargetID] != pending || !pending.expires.After(time.Now()) || state == nil || state != pending.raidOwner || !state.CurrentLayout || state.LeaderID != leader.character || state.Started || state.Starting || state.CurrentUIFlags[0] != 0 || len(state.Members) >= currentRaidMemberMaximum(*state) || applicant.channel.ID != session.channel.ID || applicant.channel.Type != session.channel.Type || s.runtimeRaidByMemberLocked(req.TargetID) != nil || !s.currentRaidInfoContextVisible(applicant, *state) || row.CharKey != pending.applicant.character {
 		s.raidMu.Unlock()
 		return s.sendRaidCommandFailure(session, op)
 	}
