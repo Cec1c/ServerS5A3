@@ -145,6 +145,7 @@ func (u dojoSkillTransactions) WithinCharacterSettlement(ctx context.Context, id
 	}
 	return u.base.CharacterSettlement.WithinCharacterSettlement(ctx, id, func(tx repo.Group) error {
 		tx.Skill = dojoSkillStore{tx, u.accountID, id, true, u.requestedTree}
+		tx.Settings = pvpComboSettings{tx.Settings, id}
 		return apply(tx)
 	})
 }
@@ -157,6 +158,7 @@ func DojoRepositories(base repo.Group, accountID, characterID string, requested 
 	}
 	out := base
 	out.Skill = dojoSkillStore{base, accountID, characterID, false, tree}
+	out.Settings = pvpComboSettings{base.Settings, characterID}
 	tx := dojoSkillTransactions{base, accountID, characterID, tree}
 	out.CharacterSkills = tx
 	out.CharacterSettlement = tx
@@ -184,6 +186,9 @@ func PrepareDojoSkills(ctx context.Context, base repo.Group, accountID, characte
 			if err := store.Save(ctx, record); err != nil {
 				return err
 			}
+		}
+		if err := preparePVPCombo(ctx, txStore.base, characterID, time.Now().UTC()); err != nil {
+			return err
 		}
 		out = repo.CloneSkill(record)
 		return nil

@@ -12,6 +12,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfskill "longheng.io/server/internal/modules/dnf/skill"
+	"longheng.io/server/internal/modules/dnf/skillcmd"
 )
 
 const (
@@ -317,6 +318,11 @@ func (s *Service) sendCurrentDarkKnightComboInitialization(
 	if !ok || repos.Skill == nil || repos.Settings == nil {
 		return fmt.Errorf("dark knight combo initialization repositories are unavailable")
 	}
+	var err error
+	repos, err = s.currentChannelSkillRepositories(ctx, session, character, repos)
+	if err != nil {
+		return err
+	}
 	record, found, err := repos.Skill.Load(ctx, character.CharacterID)
 	if err != nil {
 		return fmt.Errorf("load dark knight combo skill record: %w", err)
@@ -495,7 +501,13 @@ func (s *Service) sendCurrentDarkKnightComboPreload(
 		if !valid || job != darkcombo.Job || character.Slot < 0 || character.Slot > 0xff {
 			continue
 		}
-		pages, found, err := darkcombo.LoadPages(ctx, repos.Settings, character.CharacterID)
+		settings := repos.Settings
+		if isPVPChannel(session.channel) {
+			// Preload is read-only and precedes character selection. Legacy PK
+			// characters are seeded by the selected-character initializer.
+			settings = skillcmd.PVPRepositories(repos, character.AccountID, character.CharacterID).Settings
+		}
+		pages, found, err := darkcombo.LoadPages(ctx, settings, character.CharacterID)
 		if err != nil {
 			return fmt.Errorf("load dark knight combo preload %s: %w", character.CharacterID, err)
 		}
@@ -842,16 +854,24 @@ func (s *Service) currentDarkKnightComboCharacter(session *gameSession) (dnfrepo
 	if !ok || job != darkcombo.Job {
 		return dnfrepo.CharacterRecord{}, dnfrepo.Group{}, fmt.Errorf("character %s is not dark knight", characterID)
 	}
+	repos, err = s.currentChannelSkillRepositories(ctx, session, character, repos)
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, dnfrepo.Group{}, err
+	}
 	return character, repos, nil
 }
 
 func (s *Service) buildComboAwareCommittedSkillBody(ctx context.Context, character dnfrepo.CharacterRecord, record dnfrepo.SkillRecord, commands map[uint16][]byte) ([]byte, []int, error) {
+	repos, _ := s.repositoryGroup()
+	return s.buildComboAwareSkillBodyFromRepositories(ctx, repos, character, record, commands)
+}
+
+func (s *Service) buildComboAwareSkillBodyFromRepositories(ctx context.Context, repos dnfrepo.Group, character dnfrepo.CharacterRecord, record dnfrepo.SkillRecord, commands map[uint16][]byte) ([]byte, []int, error) {
 	job, valid := characterJobByte(character)
 	if !valid || job != darkcombo.Job {
 		return buildCurrentSceneSkillInfoBody(record, record.Layouts[dnfrepo.ActiveSkillTree(record)], commands)
 	}
-	repos, ok := s.repositoryGroup()
-	if !ok {
+	if repos.Skill == nil || repos.Settings == nil {
 		return nil, nil, fmt.Errorf("连招仓储未就绪")
 	}
 	s.initialSkillsMu.Lock()
@@ -867,8 +887,23 @@ func (s *Service) sendCommittedDarkKnightSkillRefresh(session *gameSession, char
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	repos, _ := s.repositoryGroup()
+	var err error
+	repos, err = s.currentChannelSkillRepositories(ctx, session, character, repos)
+	if err != nil {
+		return err
+	}
+	if session != nil && isPVPChannel(session.channel) {
+		var found bool
+		record, found, err = repos.Skill.Load(ctx, character.CharacterID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fmt.Errorf("PK combo skill record is unavailable")
+		}
+	}
 	commands := s.loadSkillCommandProjection(ctx, repos, character.CharacterID)
-	body, _, err := s.buildComboAwareCommittedSkillBody(ctx, character, record, commands)
+	body, _, err := s.buildComboAwareSkillBodyFromRepositories(ctx, repos, character, record, commands)
 	if err != nil {
 		return err
 	}

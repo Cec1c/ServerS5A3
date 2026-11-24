@@ -128,7 +128,10 @@ func (s *Service) startCurrentPVPRoomLocked(room *currentPVPRoom, owner *gameSes
 	if combatants < 2 {
 		return reject(22, "fewer_than_two_combatants")
 	}
-	if (room.battleMode == 2 || room.battleMode == 3 || room.battleMode == 5 || room.battleMode == 8) && (red == 0 || red != blue) {
+	if room.battleMode == 3 && (red == 0 || blue == 0) {
+		return reject(14, "relay_requires_two_teams")
+	}
+	if (room.battleMode == 2 || room.battleMode == 5 || room.battleMode == 8) && (red == 0 || red != blue) {
 		return reject(14, "unbalanced_teams")
 	}
 	if err := s.ensureCurrentPVPMapOrderLocked(); err != nil {

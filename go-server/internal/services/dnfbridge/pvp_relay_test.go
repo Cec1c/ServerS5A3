@@ -78,7 +78,18 @@ func relayTestSelection(t *testing.T, players []*gameSession, counts [2]int) [2]
 	}
 	wire = wire[1:]
 	for side, count := range counts {
-		if len(wire) < 2 || int(wire[1]) != count || len(wire) < 2+3*count {
+		if len(wire) < 2 {
+			t.Fatalf("missing group: %x", wire)
+		}
+		if count > 0 && wire[1] == 0 {
+			selected[side] = wire[0]
+			if selected[side] >= 4 || int(selected[side]%2) != side {
+				t.Fatalf("invalid default fighter: %x", wire)
+			}
+			wire = wire[2:]
+			continue
+		}
+		if int(wire[1]) != count || len(wire) < 2+3*count {
 			t.Fatalf("invalid dice rows: %x", wire)
 		}
 		selected[side] = wire[0]

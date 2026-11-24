@@ -18,8 +18,8 @@ type currentPVPRelayMatch struct {
 	pending   bool
 	phase     uint64
 	selection []byte
-	// Current native clients start relay selection with C2S112 and do not
-	// send C2S298. Their room notifications cannot be gated on that opcode.
+	// Older clients begin selection with C2S112 without sending C2S298.
+	// The relay-ready client patch sends C2S298 after entering state 8.
 	requestDriven bool
 }
 
@@ -109,6 +109,15 @@ func (s *Service) rollCurrentPVPRelayLocked(room *currentPVPRoom) {
 	if len(candidates[0])+len(candidates[1]) == 0 {
 		return // All substitution requests were withdrawn.
 	}
+	// Keep the existing dice behavior when somebody applies. With no active
+	// requests, ascending room seats define the next fighter on each side.
+	roll := false
+	for seat, requested := range m.requested {
+		if requested && room.combatant(seat) && !room.match.dead[seat] {
+			roll = true
+			break
+		}
+	}
 	var w packetWriter
 	w.writeByte(2)
 	for side, seats := range candidates {
@@ -117,6 +126,12 @@ func (s *Service) rollCurrentPVPRelayLocked(room *currentPVPRoom) {
 			// the relay HP/MP carry-over logic.
 			w.writeByte(255)
 			w.writeByte(0)
+			continue
+		}
+		if !roll {
+			m.selected[side] = seats[0]
+			w.writeByte(seats[0])
+			w.writeByte(0) // A direct selection does not trigger DICE_ROLL.
 			continue
 		}
 		// Scores are server-owned rolls from 1 through 100. Sample without
@@ -151,7 +166,7 @@ func (s *Service) rollCurrentPVPRelayLocked(room *currentPVPRoom) {
 			}
 		}
 	}
-	s.logGameEvent(room.members[room.manager].session, "game-pvp-relay-selected", "room_id", room.id, "selected", m.selected)
+	s.logGameEvent(room.members[room.manager].session, "game-pvp-relay-selected", "room_id", room.id, "selected", m.selected, "dice", roll)
 }
 
 func (s *Service) handleCurrentPVPRelayRequestFight(session *gameSession, body []byte) error {
@@ -173,9 +188,9 @@ func (s *Service) handleCurrentPVPRelayRequestFight(session *gameSession, body [
 	}
 	initial := m.choosing && len(m.selection) == 0
 	if initial {
-		// The real relay trace has op45 -> C2S112 on both clients, with no
-		// load packets. Start the shared selection window on the first
-		// request; teammates need not all click to become dice candidates.
+		// Preserve older clients that only announce readiness with C2S112.
+		// Updated clients also schedule the window through C2S298, so a
+		// click is optional and does not reset an already running timer.
 		m.requestDriven = true
 	} else if (!m.loaded[seat] && !m.requestDriven) || m.choosing || room.relayFighter(seat) {
 		return nil
