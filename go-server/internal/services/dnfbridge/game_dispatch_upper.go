@@ -21,8 +21,29 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 	defer func() {
 		s.performanceUpperEnd(stage, packet.Header.MsgID, packet.Header.Classification, started, resultErr)
 	}()
+	// ★ 这道闸只在 GM 编辑保护开启时生效：会话必须先从 class1/op1 登录包里的启动器
+	// 令牌认领账号，否则第一条上行业务包就被拒。
+	//
+	// 2026-11-04 22:26 现场：90CN 打开 DNFBRIDGE_GM_EDIT_PROTECTION 后，玩家
+	// 1173049301（dnf:10039）连上 58ms 就被踢，客户端一直停在「正在连接服务器」。
+	// 原因是他那次启动的客户端登录包里**没有令牌**（`dnf90_web_accounts_tokens`
+	// 里那条令牌 use_count=0、last_used_at 为 NULL），于是走到下面的拒绝分支。
+	// 从启动器重新启动一次、拿到新令牌后立刻恢复正常（22:36:18 绑定成功）。
+	//
+	// 之前这条拒绝**一条日志都不留**（拒绝发生在 meta 日志之前），排查只能靠反查
+	// 错误哈希。这里补一条 WARN，下次一眼可见。
 	if s.gmEditProtectionEnabled() && !session.accountFromToken {
 		if packet.Header.MsgID != 1 || packet.Header.Classification != dnfproto.DefaultChannelClassification {
+			s.logWarn("dnfbridge gm edit protection rejected unauthenticated session",
+				"conn_id", session.connID,
+				"channel_id", session.channel.ID,
+				"msg_id", packet.Header.MsgID,
+				"classification", packet.Header.Classification,
+				"client_ip", session.clientIP,
+				"account_id", session.accountID,
+				"account_from_token", false,
+				"reason", "login_packet_without_launcher_token",
+				"action", "relaunch_from_launcher")
 			return errPlayerAuthentication
 		}
 		if s.options.playerStrict {
@@ -32,6 +53,24 @@ func (s *Service) handleGameUpper(session *gameSession, raw []byte) (resultErr e
 		}
 		s.bindGameSessionAccountFromLoginToken(session, packet.Header.Classification, packet.Body)
 		if !session.accountFromToken {
+			// ★ 这三个字段是 2026-11-06 补的，专治「现场分不清是没带还是位置不对」：
+			//   token_present=false 且 body_len 正常 ⇒ 登录包里真的没有 32 位令牌
+			//     （客户端这次启动没把启动串第 5 段写进包里，重开客户端即可恢复）；
+			//   token_present=true  ⇒ 令牌解析到了但认不出账号，上面必然还有一条
+			//     `login token not recognised`，看它的 session_account_id 定位。
+			//   body_len 用来排除「包被截断/不是登录包」这种解析层面的意外。
+			s.logWarn("dnfbridge gm edit protection rejected unauthenticated session",
+				"conn_id", session.connID,
+				"channel_id", session.channel.ID,
+				"msg_id", packet.Header.MsgID,
+				"classification", packet.Header.Classification,
+				"client_ip", session.clientIP,
+				"account_id", session.accountID,
+				"account_from_token", false,
+				"reason", "login_token_missing_or_unrecognised",
+				"token_present", session.loginTokenSeen,
+				"body_len", len(packet.Body),
+				"action", "relaunch_from_launcher")
 			return errPlayerAuthentication
 		}
 	}

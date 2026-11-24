@@ -292,6 +292,11 @@ func (s *Service) currentSpendTimeRuntimeCatalogIfAvailable(ctx context.Context)
 		// Let a fresh session retry while retaining real resource errors.
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			s.spendTimeCatalogLoadErr = err
+			// 只在首次缓存时记一次：运维从 server.log 就能看到原文，不用反查摘要。
+			s.logWarn("dnf spend-time catalog rejected; online activities disabled until PVF is fixed and server reloaded",
+				"source", dnfonlineevent.AttendanceEventPVFPath,
+				"pcroom_source", dnfonlineevent.PCRoomTimePointPVFPath,
+				"reason", err.Error())
 		}
 		return nil, true, err
 	}
@@ -337,7 +342,19 @@ func (s *Service) sendCurrentSpendTimeInitialStateOnce(
 	defer cancel()
 	catalog, available, err := s.currentSpendTimeRuntimeCatalogIfAvailable(ctx)
 	if err != nil {
-		return fmt.Errorf("load current spend-time catalog: %w", err)
+		// 目录加载失败只关闭在线活动，不能打断登录。2026-11-03 90CN 上线的
+		// PVF 把 etc/pcroomtimepoint.etc 的每日奖励改成 5 档，而原生面板只有
+		// 4 档。这里原来 return err，于是每一次“选角 → 城镇”都在这一步断线：
+		//   initialize selected town actor before transition: load current
+		//   spend-time catalog: pcroom [daily reward items] has invalid shape
+		// 与马战目录同口径：记一条可 grep 的降级事件后继续。不回退 2347、不伪造
+		// 奖励；错误仍缓存在 spendTimeCatalogLoadErr，并由加载处记 WARN。
+		s.logGameEvent(session, "game-spend-time-initialization-deferred",
+			"source", source,
+			"char_id", characterID,
+			"reason", "load current spend-time catalog: "+err.Error(),
+			"impact", "online_activity_unavailable_login_continues")
+		return nil
 	}
 	if !available || catalog == nil {
 		s.logGameEvent(session, "game-spend-time-initialization-deferred",
@@ -560,9 +577,6 @@ func (s *Service) sendCurrentSpendTimeProtocolState(
 		}
 	}
 	// 保留108与所属在线活动状态紧邻，然后同步周常逐图开放表。
-	if err := s.sendCurrentMileageState(session); err != nil {
-		return descriptorSent, err
-	}
 	// 同一进程省略108时，换角仍需恢复855；写失败重试时发送整组状态。
 	if err := s.sendCurrentDayDungeonSchedule(session, dayDungeonEvent, "活动目录与所属状态之后"); err != nil {
 		return descriptorSent, err
@@ -976,6 +990,18 @@ func (s *Service) settleCurrentSpendTimeClockLocked(
 			IntervalTo:   segmentEnd,
 		})
 		if err != nil {
+			// 观测被账本拒绝时把这一段的坐标钉下来：cursor 是会话自己的观察游标，
+			// segment_end 是本次结算终点（endsAtBoundary 时正好等于服务日边界），
+			// interval_to 是墙钟当前时间。三者一起才能判断是"游标停在昨天"
+			// 还是"服务日没翻"。线上此前只有一句哨兵文案，无法区分（2026-11-21）。
+			s.logGameEvent(session, "game-spend-time-observation-rejected",
+				"char_id", characterID,
+				"cursor", spendTimeAnchorText(cursor),
+				"segment_end", segmentEnd.Format(time.RFC3339),
+				"interval_to", intervalTo.Format(time.RFC3339),
+				"at_boundary", endsAtBoundary,
+				"online_seconds", session.spendTime.onlineSeconds,
+				"error", err)
 			return partialResult(), err
 		}
 		changed = changed || result.Changed
@@ -1005,6 +1031,18 @@ func (s *Service) settleCurrentSpendTimeClockLocked(
 			if !endsAtBoundary {
 				session.spendTime.anchor = segmentEnd
 			}
+			// 跨边界时游标**故意不推进**，下一次结算会重放 [cursor, 边界] 这段。
+			// 只要重放一直失败，这段就永远结算不完 —— 这是"在线奖励面板一开就
+			// 掉线"能持续一整早上的机制。把 anchor_advanced 与 claim_at 记下来，
+			// 下次再出现同类现场就不必从 40 条时间分布反推。
+			s.logGameEvent(session, "game-spend-time-claim-deferred",
+				"char_id", characterID,
+				"cursor", spendTimeAnchorText(cursor),
+				"segment_end", segmentEnd.Format(time.RFC3339),
+				"at_boundary", endsAtBoundary,
+				"anchor_advanced", !endsAtBoundary,
+				"online_seconds", session.spendTime.onlineSeconds,
+				"error", claimErr)
 			return currentSpendTimeSettlementResult{
 				changed:     changed || previousCompleted != session.spendTime.completedStages || len(rewardItems) != 0,
 				rewardItems: rewardItems,
@@ -1175,7 +1213,6 @@ func (s *Service) buildCurrentCompleteActivityInfoForDay(session *gameSession, c
 		s.currentAttendanceMarbleAvailable(),
 		s.currentPortedCatalogAt(s.gameplayNow()),
 		s.currentBattlePassEntryAvailable(),
-		s.options.mileageShopEnabled,
 	)
 	if err != nil {
 		return nil, fiendWarAvailable, err

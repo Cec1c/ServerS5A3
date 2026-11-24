@@ -100,10 +100,6 @@ func (s *Service) startGameSessionEvents(ctx context.Context, session *gameSessi
 				if !ran && task.discard != nil {
 					task.discard()
 				}
-				if task.source != "game-session-shutdown" {
-					session.guild.eventLoopCompletedSeq.Add(1)
-					s.resumePendingGuildMembershipRefresh(session)
-				}
 			}()
 			if session.loginRevoked.Load() && task.source != "game-session-shutdown" {
 				if task.async {
@@ -340,8 +336,20 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if err := s.stopGameSessionEvents(context.Background(), session); err != nil {
-				return
+			// ★ 必须给一个**有界**的 ctx：这里原来是 context.Background()，
+			// 一旦事件循环的 processor 卡死（已知的 database/sql closingMutex
+			// 读写锁互等），stopGameSessionEvents 会永久阻塞在这个 goroutine 里。
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), gameSessionShutdownWait)
+			defer stopCancel()
+			if err := s.stopGameSessionEvents(stopCtx, session); err != nil {
+				// ★ 绝不能 return —— retiring 栅栏挂在下面的 finished() 上，
+				// 等不到就是该账号被永久锁死：之后每次登录都在
+				// authenticateRemoteLogin 里等满 accountAPIWriteTimeout 再失败，
+				// 客户端表现是「登录以后一直正在连接服务器」。
+				// 旧会话早已 loginRevoked + transport 关闭，放行新登录是安全的。
+				s.logWarn("dnfbridge deferred session stop failed, releasing retirement fence anyway",
+					"conn_id", session.connID,
+					"error", err)
 			}
 			if !cleanupCompleted.Load() {
 				_ = cleanup()

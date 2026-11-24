@@ -141,12 +141,68 @@ func (s *Service) handleCurrentPCRoomTimePoint(session *gameSession, op uint16, 
 	if c == nil || c.nativePCRoom == nil || session.spendTime.characterID != session.selectedCharacterID || session.spendTime.characterGeneration != session.characterGeneration {
 		return true, nil
 	}
-	settlement, err := s.settleCurrentSpendTimeClockLocked(session, s.gameplayNow())
-	if err != nil {
-		return true, err
+	settlement, settleErr := s.settleCurrentSpendTimeClockLocked(session, s.gameplayNow())
+	if settleErr != nil {
+		s.logCurrentPCRoomSettlementDeferred(session, "spend_time_clock", settleErr)
+	} else if settlement.claimErr != nil {
+		s.logCurrentPCRoomSettlementDeferred(session, "spend_time_claim", settlement.claimErr)
 	}
-	if settlement.claimErr != nil {
-		return true, settlement.claimErr
+	// 228 面板状态自己还要结一次账，这一步失败同样只降级成"面板显示旧值"。
+	// 旧实现把上面两个错误直接 return 给 read loop，read loop 当致命错误关连接，
+	// 客户端表现就是"网络中断"——现场时间线见下方 helper 注释。
+	if sendErr := s.sendCurrentPCRoomTimePoint(session, c, daily, period); sendErr != nil {
+		s.logCurrentPCRoomSettlementDeferred(session, "pcroom_state", sendErr)
 	}
-	return true, s.sendCurrentPCRoomTimePoint(session, c, daily, period)
+	return true, nil
+}
+
+// logCurrentPCRoomSettlementDeferred 记录"在线奖励面板结算失败但会话继续"。
+//
+// 2026-11-21 现场（90CN，账号 msp / dnf:10001，22:30 挂机到次日 07:16）：
+//
+//	07:16:4x    RECV type=632 ENUM_CMDPACKET_GET_PCROOM_TIME_POINT_ITEM（点开面板）
+//	07:16:46.767 WARN dnfbridge handle game packet failed
+//	             error="online-event observation is older than persisted progress"
+//	07:16:47.7   网关 Game 连接已关闭（上行 broken pipe / 下行 eof）
+//	             ⇒ 客户端弹「网络中断」，整夜在线被当成掉线
+//
+// 当晚同一错误在全服出现 40 次、全部落在 06:00 服务日边界之后；而网关泡点、
+// 反外挂上报、TCP 存活时长都证明网络一直是好的。面板数字陈旧只是 UI 层的
+// 事实，绝不能作为致命错误关掉会话——同文件 574-590 行的 PC 房/马战初始化
+// 早已按"降级 + 继续"处理，这里是同一口径。
+func (s *Service) logCurrentPCRoomSettlementDeferred(session *gameSession, stage string, err error) {
+	if s == nil || err == nil {
+		return
+	}
+	now := s.gameplayNow()
+	fields := []any{
+		"stage", stage,
+		"now", now.Format(time.RFC3339),
+		"impact", "panel_stale_session_continues",
+		"error", err,
+	}
+	if session == nil {
+		s.logWarn("dnfbridge pcroom timepoint settlement deferred", fields...)
+		return
+	}
+	args := append([]any{"conn_id", session.connID, "char_id", session.selectedCharacterID}, fields...)
+	if c := session.spendTime.catalog; c != nil {
+		args = append(args,
+			"event_id", c.definition.ID,
+			"service_day", c.definition.ServiceDay(now),
+			"anchor", spendTimeAnchorText(session.spendTime.anchor),
+			"online_seconds", session.spendTime.onlineSeconds,
+			"completed_stages", session.spendTime.completedStages,
+		)
+	}
+	s.logWarn("dnfbridge pcroom timepoint settlement deferred", args...)
+}
+
+// spendTimeAnchorText 把观察游标写进日志。零值代表"这条会话还没建立游标"，
+// 与"游标停在昨天"是两种完全不同的现场，必须能一眼分开。
+func spendTimeAnchorText(anchor time.Time) string {
+	if anchor.IsZero() {
+		return "zero"
+	}
+	return anchor.Format(time.RFC3339)
 }

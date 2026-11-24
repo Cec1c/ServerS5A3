@@ -181,7 +181,12 @@ func (s *Service) sendCurrentPortedSelectorCatalog(session *gameSession) error {
 	defer cancel()
 	c, available, err := s.currentSpendTimeRuntimeCatalogIfAvailable(ctx)
 	if err != nil {
-		return err
+		// 与城镇初始化同口径：活动目录 PVF 损坏只让选角页活动目录不出现，
+		// 不能让 Lv 挑战/等级瞄准的选角流程断线。
+		s.logGameEvent(session, "game-ported-selector-catalog-deferred",
+			"reason", "load current spend-time catalog: "+err.Error(),
+			"impact", "selector_activity_catalog_unavailable_flow_continues")
+		return nil
 	}
 	if !available {
 		return onlineevent.ErrOwnerUnavailable

@@ -181,7 +181,11 @@ func SettlePCRoomTimePoint(ctx context.Context, repos dnfrepo.Group, c *PCRoomTi
 		}
 		date, _ := calendarDay(cmd.ClockDefinition.calendar(), cmd.ClockDefinition.boundary(), cmd.Now)
 		if clock.CalendarDate > date {
-			return ErrObservationStale
+			// 带上两侧日期：这条错误以前只有哨兵文案，线上只能看到
+			// "online-event observation is older than persisted progress"，
+			// 无法判断是服务日没翻还是账本抢跑（2026-11-21 msp 现场）。
+			return fmt.Errorf("%w: pcroom clock_date=%s service_day=%s now=%s",
+				ErrObservationStale, clock.CalendarDate, date, cmd.Now.Format(time.RFC3339))
 		}
 		var seconds uint32
 		if clock.CalendarDate == date {
@@ -210,7 +214,11 @@ func SettlePCRoomTimePoint(ctx context.Context, repos dnfrepo.Group, c *PCRoomTi
 				}
 			}
 			if state.Date > date {
-				return ErrObservationStale
+				// 同上：state.Date 是 228 面板账本自己记的日期，
+				// service_day 是按 cmd.Now 现算的服务日。两者不一致时
+				// 只有数字能说明是谁先进到了下一天。
+				return fmt.Errorf("%w: pcroom state_date=%s service_day=%s now=%s",
+					ErrObservationStale, state.Date, date, cmd.Now.Format(time.RFC3339))
 			}
 			if state.Date != date {
 				state.Date = date

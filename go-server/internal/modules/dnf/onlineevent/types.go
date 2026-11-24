@@ -158,6 +158,16 @@ func (d Definition) boundary() DailyBoundary {
 	return defaultDailyBoundary
 }
 
+// ServiceDay 返回 at 落在该定义所属服务日的日期（YYYY-MM-DD）。
+//
+// 只给诊断日志复用 owner / pcroom 的内部口径（calendar() + boundary()），
+// 不参与任何记账判断：调用方拿它和持久化状态里的日期对比，是为了把
+// "哪一侧的天数先进去了"直接写进日志，而不是改变结算行为。
+func (d Definition) ServiceDay(at time.Time) string {
+	date, _ := calendarDay(d.calendar(), d.boundary(), at)
+	return date
+}
+
 func (d Definition) stage(stageID string) (Stage, bool) {
 	stageID = strings.TrimSpace(stageID)
 	for _, stage := range d.Stages {

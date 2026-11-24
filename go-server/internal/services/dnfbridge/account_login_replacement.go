@@ -67,6 +67,35 @@ func (p *accountLoginSessions) finished(session *gameSession) {
 	}
 }
 
+// forceReleaseRetirement 强制拆掉某个账号的 retiring 栅栏。
+//
+// 只在 authenticateRemoteLogin 等栅栏超时时调用。此时旧会话的事件循环几乎必然
+// 已经卡死（processor 停在 database/sql 的 closingMutex 互等上），finished()
+// 永远不会被调用；再等下去就是该账号被永久锁死，只有重启服务端才能恢复。
+//
+// 安全性：这些会话早已 loginRevoked=true —— callGameSession /
+// postGameSessionCharacterEvent / tryPostGameSessionCharacterEvent 在入口处
+// 直接返回 errLoginReplaced，transportCtx 也已 cancel、conn 已 close，
+// 不可能再产生任何副作用。这里只是把「等它自己收尾」改成「不再等」。
+//
+// 返回是否真的拆掉了栅栏（便于调用方打点）。调用方不得持有 p.mu。
+func (p *accountLoginSessions) forceReleaseRetirement(account string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	retirement := p.retiring[account]
+	if retirement == nil {
+		return false
+	}
+	// 会话已经从事件循环里消失了，别再让 p.sessions 挂着它 ——
+	// 否则后续 replace() 会把它当成"在线"再处理一遍。
+	for session := range retirement.sessions {
+		delete(p.sessions, session)
+	}
+	close(retirement.done)
+	delete(p.retiring, account)
+	return true
+}
+
 func (a *accountAPIServer) handleLoginReplacement(ctx context.Context, w http.ResponseWriter, request accountAPIRequest, accountID, verifiedHash, ip string) {
 	p := &a.service.accountLogins
 	p.mu.Lock()
@@ -208,6 +237,20 @@ func (s *Service) authenticateRemoteLogin(session *gameSession, token string) (s
 				continue // Another login may have superseded this token while waiting.
 			case <-ctx.Done():
 				s.logWarn("dnfbridge login retirement wait failed", "conn_id", session.connID, "stage", "old_session_cleanup", "wait_ms", time.Since(started).Milliseconds())
+				// ★ 兜底解卡：旧会话的 retiring 栅栏只有在 finished() 里才会 close，
+				// 而 finished() 依赖事件循环停得下来。processor 一旦卡死在
+				// database/sql 的 closingMutex 互等上，栅栏就永不释放，该账号
+				// 此后每次登录都要等满 accountAPIWriteTimeout 再失败。
+				// 这里强制拆掉栅栏：被拆的会话早已 loginRevoked、transport 已关闭，
+				// 不可能再产生任何副作用，只是不再等它自己收尾。
+				// 本次登录仍按原逻辑失败一次（不提前放行，避免旧会话的 cleanup
+				// 还在落盘时新会话进来），下一次登录即可直接通过。
+				if p.forceReleaseRetirement(account) {
+					s.logWarn("dnfbridge login retirement fence force released",
+						"conn_id", session.connID,
+						"account", account,
+						"wait_ms", time.Since(started).Milliseconds())
+				}
 				return "", ctx.Err()
 			}
 		}

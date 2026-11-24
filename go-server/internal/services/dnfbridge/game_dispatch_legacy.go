@@ -157,7 +157,22 @@ func (s *Service) handleGameCommand(session *gameSession, cmd byte, typ uint16, 
 
 func (s *Service) handleGameCommandRequest(session *gameSession, request gameplayRequest) error {
 	cmd, typ, body := request.Classification, request.Opcode, request.Body
+	// 与 `handleGameUpper` 同一道闸、同一个理由；旧协议帧根本没有"登录包"可带令牌，
+	// 所以 GM 保护开着时这里拒绝的一定是没认领账号的会话。同样补一条 WARN，
+	// 否则现场只能看到一个被脱敏的 `player authentication required`（见那边的注释）。
 	if s.gmEditProtectionEnabled() && (session == nil || !session.accountFromToken) {
+		if session != nil {
+			s.logWarn("dnfbridge gm edit protection rejected unauthenticated session",
+				"conn_id", session.connID,
+				"channel_id", session.channel.ID,
+				"cmd", cmd,
+				"opcode", typ,
+				"client_ip", session.clientIP,
+				"account_id", session.accountID,
+				"account_from_token", false,
+				"reason", "legacy_packet_without_account_token",
+				"action", "relaunch_from_launcher")
+		}
 		return errPlayerAuthentication
 	}
 	if dnfenum.GameCmd(cmd) != dnfenum.GameCmdCommand {
@@ -198,6 +213,9 @@ func (s *Service) handleGameCommandRequest(session *gameSession, request gamepla
 	}
 	if typ == partyNativeConnectionOpcode {
 		return s.handlePartyNativeConnectionReply(session, body)
+	}
+	if typ == dungeonPeerNativeRegistrationOpcode {
+		return s.handleDungeonPeerNativeRegistrationReply(session, body)
 	}
 	if s.options.currentClientVersion == "official-24.9" && typ == official249PrevVillageCmdID {
 		return s.handleCurrentPrevVillage(session, body)
