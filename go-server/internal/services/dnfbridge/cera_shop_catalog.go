@@ -43,6 +43,7 @@ type pvfCeraShopCatalog struct {
 	products              map[uint32]currentCeraShopProduct
 	bonusByCommodity      map[uint32][]currentCeraShopBonusItem
 	festivals             *festival.Catalog
+	festivalSkipped       int
 	items                 *pvfDungeonDropCatalog
 	source                dnfpvf.Source
 	accountCargoOnce      sync.Once
@@ -115,7 +116,7 @@ func newPVFCeraShopCatalog(source dnfpvf.Source) (*pvfCeraShopCatalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	festivals, err := parsePrivateFestivalCatalog(source, products)
+	festivals, festivalSkipped, err := parsePrivateFestivalCatalog(source, products)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +130,7 @@ func newPVFCeraShopCatalog(source dnfpvf.Source) (*pvfCeraShopCatalog, error) {
 			bonusByCommodity[discount] = append([]currentCeraShopBonusItem(nil), gifts...)
 		}
 	}
-	return &pvfCeraShopCatalog{products: products, discountCoupons: discounts, bonusByCommodity: bonusByCommodity, festivals: festivals, items: items, source: source}, nil
+	return &pvfCeraShopCatalog{products: products, discountCoupons: discounts, bonusByCommodity: bonusByCommodity, festivals: festivals, festivalSkipped: festivalSkipped, items: items, source: source}, nil
 }
 
 func parseCurrentCeraShopProductSection(
@@ -467,6 +468,7 @@ func (s *Service) currentCeraShopCatalog() (*pvfCeraShopCatalog, error) {
 		s.ceraShopCatalogLoadErr = err
 		return nil, err
 	}
-	s.logPacketEvent("dnf-cera-shop-pvf-catalog-loaded", "products", len(s.ceraShopCatalog.products))
+	s.logPacketEvent("dnf-cera-shop-pvf-catalog-loaded", "products", len(s.ceraShopCatalog.products),
+		"festival_commodities_skipped", s.ceraShopCatalog.festivalSkipped)
 	return s.ceraShopCatalog, nil
 }
