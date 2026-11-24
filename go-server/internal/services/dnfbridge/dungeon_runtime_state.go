@@ -63,6 +63,7 @@ type runtimeDungeonState struct {
 	storyProcDeaths                          map[uint32]dungeonStoryProcDeathReceipt
 	missionInformerRetirements               map[uint32]dungeonMissionInformerRetirement
 	entryCharacterLevel                      int
+	lastMoveBlockedWarnAt                    time.Time
 	entryPartyCount                          int
 	petGrowthEntryPending                    bool // follower runtime installed before the group commits
 	settlementLuckyStar                      dnfdungeon.LuckyStarResult

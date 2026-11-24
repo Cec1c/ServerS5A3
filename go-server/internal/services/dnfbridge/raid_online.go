@@ -33,6 +33,7 @@ type runtimeRaidState struct {
 	TailFlag        byte
 	Members         []runtimeRaidMemberState
 	Started         bool
+	Starting        bool
 	CurrentLayout   bool
 	CurrentUIFlags  [3]byte
 	Battle          *runtimeRaidBattle
@@ -579,7 +580,7 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 		previous = now
 	}
 	sourceID := selectedCharacterID(session)
-	state, ok, err := s.startRuntimeRaidWithEntryCost(session)
+	state, ok, entryCostConsumed, err := s.startRuntimeRaidWithEntryCostPhase(session)
 	markStage("prepare_and_admission")
 	if err != nil {
 		s.logGameEvent(session, "game-raid-start-rejected", "source_char_id", sourceID, "error", err)
@@ -623,8 +624,9 @@ func (s *Service) handleOnlineStartRaid(session *gameSession, typ uint16, body [
 	}
 	markStage("battle_projection")
 	// Reuse the verified container refresh only after a successful group commit.
+	// Phase-two transitions do not consume entry tickets and skip this full refresh.
 	// log/off emit exactly the established success sequence without this refresh.
-	if isCurrentFiendWarChannel(session) || s.raidStartEntryCostMode() == raidStartEntryCostGuardEnforce {
+	if entryCostConsumed && (isCurrentFiendWarChannel(session) || s.raidStartEntryCostMode() == raidStartEntryCostGuardEnforce) {
 		for _, member := range state.Members {
 			peer, found := s.onlineGameSession(member.CharID)
 			if member.CharID == sourceID {
@@ -757,9 +759,13 @@ func normalizeRuntimeRaidMemberState(state byte) byte {
 }
 
 func (s *Service) createRuntimeRaid(session *gameSession, sourceID uint16, req raid.InfoRequest) runtimeRaidState {
+	members := s.preloadInitialRuntimeRaidMembers(session, sourceID)
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	s.ensureRuntimeRaidMapsLocked()
+	if existing := s.runtimeRaidByMemberLocked(sourceID); existing != nil && existing.Starting {
+		return cloneRuntimeRaidState(*existing)
+	}
 	s.removeRuntimeRaidMemberLocked(sourceID)
 	key := s.nextRuntimeRaidKeyLocked(session, sourceID)
 	state := runtimeRaidState{
@@ -768,8 +774,8 @@ func (s *Service) createRuntimeRaid(session *gameSession, sourceID uint16, req r
 		RouteOrRaidType: req.RouteOrRaidType,
 		NameBytes:       append([]byte(nil), req.NameBytes...),
 		TailFlag:        req.TailFlag,
+		Members:         members,
 	}
-	state.Members = s.initialRuntimeRaidMembersLocked(session, sourceID)
 	s.raids[key] = &state
 	return cloneRuntimeRaidState(state)
 }
@@ -778,7 +784,7 @@ func (s *Service) modifyRuntimeRaidInfo(sourceID uint16, req raid.InfoRequest) (
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(sourceID)
-	if state == nil || state.LeaderID != sourceID {
+	if state == nil || state.LeaderID != sourceID || state.Starting {
 		return runtimeRaidState{}, false
 	}
 	state.RouteOrRaidType = req.RouteOrRaidType
@@ -789,6 +795,10 @@ func (s *Service) modifyRuntimeRaidInfo(sourceID uint16, req raid.InfoRequest) (
 
 func (s *Service) removeRuntimeRaidMember(sourceID uint16) (runtimeRaidState, bool, bool) {
 	s.raidMu.Lock()
+	if existing := s.runtimeRaidByMemberLocked(sourceID); existing != nil && existing.Starting {
+		s.raidMu.Unlock()
+		return runtimeRaidState{}, false, false
+	}
 	state, removed, disbanded := s.removeRuntimeRaidMemberLocked(sourceID)
 	var snapshot runtimeRaidState
 	if state != nil {
@@ -822,116 +832,155 @@ func (s *Service) runtimeRaidForMember(sourceID uint16) (runtimeRaidState, bool)
 }
 
 func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRaidState, bool, error) {
+	state, ok, _, err := s.startRuntimeRaidWithEntryCostPhase(session)
+	return state, ok, err
+}
+
+func (s *Service) startRuntimeRaidWithEntryCostPhase(session *gameSession) (runtimeRaidState, bool, bool, error) {
 	sourceID := selectedCharacterID(session)
-	// This bounded repository operation must finish before membership can change.
-	// Never acquire another raid lock from the transaction callback.
 	s.raidMu.Lock()
-	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(sourceID)
 	if state == nil || state.LeaderID != sourceID || len(state.Members) == 0 || len(state.Members) > currentRaidMemberMaximum(*state) {
-		return runtimeRaidState{}, false, &raidStartRejection{message: "请由团长确认攻坚队人数后开始攻坚"}
+		s.raidMu.Unlock()
+		return runtimeRaidState{}, false, false, &raidStartRejection{message: "请由团长确认攻坚队人数后开始攻坚"}
+	}
+	if state.Starting {
+		s.raidMu.Unlock()
+		return runtimeRaidState{}, false, false, &raidStartRejection{message: "攻坚队正在启动，请稍候"}
 	}
 	if state.Started {
 		if !s.currentRaidAuthenticated(session) || state.Battle == nil || state.Battle.MemberAccounts[sourceID] != s.accountIDForSession(session) || state.Battle.ChannelID != session.channel.ID || state.Battle.ChannelType != session.channel.Type {
-			return runtimeRaidState{}, false, nil
+			s.raidMu.Unlock()
+			return runtimeRaidState{}, false, false, nil
 		}
 		ok, err := s.beginCurrentAntonNextPhaseLocked(state, time.Now())
 		if !ok || err != nil {
-			return runtimeRaidState{}, false, err
+			s.raidMu.Unlock()
+			return runtimeRaidState{}, false, false, err
 		}
-		return cloneRuntimeRaidState(*state), true, nil
+		snapshot := cloneRuntimeRaidState(*state)
+		s.raidMu.Unlock()
+		return snapshot, true, false, nil
 	}
-	membersBefore := append([]runtimeRaidMemberState(nil), state.Members...)
-	preserveSolo := s.options.currentClientVersion == "official-24.9" && runtimeRaidKeepsUneditedSolos(*state)
+	for _, member := range state.Members {
+		// A retained offline seat is not a paid admission. Bind/restore or
+		// expiry must resolve it before the current aggregate is frozen.
+		if seat, reserved := s.currentRaidDisconnects[member.CharID]; state.CurrentLayout && reserved && seat.Raid == state {
+			s.raidMu.Unlock()
+			return runtimeRaidState{}, false, false, &raidStartRejection{message: "队员尚未重新连接，请等待队员归队", members: []uint16{member.CharID}}
+		}
+	}
+	// Mark Starting under raidMu so membership cannot mutate while bounded
+	// admission/entry-cost repository I/O runs without holding the global raid lock.
+	raidKey := state.RaidKey
+	state.Starting = true
+	working := cloneRuntimeRaidState(*state)
+	s.raidMu.Unlock()
+
+	startCommitted := false
+	defer func() {
+		if startCommitted {
+			return
+		}
+		s.raidMu.Lock()
+		if s.raids[raidKey] == state {
+			state.Starting = false
+		}
+		s.raidMu.Unlock()
+	}()
+
+	preserveSolo := s.options.currentClientVersion == "official-24.9" && runtimeRaidKeepsUneditedSolos(working)
 	var startProjection runtimeRaidState
 	if preserveSolo {
 		// Automatic admission seats do not request an ordinary party. Resolve
 		// actual parties and explicit recruiting placements before start changes
 		// the client projection from recruiting to active.
 		var intentErr error
-		startProjection, intentErr = s.prepareCurrentRaidStartPartyIntent(*state)
+		startProjection, intentErr = s.prepareCurrentRaidStartPartyIntent(working)
 		if intentErr != nil {
-			s.logGameEvent(session, "game-raid-start-party-intent-rejected", "raid_key", state.RaidKey, "reason", intentErr)
-			return runtimeRaidState{}, false, &raidStartRejection{message: "编队状态已变化，请重新确认队伍，每队最多4人", cause: intentErr}
+			s.logGameEvent(session, "game-raid-start-party-intent-rejected", "raid_key", working.RaidKey, "reason", intentErr)
+			return runtimeRaidState{}, false, false, &raidStartRejection{message: "编队状态已变化，请重新确认队伍，每队最多4人", cause: intentErr}
 		}
+		working.Members = append([]runtimeRaidMemberState(nil), startProjection.Members...)
 	}
-	startCommitted := false
-	defer func() {
-		if startCommitted {
-			return
-		}
-		state.Members = membersBefore
-	}()
-	if preserveSolo {
-		state.Members = append([]runtimeRaidMemberState(nil), startProjection.Members...)
-	}
-	if normalizeRuntimeRaidMemberGroups(state) {
+	if normalizeRuntimeRaidMemberGroups(&working) {
 		s.logGameEvent(session, "game-raid-member-groups-normalized",
-			"raid_key", state.RaidKey,
-			"member_count", len(state.Members),
+			"raid_key", working.RaidKey,
+			"member_count", len(working.Members),
 			"source", "raid_start_default_group_assignment")
 	}
 	if preserveSolo {
-		for i := range state.Members {
-			state.Members[i].OrdinaryPartySolo = startProjection.Members[i].OrdinaryPartySolo
+		for i := range working.Members {
+			working.Members[i].OrdinaryPartySolo = startProjection.Members[i].OrdinaryPartySolo
 		}
 	}
-	if runtimeRaidHasOversizedGroup(*state) {
-		return runtimeRaidState{}, false, &raidStartRejection{message: "每个队伍最多编入4人，请调整编队"}
+	if runtimeRaidHasOversizedGroup(working) {
+		return runtimeRaidState{}, false, false, &raidStartRejection{message: "每个队伍最多编入4人，请调整编队"}
 	}
-	seen := make(map[uint16]bool, len(state.Members))
-	for _, member := range state.Members {
+	seen := make(map[uint16]bool, len(working.Members))
+	for _, member := range working.Members {
 		if member.CharID == 0 {
-			return runtimeRaidState{}, false, &raidStartRejection{message: "攻坚队存在无效角色，请重新确认成员名单"}
+			return runtimeRaidState{}, false, false, &raidStartRejection{message: "攻坚队存在无效角色，请重新确认成员名单"}
 		}
 		if seen[member.CharID] {
-			return runtimeRaidState{}, false, &raidStartRejection{message: "攻坚队成员重复，请重新确认成员名单", members: []uint16{member.CharID}}
+			return runtimeRaidState{}, false, false, &raidStartRejection{message: "攻坚队成员重复，请重新确认成员名单", members: []uint16{member.CharID}}
 		}
-		if member.GroupIndex > currentRaidGroupMaximum(*state) {
-			return runtimeRaidState{}, false, &raidStartRejection{message: "队员组别无效，请重新调整编队", members: []uint16{member.CharID}}
-		}
-		// A retained offline seat is not a paid admission. Bind/restore or
-		// expiry must resolve it before the current aggregate is frozen.
-		if seat, reserved := s.currentRaidDisconnects[member.CharID]; state.CurrentLayout && reserved && seat.Raid == state {
-			return runtimeRaidState{}, false, &raidStartRejection{message: "队员尚未重新连接，请等待队员归队", members: []uint16{member.CharID}}
+		if member.GroupIndex > currentRaidGroupMaximum(working) {
+			return runtimeRaidState{}, false, false, &raidStartRejection{message: "队员组别无效，请重新调整编队", members: []uint16{member.CharID}}
 		}
 		seen[member.CharID] = true
 	}
-	battle, err := s.prepareCurrentRaidBattle(session, cloneRuntimeRaidState(*state))
+	battle, err := s.prepareCurrentRaidBattle(session, cloneRuntimeRaidState(working))
 	if err != nil {
-		return runtimeRaidState{}, false, err
+		return runtimeRaidState{}, false, false, err
 	}
-	waitingScope, err := s.prepareCurrentRaidWaitingBattleScope(session, *state, battle)
+	waitingScope, err := s.prepareCurrentRaidWaitingBattleScope(session, working, battle)
 	if err != nil {
-		return runtimeRaidState{}, false, err
+		return runtimeRaidState{}, false, false, err
 	}
 	if err := s.onlinePlayers.requireRaidStartWaitingArea(waitingScope, ""); err != nil {
-		return runtimeRaidState{}, false, err
+		return runtimeRaidState{}, false, false, err
 	}
 	allowed := false
 	if battle != nil && battle.FiendWar != nil {
-		err = s.consumeCurrentFiendWarEntry(session, *state, battle)
+		err = s.consumeCurrentFiendWarEntry(session, working, battle)
 		allowed = err == nil
 	} else {
-		entryState := cloneRuntimeRaidState(*state)
+		entryState := cloneRuntimeRaidState(working)
 		entryState.Battle = battle
 		allowed, err = s.guardRaidStartEntryCost(session, entryState)
 	}
 	if err != nil || !allowed {
-		return runtimeRaidState{}, false, err
+		return runtimeRaidState{}, false, false, err
 	}
 	// Normal current-client starts retain the resolved solo/explicit-placement
 	// intent. Other layouts keep their historical reset after all admission gates.
 	if !preserveSolo {
-		resetRuntimeRaidSoloProjection(state)
+		resetRuntimeRaidSoloProjection(&working)
 	}
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	if s.raids[raidKey] != state {
+		return runtimeRaidState{}, false, false, &raidStartRejection{message: "攻坚队状态已变化，请重新确认"}
+	}
+	liveUserStates := make(map[uint16]byte, len(state.Members))
+	for _, member := range state.Members {
+		liveUserStates[member.CharID] = member.UserState
+	}
+	for i := range working.Members {
+		if userState, ok := liveUserStates[working.Members[i].CharID]; ok {
+			working.Members[i].UserState = userState
+		}
+	}
+	state.Members = working.Members
 	state.Started = true
+	state.Starting = false
 	state.Battle = battle
 	if battle != nil {
 		s.onlinePlayers.bindRaidWaitingBattleInstance(waitingScope)
 	}
 	startCommitted = true
-	return cloneRuntimeRaidState(*state), true, nil
+	return cloneRuntimeRaidState(*state), true, true, nil
 }
 
 func (s *Service) rejoinRuntimeRaid(raidKey uint32, sourceID uint16) (runtimeRaidState, bool) {
@@ -939,21 +988,38 @@ func (s *Service) rejoinRuntimeRaid(raidKey uint32, sourceID uint16) (runtimeRai
 		return runtimeRaidState{}, false
 	}
 	s.raidMu.Lock()
-	defer s.raidMu.Unlock()
 	state := s.raids[raidKey]
-	if state == nil {
+	if state == nil || state.Starting {
+		s.raidMu.Unlock()
+		return runtimeRaidState{}, false
+	}
+	if runtimeRaidMemberIndex(*state, sourceID) >= 0 {
+		snapshot := cloneRuntimeRaidState(*state)
+		s.raidMu.Unlock()
+		return snapshot, true
+	}
+	// Current rejoin restores an existing member; it is never an alternate
+	// way to bypass a leader's approval of a new application.
+	if state.CurrentLayout || len(state.Members) >= currentRaidMemberMaximum(*state) {
+		s.raidMu.Unlock()
+		return runtimeRaidState{}, false
+	}
+	s.raidMu.Unlock()
+
+	profile := s.loadRuntimeRaidMemberProfile(sourceID, runtimeRaidDefaultGroup, 0)
+
+	s.raidMu.Lock()
+	defer s.raidMu.Unlock()
+	state = s.raids[raidKey]
+	if state == nil || state.Starting {
 		return runtimeRaidState{}, false
 	}
 	if runtimeRaidMemberIndex(*state, sourceID) < 0 {
-		// Current rejoin restores an existing member; it is never an alternate
-		// way to bypass a leader's approval of a new application.
-		if state.CurrentLayout {
+		if state.CurrentLayout || len(state.Members) >= currentRaidMemberMaximum(*state) {
 			return runtimeRaidState{}, false
 		}
-		if len(state.Members) >= currentRaidMemberMaximum(*state) {
-			return runtimeRaidState{}, false
-		}
-		state.Members = append(state.Members, s.newRuntimeRaidMemberLocked(sourceID, runtimeRaidDefaultGroup, nextRuntimeRaidSlot(*state, runtimeRaidDefaultGroup)))
+		profile.SlotOrder = nextRuntimeRaidSlot(*state, runtimeRaidDefaultGroup)
+		state.Members = append(state.Members, profile)
 	}
 	return cloneRuntimeRaidState(*state), true
 }
@@ -983,7 +1049,7 @@ func (s *Service) moveRuntimeRaidMember(sourceID uint16, memberID uint16, target
 	s.raidMu.Lock()
 	defer s.raidMu.Unlock()
 	state := s.runtimeRaidByMemberLocked(sourceID)
-	if state == nil || state.LeaderID != sourceID {
+	if state == nil || state.LeaderID != sourceID || state.Starting {
 		return runtimeRaidState{}, false, false
 	}
 	index := runtimeRaidMemberIndex(*state, memberID)
@@ -1193,19 +1259,23 @@ func (s *Service) applyRuntimeRaidParties(state runtimeRaidState) error {
 	return nil
 }
 
-func (s *Service) initialRuntimeRaidMembersLocked(session *gameSession, sourceID uint16) []runtimeRaidMemberState {
-	members := []runtimeRaidMemberState{s.newRuntimeRaidMemberLocked(sourceID, runtimeRaidDefaultGroup, 0)}
+func (s *Service) preloadInitialRuntimeRaidMembers(session *gameSession, sourceID uint16) []runtimeRaidMemberState {
+	members := []runtimeRaidMemberState{s.loadRuntimeRaidMemberProfile(sourceID, runtimeRaidDefaultGroup, 0)}
 	state := runtimePartyStateSnapshot(session)
 	for _, member := range runtimePartyMembers(state) {
 		if member.UserID == 0 || member.UserID == sourceID || len(members) >= raid.MaxAttackPartyMembers {
 			continue
 		}
-		members = append(members, s.newRuntimeRaidMemberLocked(member.UserID, runtimeRaidDefaultGroup, byte(len(members)%runtimeRaidGroupSize)))
+		members = append(members, s.loadRuntimeRaidMemberProfile(member.UserID, runtimeRaidDefaultGroup, byte(len(members)%runtimeRaidGroupSize)))
 	}
 	return members
 }
 
-func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byte) runtimeRaidMemberState {
+func (s *Service) initialRuntimeRaidMembersLocked(session *gameSession, sourceID uint16) []runtimeRaidMemberState {
+	return s.preloadInitialRuntimeRaidMembers(session, sourceID)
+}
+
+func (s *Service) loadRuntimeRaidMemberProfile(charID uint16, group byte, slot byte) runtimeRaidMemberState {
 	member := runtimeRaidMemberState{
 		CharID:     charID,
 		Name:       csharpSelectCharacterName(charID),
@@ -1226,6 +1296,10 @@ func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byt
 		}
 	}
 	return member
+}
+
+func (s *Service) newRuntimeRaidMemberLocked(charID uint16, group byte, slot byte) runtimeRaidMemberState {
+	return s.loadRuntimeRaidMemberProfile(charID, group, slot)
 }
 
 func (s *Service) sendRaidCommandFailure(session *gameSession, typ uint16) error {

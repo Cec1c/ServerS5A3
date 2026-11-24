@@ -266,23 +266,24 @@ func (r *runtimeDungeonRoom) AnnounceAllActors(session *worldmap.DungeonSession)
 	type binding struct {
 		reference worldmap.HostileReference
 		objectKey uint32
+		defeated  bool
 	}
 	bindings := make([]binding, 0, len(r.monsters)+len(r.extendedActors))
 	announced := 0
 	for _, monster := range r.monsters {
-		if monster.State == runtimeDungeonMonsterDefeated {
-			continue
+		defeated := monster.State == runtimeDungeonMonsterDefeated
+		if !defeated {
+			announced++
 		}
-		announced++
-		bindings = append(bindings, binding{reference: monster.Reference, objectKey: monster.ObjectKey})
+		bindings = append(bindings, binding{reference: monster.Reference, objectKey: monster.ObjectKey, defeated: defeated})
 	}
 	for _, actor := range r.extendedActors {
-		if actor.State == runtimeDungeonMonsterDefeated {
-			continue
+		defeated := actor.State == runtimeDungeonMonsterDefeated
+		if !defeated {
+			announced++
 		}
-		announced++
 		if actor.HostileReference != nil {
-			bindings = append(bindings, binding{reference: *actor.HostileReference, objectKey: actor.ObjectKey})
+			bindings = append(bindings, binding{reference: *actor.HostileReference, objectKey: actor.ObjectKey, defeated: defeated})
 		}
 	}
 
@@ -336,6 +337,14 @@ func (r *runtimeDungeonRoom) AnnounceAllActors(session *worldmap.DungeonSession)
 	for _, candidate := range bindings {
 		if err := session.BindHostileObject(candidate.reference, candidate.objectKey); err != nil {
 			return 0, fmt.Errorf("bind announced dungeon actor: %w", err)
+		}
+	}
+	for _, candidate := range bindings {
+		if !candidate.defeated {
+			continue
+		}
+		if _, err := session.MarkHostileDefeated(candidate.objectKey); err != nil && !errors.Is(err, worldmap.ErrHostileAlreadyDefeated) {
+			return 0, fmt.Errorf("mark pre-defeated dungeon actor: %w", err)
 		}
 	}
 	for index := range r.monsters {
@@ -907,6 +916,80 @@ func (r *runtimeDungeonRoom) DefeatedDeathTarget(objectKey uint32) (runtimeDunge
 		return runtimeDungeonDeathTarget{}, false
 	}
 	return target, true
+}
+
+// DefeatedDeathTargets 返回房间里已经处于权威 defeated 状态的全部目标（按声明顺序），
+// 供后进房队友补发无掉落的权威 op38，避免画面残留已死怪。
+func (r *runtimeDungeonRoom) DefeatedDeathTargets() []runtimeDungeonDeathTarget {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var targets []runtimeDungeonDeathTarget
+	for _, monster := range r.monsters {
+		if monster.State != runtimeDungeonMonsterDefeated {
+			continue
+		}
+		if target, state, err := r.deathTargetLocked(monster.ObjectKey); err == nil && state != nil && *state == runtimeDungeonMonsterDefeated {
+			targets = append(targets, target)
+		}
+	}
+	for _, actor := range r.extendedActors {
+		if actor.State != runtimeDungeonMonsterDefeated {
+			continue
+		}
+		if target, state, err := r.deathTargetLocked(actor.ObjectKey); err == nil && state != nil && *state == runtimeDungeonMonsterDefeated {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+// ReconcileDefeatedHostiles 做一次 O(房间怪数) 纯内存对账：把共享房间中已 defeated
+// 但当前 DungeonSession 漏绑或漏标的敌对阻挡怪一次性补齐，不改活怪、无定时器/轮询。
+func (r *runtimeDungeonRoom) ReconcileDefeatedHostiles(session *worldmap.DungeonSession) (int, bool) {
+	if r == nil || session == nil {
+		return 0, false
+	}
+	type defeatedHostile struct {
+		reference worldmap.HostileReference
+		objectKey uint32
+	}
+	r.mu.RLock()
+	var defeated []defeatedHostile
+	for _, monster := range r.monsters {
+		if monster.State == runtimeDungeonMonsterDefeated {
+			defeated = append(defeated, defeatedHostile{reference: monster.Reference, objectKey: monster.ObjectKey})
+		}
+	}
+	for _, actor := range r.extendedActors {
+		if actor.State == runtimeDungeonMonsterDefeated && actor.HostileReference != nil {
+			defeated = append(defeated, defeatedHostile{reference: *actor.HostileReference, objectKey: actor.ObjectKey})
+		}
+	}
+	r.mu.RUnlock()
+
+	scene, ok := session.RuntimeScene()
+	if !ok {
+		return 0, false
+	}
+	repaired := 0
+	for _, candidate := range defeated {
+		if _, bound := scene.RuntimeObjects[candidate.objectKey]; !bound {
+			if runtimeSceneContainsHostile(scene.ExpectedHostiles, candidate.reference) {
+				if err := session.BindHostileObject(candidate.reference, candidate.objectKey); err == nil {
+					repaired++
+					scene, _ = session.RuntimeScene()
+				}
+			}
+		}
+		if _, markErr := session.MarkHostileDefeated(candidate.objectKey); markErr == nil {
+			repaired++
+		}
+	}
+	scene, _ = session.RuntimeScene()
+	return repaired, scene.Cleared
 }
 
 // highObjectKey 返回这个房间用掉的最高 objectKey + 1（怪物 + 扩展 actor 一起看）。

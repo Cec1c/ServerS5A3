@@ -202,6 +202,9 @@ func (s *Service) expireCurrentRaidDisconnectSeats(now time.Time) {
 			delete(s.currentRaidDisconnects, id)
 			continue
 		}
+		if state.Starting {
+			continue
+		}
 		if state.Battle != nil && seat.InstanceID != "" && state.Battle.InstanceID != seat.InstanceID {
 			delete(s.currentRaidDisconnects, id)
 			continue

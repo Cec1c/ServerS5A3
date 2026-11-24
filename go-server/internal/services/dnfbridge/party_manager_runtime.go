@@ -706,6 +706,10 @@ func (s *Service) publishAllManagedRuntimeParties() {
 }
 
 func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) error {
+	return s.sendManagedRuntimePartySnapshotsForInitiator(nil, state)
+}
+
+func (s *Service) sendManagedRuntimePartySnapshotsForInitiator(initiator *gameSession, state alignedcmd.PartyState) error {
 	if state.PartyID <= 0 || state.PartyID >= int(^uint16(0)) {
 		return nil
 	}
@@ -714,13 +718,22 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	if !found {
 		return fmt.Errorf("runtime party %d is no longer current", state.PartyID)
 	}
+	var initiatorErr error
 	for _, member := range snapshot.Members {
 		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || identity.generation != member.SessionGeneration {
 			continue
 		}
 		if err := s.sendRuntimePartySnapshot(identity.session, snapshot.StateFor(member.UserID)); err != nil {
-			return err
+			if initiator != nil && identity.session == initiator {
+				initiatorErr = err
+				continue
+			}
+			s.logGameEvent(identity.session, "game-party-snapshot-peer-failed",
+				"party_id", snapshot.ID,
+				"receiver_char_id", member.UserID,
+				"leader_char_id", snapshot.Leader,
+				"error", err)
 		}
 	}
 	// 上面这一轮（op153/op11/op9）里 op9 只描述"收包人自己"；队友那条记录在城镇靠
@@ -729,7 +742,7 @@ func (s *Service) sendManagedRuntimePartySnapshots(state alignedcmd.PartyState) 
 	// 这里对同一场副本里的成员再补一轮完整队伍帧（op153 + 每人一条 op9）。
 	s.sendDungeonPartyFrameRoster(state, "runtime_party_snapshot_dungeon_roster")
 	s.sendCurrentPartyCrossSceneProfiles(snapshot)
-	return nil
+	return initiatorErr
 }
 
 // sendChangeHostRuntimePartySnapshots publishes the committed host projection

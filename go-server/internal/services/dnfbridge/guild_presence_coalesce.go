@@ -43,10 +43,89 @@ func (s *Service) guildRosterCounter(kind int, n int64) {
 }
 
 const (
-	guildPresenceCoalesceWindowEnv      = "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS"
-	defaultGuildPresenceCoalesceWindow  = 250 * time.Millisecond
-	maxGuildPresenceCoalesceWindowMs    = 5000
+	guildPresenceCoalesceWindowEnv     = "DNFBRIDGE_GUILD_PRESENCE_COALESCE_MS"
+	defaultGuildPresenceCoalesceWindow = 250 * time.Millisecond
+	maxGuildPresenceCoalesceWindowMs   = 5000
+	// DNF90 客户端关闭公会窗口无关闭协议包；客户端主动打开/刷新公会窗后
+	// 仅在活跃窗口期内持续推送全量成员列表，超时后自动清理 memberListRequested，
+	// 避免城镇挂机玩家每 250ms 被迫整表重建。玩家再次打开公会窗时会重新发起 140 请求。
+	defaultGuildMemberListActiveWindow = 60 * time.Second
 )
+
+func (s *Service) guildRosterNow() time.Time {
+	if s != nil && s.guildRosterNowFn != nil {
+		return s.guildRosterNowFn()
+	}
+	return time.Now()
+}
+
+func (s *Service) guildMemberListActiveDuration() time.Duration {
+	if s == nil {
+		return 0
+	}
+	if s.guildMemberListActiveWindow > 0 {
+		return s.guildMemberListActiveWindow
+	}
+	if s.guildMemberListActiveWindow < 0 {
+		return 0
+	}
+	return defaultGuildMemberListActiveWindow
+}
+
+func (s *Service) markCurrentGuildMemberListRequested(session *gameSession) {
+	if session == nil {
+		return
+	}
+	session.guild.mu.Lock()
+	session.guild.memberListRequested = true
+	session.guild.memberListRequestedAt = s.guildRosterNow()
+	session.guild.mu.Unlock()
+}
+
+func (s *Service) touchCurrentGuildMemberListIfRequested(session *gameSession) {
+	if session == nil {
+		return
+	}
+	session.guild.mu.Lock()
+	if session.guild.memberListRequested {
+		session.guild.memberListRequestedAt = s.guildRosterNow()
+	}
+	session.guild.mu.Unlock()
+}
+
+func (s *Service) guildMemberListActiveLocked(session *gameSession) bool {
+	if !session.guild.memberListRequested {
+		return false
+	}
+	if window := s.guildMemberListActiveDuration(); window > 0 && !session.guild.memberListRequestedAt.IsZero() {
+		if s.guildRosterNow().Sub(session.guild.memberListRequestedAt) >= window {
+			session.guild.memberListRequested = false
+			session.guild.memberListRequestedAt = time.Time{}
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) isCurrentGuildMemberListActive(session *gameSession) bool {
+	if session == nil {
+		return false
+	}
+	session.guild.mu.Lock()
+	active := s.guildMemberListActiveLocked(session)
+	session.guild.mu.Unlock()
+	return active
+}
+
+func sessionInDungeon(session *gameSession) bool {
+	if session == nil {
+		return false
+	}
+	session.dungeon.mu.Lock()
+	inDungeon := session.dungeon.runtime != nil
+	session.dungeon.mu.Unlock()
+	return inDungeon
+}
 
 func readGuildPresenceCoalesceWindow() time.Duration {
 	raw := strings.TrimSpace(os.Getenv(guildPresenceCoalesceWindowEnv))
@@ -115,6 +194,7 @@ func resetCurrentGuildPresenceRefresh(session *gameSession, closed bool) {
 	clearCurrentGuildMembershipRefreshLocked(session)
 	session.guild.presenceRefreshClosed = closed
 	session.guild.lastPresenceRefreshAt = time.Time{}
+	session.guild.lastMembershipRefreshAt = time.Time{}
 	session.guild.weddingPrimedPeers = nil
 	session.guild.mu.Unlock()
 }
@@ -289,10 +369,7 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 	// must not occupy the combat packet queue or rebuild guild actors mid-run.
 	// Check at execution time: the player may have entered after enqueueing.
 	// Explicit window requests and later town refreshes read current storage.
-	session.dungeon.mu.Lock()
-	inDungeon := session.dungeon.runtime != nil
-	session.dungeon.mu.Unlock()
-	if inDungeon {
+	if sessionInDungeon(session) {
 		s.guildRosterCounter(guildRefreshDeferred, 1)
 		return nil
 	}
@@ -302,9 +379,7 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 	if !s.boundGameSessionCharacterCurrent(p.peer) {
 		return nil
 	}
-	session.guild.mu.Lock()
-	requested := session.guild.memberListRequested
-	session.guild.mu.Unlock()
+	requested := s.isCurrentGuildMemberListActive(session)
 	g, err := s.readCurrentGuildDisplayShared(ctx, p.peer, false, requested, shared)
 	if err != nil {
 		s.guildRosterCounter(guildRefreshFailed, 1)
@@ -335,7 +410,7 @@ var (
 )
 
 // 成员变更广播令牌：每个会话/角色/世代最多保留一个在途或待重试的 membership 刷新，
-// 不继承 presence 的合并延迟或副本跳过规则，仅在接收方事件队列满时做有界异步重试；
+// 与 presence 一致纳入 250ms 防抖合并与副本战斗期延迟跳过，并在队列满时做有界异步重试；
 // 主动退避耗尽后保留待刷新标记，待事件循环释放队列槽位后自动恢复投递。
 type currentGuildMembershipRefresh struct {
 	peer            boundGameSessionCharacter
@@ -345,6 +420,7 @@ type currentGuildMembershipRefresh struct {
 	exhausted       bool
 	retries         int
 	timer           *time.Timer
+	coalesceTimer   *time.Timer
 	stopContext     func() bool
 }
 
@@ -352,6 +428,9 @@ func clearCurrentGuildMembershipRefreshLocked(session *gameSession) {
 	if p := session.guild.membershipRefresh; p != nil {
 		if p.timer != nil {
 			p.timer.Stop()
+		}
+		if p.coalesceTimer != nil {
+			p.coalesceTimer.Stop()
 		}
 		if p.stopContext != nil {
 			p.stopContext()
@@ -399,15 +478,51 @@ func (s *Service) requestCurrentGuildMembershipRefresh(peer boundGameSessionChar
 	}
 	p.shared = shared
 	p.revision++
-	if p.queued || p.running || p.timer != nil {
+	if p.queued || p.running || p.timer != nil || p.coalesceTimer != nil {
 		session.guild.mu.Unlock()
+		s.guildRosterCounter(guildRefreshCoalesced, 1)
 		return
+	}
+	if window := s.guildPresenceCoalesceWindow(); window > 0 && session.events != nil && session.events.loop != nil && !session.guild.lastMembershipRefreshAt.IsZero() {
+		if elapsed := s.guildRosterNow().Sub(session.guild.lastMembershipRefreshAt); elapsed >= 0 && elapsed < window {
+			p.exhausted = false
+			session.guild.membershipRefreshPending.Store(false)
+			p.retries = 0
+			p.coalesceTimer = s.armCurrentGuildMembershipCoalesceTimerLocked(session, p, window-elapsed)
+			session.guild.mu.Unlock()
+			s.guildRosterCounter(guildRefreshCoalesced, 1)
+			return
+		}
 	}
 	p.exhausted = false
 	session.guild.membershipRefreshPending.Store(false)
 	p.retries, p.queued = 0, true
 	session.guild.mu.Unlock()
 	s.submitCurrentGuildMembershipRefresh(p)
+}
+
+func (s *Service) armCurrentGuildMembershipCoalesceTimerLocked(session *gameSession, p *currentGuildMembershipRefresh, delay time.Duration) *time.Timer {
+	return time.AfterFunc(delay, func() {
+		session.guild.mu.Lock()
+		if session.guild.membershipRefresh != p || session.guild.presenceRefreshClosed ||
+			session.loginRevoked.Load() ||
+			(session.events != nil && !session.events.active.Load()) ||
+			(session.ctx != nil && session.ctx.Err() != nil) {
+			if session.guild.membershipRefresh == p {
+				clearCurrentGuildMembershipRefreshLocked(session)
+			}
+			session.guild.mu.Unlock()
+			return
+		}
+		p.coalesceTimer = nil
+		if p.queued || p.running || p.timer != nil {
+			session.guild.mu.Unlock()
+			return
+		}
+		p.retries, p.queued = 0, true
+		session.guild.mu.Unlock()
+		s.submitCurrentGuildMembershipRefresh(p)
+	})
 }
 
 // resumePendingGuildMembershipRefresh 在接收方事件循环处理完任意事件、释放队列槽位后，
@@ -418,7 +533,7 @@ func (s *Service) resumePendingGuildMembershipRefresh(session *gameSession) {
 	}
 	session.guild.mu.Lock()
 	p := session.guild.membershipRefresh
-	if p == nil || !p.exhausted || p.queued || p.running || p.timer != nil {
+	if p == nil || !p.exhausted || p.queued || p.running || p.timer != nil || p.coalesceTimer != nil {
 		if p == nil || !p.exhausted {
 			session.guild.membershipRefreshPending.Store(false)
 		}
@@ -550,6 +665,7 @@ func (s *Service) runCurrentGuildMembershipRefresh(p *currentGuildMembershipRefr
 	revision := p.revision
 	shared := p.shared
 	session.guild.mu.Unlock()
+	executedRealRefresh := false
 	defer func() {
 		session.guild.mu.Lock()
 		if session.guild.membershipRefresh != p {
@@ -557,14 +673,21 @@ func (s *Service) runCurrentGuildMembershipRefresh(p *currentGuildMembershipRefr
 			return
 		}
 		p.running = false
+		if executedRealRefresh {
+			session.guild.lastMembershipRefreshAt = s.guildRosterNow()
+		}
 		followup := p.revision != revision
 		submitNow := false
 		if followup && !session.guild.presenceRefreshClosed && !session.loginRevoked.Load() &&
 			(session.events == nil || session.events.active.Load()) &&
 			(session.ctx == nil || session.ctx.Err() == nil) {
 			p.retries = 0
-			p.queued = true
-			submitNow = true
+			if window := s.guildPresenceCoalesceWindow(); executedRealRefresh && window > 0 && session.events != nil && session.events.loop != nil {
+				p.coalesceTimer = s.armCurrentGuildMembershipCoalesceTimerLocked(session, p, window)
+			} else {
+				p.queued = true
+				submitNow = true
+			}
 		} else {
 			clearCurrentGuildMembershipRefreshLocked(session)
 		}
@@ -576,6 +699,14 @@ func (s *Service) runCurrentGuildMembershipRefresh(p *currentGuildMembershipRefr
 	if !s.boundGameSessionCharacterCurrent(p.peer) {
 		return nil
 	}
+	if sessionInDungeon(session) {
+		s.guildRosterCounter(guildRefreshDeferred, 1)
+		return nil
+	}
+	if !s.isCurrentGuildMemberListActive(session) {
+		return nil
+	}
+	executedRealRefresh = true
 	if err := s.handleCurrentGuildMemberListObservedShared(session, uint16(dnfenum.CmdPacketGuildAllMemberList), "membership", shared); err != nil {
 		s.logGameEvent(session, "game-guild-member-refresh-failed", "error", err)
 	}

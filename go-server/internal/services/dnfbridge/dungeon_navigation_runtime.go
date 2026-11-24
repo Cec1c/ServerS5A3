@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
@@ -1013,6 +1014,9 @@ func (s *Service) sendPartyDungeonEntryTailAfterOp28(
 	if err := s.sendCurrentGuildPracticeDefeatedLocalActors(session, runtime); err != nil {
 		return err
 	}
+	if err := s.sendPartyDungeonPreDefeatedActorsLocked(session, runtime); err != nil {
+		return err
+	}
 	s.logGameEvent(session, "game-upper-current-dungeon-start-op29-committed",
 		"char_id", session.selectedCharacterID,
 		"dungeon_id", runtime.Dungeon.ID,
@@ -1988,6 +1992,18 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		return fmt.Errorf("%w: queued party move belongs to a different instance", errDungeonMoveRuntimeOwnerMismatch)
 	}
 	plan, err := s.planCurrentDungeonMove(runtime, request)
+	if err != nil && errors.Is(err, worldmap.ErrRunCurrentRoomNotCleared) && runtime.Room != nil {
+		repaired, cleared := runtime.Room.ReconcileDefeatedHostiles(runtime.Session)
+		if repaired > 0 && cleared {
+			s.logInfo("dnfbridge dungeon room clear reconciled on move",
+				"conn_id", session.connID,
+				"char_id", session.selectedCharacterID,
+				"dungeon_id", runtime.Dungeon.ID,
+				"maze_index", runtime.MazeIndex,
+				"repaired_count", repaired)
+			plan, err = s.planCurrentDungeonMove(runtime, request)
+		}
+	}
 	if err != nil {
 		diagnosticReason = "move_preflight_rejected"
 		if diagnostic != nil {
@@ -1997,6 +2013,21 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		source := plan.Source.Coordinate.String()
 		if hasCurrentScene {
 			source = currentScene.Coordinate.String()
+		}
+		if errors.Is(err, worldmap.ErrRunCurrentRoomNotCleared) && runtime.partyInstance != nil {
+			now := time.Now()
+			if runtime.lastMoveBlockedWarnAt.IsZero() || now.Sub(runtime.lastMoveBlockedWarnAt) >= 10*time.Second {
+				runtime.lastMoveBlockedWarnAt = now
+				s.logWarn("dnfbridge party dungeon move blocked room not cleared",
+					"conn_id", session.connID,
+					"char_id", session.selectedCharacterID,
+					"dungeon_id", runtime.Dungeon.ID,
+					"maze_index", runtime.MazeIndex,
+					"source", source,
+					"next_x", request.NextX,
+					"next_y", request.NextY,
+					"request_source", requestSource)
+			}
 		}
 		s.logGameEvent(session, "game-dungeon-move-blocked",
 			"dungeon_id", runtime.Dungeon.ID,
@@ -2283,6 +2314,11 @@ func (s *Service) handleDungeonMoveRequestLocked(
 	if err := s.sendCurrentGuildPracticeDefeatedLocalActors(session, runtime); err != nil {
 		return err
 	}
+	if plan.PayloadMode != currentDungeonStartMapPayloadCached {
+		if err := s.sendPartyDungeonPreDefeatedActorsLocked(session, runtime); err != nil {
+			return err
+		}
+	}
 	// FINISH_LOADING's main class0 state and op30 completion are room-scoped.
 	// Keep the player/equipment/skill initialization gates intact: an ordinary
 	// room move only needs the next room's loading completion, not a new actor.
@@ -2314,5 +2350,28 @@ func (s *Service) handleDungeonMoveRequestLocked(
 		"room_cleared", committedScene.Cleared,
 		"request_source", requestSource,
 		"finish_loading_main_state_rearmed", true)
+	return nil
+}
+
+// sendPartyDungeonPreDefeatedActorsLocked 在共享组队房间 op29 提交后，对进房前已被队友
+// 打死的怪补发无掉落权威 op38，避免后进房成员画面残留已死怪。
+func (s *Service) sendPartyDungeonPreDefeatedActorsLocked(session *gameSession, runtime *runtimeDungeonState) error {
+	if runtime == nil || runtime.partyInstance == nil || runtime.Room == nil {
+		return nil
+	}
+	targets := runtime.Room.DefeatedDeathTargets()
+	if len(targets) == 0 {
+		return nil
+	}
+	recipientObjectKey := currentSceneActorObjectKey(session.selectedCharacterID)
+	for _, target := range targets {
+		body, err := buildCurrentDungeonDeathNotificationBodyWithDrops(target.ObjectKey, target.ResponseKind, nil)
+		if err != nil {
+			return err
+		}
+		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyDieMonster), partyDungeonDeathBodyForRecipient(runtime, body, recipientObjectKey), 0); err != nil {
+			return err
+		}
+	}
 	return nil
 }

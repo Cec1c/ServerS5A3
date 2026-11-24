@@ -64,12 +64,14 @@ type guildSessionState struct {
 	lastCreate               *dnfguild.CreateRequest
 	soloOperationID          string
 	memberListRequested      bool
+	memberListRequestedAt    time.Time
 	presenceRefresh          *currentGuildPresenceRefresh
 	membershipRefresh        *currentGuildMembershipRefresh
 	membershipRefreshPending atomic.Bool
 	eventLoopCompletedSeq    atomic.Uint64
 	presenceRefreshClosed    bool
 	lastPresenceRefreshAt    time.Time
+	lastMembershipRefreshAt  time.Time
 	weddingPrimedPeers       map[uint16]weddingPrimedPeer
 	cargoLoadedGuild         uint32
 	cargoLoadedGeneration    uint64
@@ -244,6 +246,7 @@ func (s *Service) closeCurrentGuildCreateSession(session *gameSession) {
 	session.guild.lastCreate = nil
 	session.guild.soloOperationID = ""
 	session.guild.memberListRequested = false
+	session.guild.memberListRequestedAt = time.Time{}
 	session.guild.mu.Unlock()
 }
 
