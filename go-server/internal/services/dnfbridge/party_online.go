@@ -277,6 +277,19 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 			targetIdentity = leader
 		}
 	}
+	// 管理器允许邀请“单人残留队”的成员（队友走光后剩下的人）；但他若还在组队
+	// 副本实例里，那是副本幸存者保留的队伍，不能被城镇邀请拉走，维持原拒绝。
+	if s.options.currentClientVersion == "official-24.9" && (parsed.Mode == 0 || parsed.Mode == 12) &&
+		targetIdentity.session != nil && runtimePartyStateSnapshot(targetIdentity.session).PartyID > 0 &&
+		gameSessionInPartyDungeonInstance(targetIdentity.session) {
+		s.logGameEvent(session, "game-peer-request-invite-deferred",
+			"type", typ,
+			"source_char_id", sourceID,
+			"target_id", parsed.TargetID,
+			"mode", parsed.Mode,
+			"reason", "target_still_in_party_dungeon_instance")
+		return s.sendCurrentTownPVPFailure(session, typ, partyCommandFailureGeneric, parsed.Mode)
+	}
 	inviteRecorded := false
 	var recordedRequest party.RuntimePeerRequest
 	if manager := s.runtimePartyManagerForService(); manager != nil {
@@ -409,7 +422,7 @@ func (s *Service) handleOnlineLeaveParty(session *gameSession, typ uint16) error
 		return err
 	}
 	if result.Retired != nil {
-		s.closeRuntimePartyUDPRelay(int(result.Retired.ID))
+		s.transferRuntimePartyUDPRelay(int(result.Retired.ID), nextState.PartyID)
 		for _, member := range result.Retired.Members {
 			if member.UserID == sourceID {
 				continue
@@ -1716,6 +1729,39 @@ func (s *Service) closeRuntimePartyUDPRelay(partyID int) {
 	}
 }
 
+// partyUDPRelayLeaderTransfer 是可选能力：后端能在"换队长 ⇒ 新 PartyID"时保留幸存者之间
+// 每一对方向的端口（见 currentPartyUDPRelay.TransferParty）。不支持的后端（remote）照旧关闭。
+type partyUDPRelayLeaderTransfer interface {
+	TransferParty(retiredID, nextID uint16)
+}
+
+// transferRuntimePartyUDPRelay 用在 RuntimePartyResult.Retired（队长退队、幸存者换新 ID 重建）
+// 的位置上，代替 closeRuntimePartyUDPRelay(retired)。调用方随后照常 Sync 新 ID。
+func (s *Service) transferRuntimePartyUDPRelay(retiredID, nextID int) {
+	if s == nil || retiredID <= 0 || retiredID > int(^uint16(0)) {
+		return
+	}
+	if nextID <= 0 || nextID > int(^uint16(0)) || nextID == retiredID {
+		s.closeRuntimePartyUDPRelay(retiredID)
+		return
+	}
+	mutation := &s.partyRelayMutation[retiredID%len(s.partyRelayMutation)]
+	mutation.Lock()
+	defer mutation.Unlock()
+	if current, exists := s.runtimePartyManagerForService().SnapshotByID(uint16(retiredID)); exists && len(current.Members) > 1 {
+		return // 与 closeRuntimePartyUDPRelay 同一守卫：旧 ID 仍是活队伍就不动。
+	}
+	relay := s.partyRelayBackend()
+	if relay == nil {
+		return
+	}
+	if transfer, ok := relay.(partyUDPRelayLeaderTransfer); ok {
+		transfer.TransferParty(uint16(retiredID), uint16(nextID))
+		return
+	}
+	relay.CloseParty(uint16(retiredID))
+}
+
 func (s *Service) sendRuntimePartyRealtimeInfoLocal(session *gameSession, state alignedcmd.PartyState) error {
 	if session == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) == 0 {
 		return nil
@@ -2476,4 +2522,14 @@ func selectedCharacterID(session *gameSession) uint16 {
 		return 0
 	}
 	return session.selectedCharacterID
+}
+
+// gameSessionInPartyDungeonInstance 报告会话是否仍在组队副本实例里。
+func gameSessionInPartyDungeonInstance(session *gameSession) bool {
+	if session == nil {
+		return false
+	}
+	session.dungeon.mu.Lock()
+	defer session.dungeon.mu.Unlock()
+	return session.dungeon.runtime != nil && session.dungeon.runtime.partyInstance != nil
 }

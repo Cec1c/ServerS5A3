@@ -247,7 +247,7 @@ func (s *Service) detachRuntimePartySession(session *gameSession, source string)
 	}
 	s.notifyRuntimePartySelectionDeparture(session, result, source)
 	if result.Retired != nil {
-		s.closeRuntimePartyUDPRelay(int(result.Retired.ID))
+		s.transferRuntimePartyUDPRelay(int(result.Retired.ID), nextState.PartyID)
 		for _, member := range result.Retired.Members {
 			if member.UserID == identity.character {
 				continue

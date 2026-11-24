@@ -53,6 +53,16 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 			}
 			planned.Members[i].GroupIndex, planned.Members[i].SlotOrder = group, slot
 		}
+		// The phase start below freezes every raw seat as reward ownership,
+		// hidden solo seats included. Move overflow solos (judged by actual
+		// party membership) so no frozen group exceeds four owners.
+		live := s.currentRaidLivePartyProjection(planned)
+		if _, fits := relocateRuntimeRaidOverflowSolos(live, live.Members, nil); !fits {
+			return false, fmt.Errorf("Anton next phase group exceeds four seats")
+		}
+		for i := range planned.Members {
+			planned.Members[i].GroupIndex, planned.Members[i].SlotOrder = live.Members[i].GroupIndex, live.Members[i].SlotOrder
+		}
 	}
 	seen := map[uint16]bool{}
 	for _, member := range planned.Members {

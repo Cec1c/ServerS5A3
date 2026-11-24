@@ -424,7 +424,10 @@ func (m *RuntimePartyManager) RecordOnlinePeerRequest(recipient uint16, recipien
 			request.JoinerID, request.AnchorID = requester, recipient
 			request.PartyID = targetParty.id
 		} else if sourceParty != nil {
-			if sourceParty.leader != requester || targetParty != nil {
+			// 队友走光后剩下的人仍挂在只有自己的队伍里（leaveLocked 只在 0 人时删除）。
+			// 这种“单人残留队”按无队处理：接受时 Join 会先 leaveLocked 摘掉它。
+			// 否则多人队长邀请他会被静默拒绝，表现为“第三个人怎么都进不了队”。
+			if sourceParty.leader != requester || (targetParty != nil && !targetParty.loneLeader(recipient)) {
 				return RuntimePeerRequest{}, false
 			}
 			request.PartyID = sourceParty.id
@@ -592,6 +595,11 @@ func (p *runtimeParty) count() int {
 		}
 	}
 	return count
+}
+
+// loneLeader 报告队伍是否只剩 userID 一人且由他担任队长（队友走光后的残留队）。
+func (p *runtimeParty) loneLeader(userID uint16) bool {
+	return p != nil && p.leader == userID && p.count() == 1
 }
 
 func (p *runtimeParty) full() bool {

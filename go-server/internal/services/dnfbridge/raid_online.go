@@ -875,6 +875,15 @@ func (s *Service) startRuntimeRaidWithEntryCost(session *gameSession) (runtimeRa
 		for i := range state.Members {
 			state.Members[i].OrdinaryPartySolo = startProjection.Members[i].OrdinaryPartySolo
 		}
+		// Start freezes every raw seat (solos included) as reward ownership.
+		moved, fits := relocateRuntimeRaidOverflowSolos(*state, state.Members, nil)
+		if !fits {
+			return runtimeRaidState{}, false, &raidStartRejection{message: "每个队伍最多编入4人，请调整编队"}
+		}
+		if len(moved) > 0 {
+			s.logGameEvent(session, "game-raid-solo-seats-relocated",
+				"raid_key", state.RaidKey, "source", "raid_start", "moved", moved)
+		}
 	}
 	if runtimeRaidHasOversizedGroup(*state) {
 		return runtimeRaidState{}, false, &raidStartRejection{message: "每个队伍最多编入4人，请调整编队"}
@@ -1676,11 +1685,18 @@ func (s *Service) synchronizeOrdinaryPartyRaidGroups(partyState alignedcmd.Party
 	for _, member := range members {
 		partyMemberIDs[member.UserID] = true
 	}
+	var relocatedSolos []uint16
 	for i := range candidate {
 		if !partyMemberIDs[candidate[i].CharID] {
 			// Live solo flags are planning input only for unrelated members;
 			// an ordinary-party join must not commit their presentation state.
+			// Their hidden raw seat may have been moved out of the party's group.
+			group, slot := candidate[i].GroupIndex, candidate[i].SlotOrder
 			candidate[i] = raid.Members[i]
+			if candidate[i].GroupIndex != group || candidate[i].SlotOrder != slot {
+				relocatedSolos = append(relocatedSolos, candidate[i].CharID)
+			}
+			candidate[i].GroupIndex, candidate[i].SlotOrder = group, slot
 		}
 	}
 	// Keep the manager revision stable only for this short raid-state commit.
@@ -1703,7 +1719,8 @@ func (s *Service) synchronizeOrdinaryPartyRaidGroups(partyState alignedcmd.Party
 			"party_id", partyState.PartyID,
 			"raid_key", snapshot.RaidKey,
 			"anchor_group", normalizedRuntimeRaidGroup(snapshot.Members[runtimeRaidMemberIndex(snapshot, partyState.UserID)].GroupIndex),
-			"member_count", len(members))
+			"member_count", len(members),
+			"solo_seats_relocated", relocatedSolos)
 	}
 	err := s.broadcastRuntimeRaidRoster(snapshot)
 	groupBroadcasted = true

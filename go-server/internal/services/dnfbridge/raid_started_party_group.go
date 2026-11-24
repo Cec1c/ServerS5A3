@@ -53,6 +53,14 @@ func planStartedRaidOrdinaryPartyGroup(raid runtimeRaidState, party alignedcmd.P
 			changed = true
 		}
 	}
+	// Solos keep a hidden raw seat; never let the new party share it past four.
+	moved, fits := relocateRuntimeRaidOverflowSolos(raid, candidate, ids)
+	if !fits {
+		return nil, false
+	}
+	if len(moved) > 0 {
+		changed = true
+	}
 	if !changed {
 		return nil, false
 	}

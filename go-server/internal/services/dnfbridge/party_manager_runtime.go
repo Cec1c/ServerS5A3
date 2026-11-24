@@ -430,7 +430,7 @@ func (s *Service) reconcileManagedPriorPartyLeave(prior *party.RuntimePartyResul
 	}
 	nextState := s.publishRuntimePartyMembershipSnapshot(prior.Party)
 	if prior.Retired != nil {
-		s.closeRuntimePartyUDPRelay(int(previous.ID))
+		s.transferRuntimePartyUDPRelay(int(previous.ID), nextState.PartyID)
 		for _, member := range previous.Members {
 			if member.UserID == movedUser {
 				continue

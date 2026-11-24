@@ -29,8 +29,14 @@ func TestStartedRaidFreePartyIgnoresSoloSeatsAndPreservesOtherParty(t *testing.T
 			if candidate[0].GroupIndex != wantGroup || candidate[1].GroupIndex != wantGroup || candidate[1].SlotOrder != 2 {
 				t.Fatalf("wrong group or fixed slot: %+v", candidate[:2])
 			}
-			if !reflect.DeepEqual(candidate[2:], raid.Members[2:]) || !reflect.DeepEqual(cloneRuntimeRaidState(raid), original) {
-				t.Fatal("plan changed unrelated members or frozen reward state")
+			wantOthers := append([]runtimeRaidMemberState(nil), raid.Members[2:]...)
+			if !otherParty {
+				// Group 1 would hold five raw seats; the last solo's hidden
+				// seat moves to the free group so a phase start freezes <= 4.
+				wantOthers[2].GroupIndex, wantOthers[2].SlotOrder = 2, 0
+			}
+			if !reflect.DeepEqual(candidate[2:], wantOthers) || !reflect.DeepEqual(cloneRuntimeRaidState(raid), original) {
+				t.Fatalf("plan changed unrelated members or frozen reward state: %+v", candidate[2:])
 			}
 			raid.Members = candidate
 			if _, again := planRuntimeRaidGroupSynchronization(raid, party); again {

@@ -114,11 +114,17 @@ func TestStartedRaidFreePartySequentialJoinsFreezeAllMembers(t *testing.T) {
 				if !reflect.DeepEqual(state.Battle.MemberGroups, frozen.MemberGroups) {
 					t.Fatal("reward-frozen groups changed")
 				}
+				// Unrelated solos keep the solo chip and frozen ownership. Their
+				// hidden raw seat leaves group 1 only when the party would otherwise
+				// share it past four, which a phase start would freeze as six owners.
 				for _, id := range []uint16{200, 201} {
 					row, _ := runtimeRaidMemberForTest(*state, id)
-					if !row.OrdinaryPartySolo || row.GroupIndex != 1 {
-						t.Fatal("unrelated solo member moved")
+					if !row.OrdinaryPartySolo || (count+2 <= runtimeRaidGroupSize && row.GroupIndex != 1) {
+						t.Fatal("unrelated solo member moved", row)
 					}
+				}
+				if runtimeRaidHasOversizedSeatGroup(*state, state.Members) {
+					t.Fatal("party group shares raw seats past four")
 				}
 			}
 

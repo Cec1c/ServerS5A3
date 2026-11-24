@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -38,26 +37,7 @@ type currentPartyUDPRelayLegKey struct {
 	peerID  uint16
 }
 
-type relayTraffic struct {
-	received, forwarded, bytes, empty, rejected, missing, unlearned atomic.Uint64
-	limited, failed                                                 atomic.Uint64
-}
-
-type relayInitialDatagram struct {
-	state   atomic.Uint32 // 0 free, 1 writing, 2 ready, 3 consumed; never reused
-	sender  *currentPartyUDPRelayLeg
-	created time.Time
-	size    int
-	data    [currentPartyUDPRelayMaxDatagram]byte
-}
-
 type currentPartyUDPRelayLeg struct {
-	opposite    atomic.Pointer[currentPartyUDPRelayLeg]
-	retired     atomic.Bool
-	learnedPort atomic.Uint32 // IP is the immutable authenticated binding address
-	traffic     relayTraffic
-	initial     [4]relayInitialDatagram
-
 	key         currentPartyUDPRelayLegKey
 	binding     currentPartyUDPRelayBinding
 	peerBinding currentPartyUDPRelayBinding
@@ -76,6 +56,11 @@ type currentPartyUDPRelayLeg struct {
 	// "通道建了但一个包都没通"和"包来了但被源校验挡掉"混成同一个症状（都是零转发）。
 	received              uint64
 	lastReceivedAt        time.Time
+	stallWatching         bool
+	stallRecoveryUsed     bool
+	stallRecoverySent     bool
+	stallRecoveryObserved bool
+	stallRetryAfter       time.Time
 	emptyPayload          uint64
 	rejectedSource        uint64
 	missingOppositeLeg    uint64
@@ -85,6 +70,66 @@ type currentPartyUDPRelayLeg struct {
 	loggedSource    bool
 	loggedMissing   bool
 	loggedUnlearned bool
+
+	// 下面是"自报端点回落"这一个单变量实验的计数与一次性日志开关
+	// （开关见 party_udp_relay_endpoint_fallback.go；关闭时这些计数恒为 0）。
+	endpointFallbackWrites          uint64
+	endpointFallbackDatagrams       uint64
+	endpointFallbackBytes           uint64
+	endpointFallbackFailed          uint64
+	loggedEndpointFallbackWrite     bool
+	loggedEndpointFallbackFailure   bool
+	loggedEndpointFallbackExhausted bool
+	loggedLearnedAfterFallback      bool
+
+	// 下面是"首包留存重放"（party_udp_relay_probe_replay.go；关闭时计数恒为 0）。
+	// endpointKnown 区分"第一次学到真实端点"（= 该补投待投队列）与之后的重复学习。
+	endpointKnown          bool
+	pending                pendingProbeDatagrams
+	replayedDatagrams      uint64
+	replayedBytes          uint64
+	loggedReplay           bool
+	memoBootstraps         uint64
+	memoBootstrapDatagrams uint64
+	memoBootstrapBytes     uint64
+	memoBootstrapFailed    uint64
+	loggedMemoBootstrap    bool
+
+	// seedEndpoint 是"腿建立时就已经能写死的对端目标"（原生探针观测优先，其次同角色端点备忘；
+	// 见 party_udp_relay_probe_listener.go 的 seedEndpointFor）。nil = 该对端从未被我们观测到，
+	// 行为与加种子之前完全一致（首包留存/丢弃）。
+	seedEndpoint         *net.UDPAddr
+	seedForwardDatagrams uint64
+	seedForwardBytes     uint64
+	seedForwardFailed    uint64
+	loggedSeedForward    bool
+	loggedSeedFailure    bool
+	loggedSeedExhausted  bool
+
+	// 多候选扇出（party_udp_relay_probe_listener.go）：fanOutWritten/fanOutLogged 按候选 kind
+	// 计数与"首次日志"，staleMemoDatagrams 单独计陈旧备忘候选，fanOutFailed 是候选写失败总数。
+	// memoTTL 是本腿"新鲜备忘"的判定上限（DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS）。
+	fanOutWritten map[string]uint64
+	fanOutLogged  map[string]bool
+	// fanOutSourceLogged 是"候选 kind + 发送源口"的首日志去重（同一 kind 可能有多条入向路径，
+	// 例如同一源 ip:port 打到 2311 与 2312 各一次 ⇒ 两条路径必须各记一条）。
+	fanOutSourceLogged    map[string]bool
+	fanOutFailed          uint64
+	staleMemoDatagrams    uint64
+	loggedFanOutExhausted bool
+	memoTTL               time.Duration
+	// 让沉默对端开口（party_udp_relay_silent_peer_kick.go）：kicks 是已催次数，
+	// lastKickAt 是上一次动作时刻，kickRunning 保证每条腿只有一个看门狗，
+	// probeResends 是"沉默期间重投待投首包"的轮次。
+	kicks        uint32
+	lastKickAt   time.Time
+	kickRunning  bool
+	probeResends uint64
+	// createdAt 是腿绑定时刻（看门狗的最小年龄判定用）。
+	createdAt time.Time
+	// pendingWindow 是待投队列的"周期重投总窗口"（DNFBRIDGE_PARTY_UDP_RELAY_RESEND_SECONDS，默认 60s；
+	// 零值 ⇒ 回落到 pendingTTL=20s，旧构造器/既有单测行为逐字节不变）。
+	pendingWindow time.Duration
 }
 
 // relayLegDropReason 是腿的丢弃原因（只用于计数与日志，不参与转发判定）。
@@ -155,22 +200,49 @@ func (leg *currentPartyUDPRelayLeg) noteDrop(reason relayLegDropReason) (uint64,
 
 // relayLegStats 是一条腿的可观测快照（关闭汇总与单测使用）。
 type relayLegStats struct {
-	ListenPort               uint16
-	PartyID                  uint16
-	OwnerID                  uint16
-	PeerID                   uint16
-	ExpectedIPv4             string
-	LearnedEndpoint          string
-	AdvertisedPort           uint16
-	Received                 uint64
-	Forwarded                uint64
-	BytesForwarded           uint64
-	EmptyPayload             uint64
-	RejectedSource           uint64
-	MissingOppositeLeg       uint64
-	UnlearnedPeerEndpoint    uint64
-	EndpointKnown            bool
-	RateLimited, WriteFailed uint64
+	ListenPort            uint16
+	PartyID               uint16
+	OwnerID               uint16
+	PeerID                uint16
+	ExpectedIPv4          string
+	LearnedEndpoint       string
+	AdvertisedPort        uint16
+	Received              uint64
+	Forwarded             uint64
+	BytesForwarded        uint64
+	EmptyPayload          uint64
+	RejectedSource        uint64
+	MissingOppositeLeg    uint64
+	UnlearnedPeerEndpoint uint64
+	// EndpointFallback* 只在 DNFBRIDGE_PARTY_UDP_RELAY_ENDPOINT_FALLBACK=advertised
+	// 时非零（默认关闭时恒为 0，判读时可据此确认开关状态）。
+	EndpointFallbackDatagrams uint64
+	EndpointFallbackBytes     uint64
+	EndpointFallbackFailed    uint64
+	// EndpointKnown/LearnedEndpoint 与 Pending*/Replayed*/MemoBootstrap* 属于
+	// "首包留存重放"（party_udp_relay_probe_replay.go）。关闭时全部为 0/false。
+	EndpointKnown          bool
+	PendingDatagrams       int
+	PendingBytes           int
+	PendingDropped         uint64
+	PendingExpired         uint64
+	ReplayedDatagrams      uint64
+	ReplayedBytes          uint64
+	MemoBootstrapDatagrams uint64
+	MemoBootstrapBytes     uint64
+	MemoBootstrapFailed    uint64
+	MemoBootstrapWrites    uint64
+	// SeedEndpoint/SeedForward* 属于"种子端点投递"（party_udp_relay_probe_listener.go）。
+	// 关闭时 SeedEndpoint 为空且计数恒为 0。
+	SeedEndpoint         string
+	SeedForwardDatagrams uint64
+	SeedForwardBytes     uint64
+	SeedForwardFailed    uint64
+	// 多候选扇出（同上文件）：StaleMemoDatagrams 是"陈旧备忘"候选的写入数，
+	// FanOutFailed 是候选写失败总数，FanOutKinds 是各候选 kind 的写入数。
+	StaleMemoDatagrams uint64
+	FanOutFailed       uint64
+	FanOutKinds        map[string]uint64
 }
 
 // relayLegStatsSnapshot 取这条腿的计数快照。
@@ -187,22 +259,48 @@ func (leg *currentPartyUDPRelayLeg) relayLegStatsSnapshot() relayLegStats {
 		PeerID:                leg.key.peerID,
 		ExpectedIPv4:          formatCurrentPartyUDPRelayIPv4(leg.binding.address),
 		AdvertisedPort:        leg.binding.advertisedPort,
-		Received:              leg.received + leg.traffic.received.Load(),
-		Forwarded:             leg.forwarded + leg.traffic.forwarded.Load(),
-		BytesForwarded:        leg.bytesForwarded + leg.traffic.bytes.Load(),
-		EmptyPayload:          leg.emptyPayload + leg.traffic.empty.Load(),
-		RejectedSource:        leg.rejectedSource + leg.traffic.rejected.Load(),
-		MissingOppositeLeg:    leg.missingOppositeLeg + leg.traffic.missing.Load(),
-		UnlearnedPeerEndpoint: leg.unlearnedPeerEndpoint + leg.traffic.unlearned.Load(),
+		Received:              leg.received,
+		Forwarded:             leg.forwarded,
+		BytesForwarded:        leg.bytesForwarded,
+		EmptyPayload:          leg.emptyPayload,
+		RejectedSource:        leg.rejectedSource,
+		MissingOppositeLeg:    leg.missingOppositeLeg,
+		UnlearnedPeerEndpoint: leg.unlearnedPeerEndpoint,
 
-		EndpointKnown: leg.learnedPort.Load() != 0,
-		RateLimited:   leg.traffic.limited.Load(), WriteFailed: leg.traffic.failed.Load(),
+		EndpointFallbackDatagrams: leg.endpointFallbackDatagrams,
+		EndpointFallbackBytes:     leg.endpointFallbackBytes,
+		EndpointFallbackFailed:    leg.endpointFallbackFailed,
+
+		EndpointKnown:          leg.endpointKnown,
+		PendingDatagrams:       len(leg.pending.payloads),
+		PendingBytes:           leg.pending.bytes,
+		PendingDropped:         leg.pending.dropped,
+		PendingExpired:         leg.pending.expired,
+		ReplayedDatagrams:      leg.replayedDatagrams,
+		ReplayedBytes:          leg.replayedBytes,
+		MemoBootstrapDatagrams: leg.memoBootstrapDatagrams,
+		MemoBootstrapBytes:     leg.memoBootstrapBytes,
+		MemoBootstrapFailed:    leg.memoBootstrapFailed,
+		MemoBootstrapWrites:    leg.memoBootstraps,
+
+		SeedForwardDatagrams: leg.seedForwardDatagrams,
+		SeedForwardBytes:     leg.seedForwardBytes,
+		SeedForwardFailed:    leg.seedForwardFailed,
+
+		StaleMemoDatagrams: leg.staleMemoDatagrams,
+		FanOutFailed:       leg.fanOutFailed,
+	}
+	if len(leg.fanOutWritten) > 0 {
+		stats.FanOutKinds = make(map[string]uint64, len(leg.fanOutWritten))
+		for kind, count := range leg.fanOutWritten {
+			stats.FanOutKinds[kind] = count
+		}
+	}
+	if leg.seedEndpoint != nil {
+		stats.SeedEndpoint = leg.seedEndpoint.String()
 	}
 	if leg.learnedEndpoint != nil {
 		stats.LearnedEndpoint = leg.learnedEndpoint.String()
-	}
-	if port := leg.learnedPort.Load(); port != 0 {
-		stats.LearnedEndpoint = netip.AddrPortFrom(netip.AddrFrom4(leg.binding.address), uint16(port)).String()
 	}
 	return stats
 }
@@ -234,7 +332,7 @@ func (leg *currentPartyUDPRelayLeg) ForwardedDatagrams() (uint64, uint64) {
 	}
 	leg.mu.Lock()
 	defer leg.mu.Unlock()
-	return leg.forwarded + leg.traffic.forwarded.Load(), leg.bytesForwarded + leg.traffic.bytes.Load()
+	return leg.forwarded, leg.bytesForwarded
 }
 
 // currentPartyUDPRelay is a per-directed-pair UDP relay. For party members A
@@ -254,21 +352,68 @@ type currentPartyUDPRelay struct {
 	portStart int
 	portCount int
 	usedPorts map[int]struct{}
-	// Cooldown belongs to the port, across party/PVP namespaces. Bounded by portCount.
-	portAvailableAt map[int]time.Time
-	nextPort        int
-	legs            map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg
-	closed          bool
-	wg              sync.WaitGroup
+	// Last ordinary-party owner of each pool port; bounded by portCount.
+	portOwners map[int]currentPartyUDPRelayLegKey
+	// pvpReleasedAt 记 PVP 腿端口的释放时刻，用于"下一局换一个端口"。
+	// 见 pvpRelayPortQuarantine 的现场依据。受 r.mu 保护。
+	pvpReleasedAt map[int]time.Time
+	legs          map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg
+	closed        bool
+	wg            sync.WaitGroup
 
 	// forwardedTotal 是全部腿（含已关闭的）累计转发的数据报数，原子累加，不参与转发逻辑。
 	forwardedTotal atomic.Uint64
 
+	// endpointFallback 是 DNFBRIDGE_PARTY_UDP_RELAY_ENDPOINT_FALLBACK 的归一化结果。
+	// false（默认）= 反向腿未学习时照旧丢弃（现行为，逐字节不变）。
+	endpointFallback bool
+
+	// probeReplay 是 DNFBRIDGE_PARTY_UDP_RELAY_PROBE_REPLAY 的归一化结果（本文件之外，
+	// 见 party_udp_relay_probe_replay.go）。false = 首包照旧丢弃（加开关前行为）。
+	probeReplay bool
+	// probeListen / seedForward / datagramTrace 是 party_udp_relay_probe_listener.go 的三个
+	// 开关：常驻原生探针监听、种子端点投递（+ relay 级待投清扫）、每个入向数据报一行 trace。
+	// 三者零值（false）= 加该文件之前的旧行为。
 	probeListen   bool
-	done          chan struct{}
+	seedForward   bool
+	datagramTrace bool
+	// probes 是"按角色 id 解析出来的原生探针端点"（见 noteNativeProbe）。
+	probes map[uint16]currentPartyUDPRelayProbeEndpoint
+	// observedEndpointFanout 是 DNFBRIDGE_PARTY_UDP_RELAY_OBSERVED_ENDPOINT_FANOUT 的归一化结果
+	// （**默认 on**，见 party_udp_relay_probe_listener.go「无归属观测端点表」一节）。
+	// false = 不记表、不生成 observed_probe_endpoint 候选 = 加本功能之前逐字节一致。
+	observedEndpointFanout bool
+	// observedMu/observedEndpoints 是"无归属观测端点表"：探针监听收到的**每一个**数据报的
+	// 源 ip:port（MRU 顺序，TTL=partyUDPRelayProbeTTL，上限=partyUDPRelayObservedEndpointLimit）。
+	// 它不需要角色 id —— 现场客户端的原生探测载荷只有 1 字节。
+	observedMu        sync.Mutex
+	observedEndpoints []currentPartyUDPRelayObservedProbeEndpoint
+	// memoTTL 是"新鲜备忘"的判定上限（DNFBRIDGE_PARTY_UDP_RELAY_MEMO_TTL_SECONDS，默认 30 秒）。
+	memoTTL time.Duration
+	// kickTiming 是"催沉默端 + 重投待投首包"的节拍（见 party_udp_relay_silent_peer_kick.go）。
+	kickTiming partyUDPRelayKickTiming
+	// onSilentPeer 是"让沉默对端开口"的回调（party_udp_relay_silent_peer_kick.go）。nil = 不做。
+	onSilentPeer       func(partyID, memberID uint16) bool
+	prepareStalledPeer func(uint16, currentPartyUDPRelayBinding) *partyUDPRelayRecoveryPlan
+	stallTiming        partyUDPRelayStallTiming
+	// done 在 Close 时关闭：所有 relay 级后台 goroutine（清扫器、看门狗）都监听它。
+	done chan struct{}
+	// pendingWindow 是待投队列的"周期重投总窗口"（DNFBRIDGE_PARTY_UDP_RELAY_RESEND_SECONDS，
+	// 默认 60s；零值 = 旧的一次性 pendingTTL，旧构造器路径行为不变）。
+	pendingWindow time.Duration
+	// probeListener 是常驻探针监听集合；启用的探针口不参与定向腿分配。
 	probeListener *currentPartyUDPRelayProbeListeners
+	// sweeperStop 关闭 relay 级待投清扫器（见 sweepPendingProbes）。
+	sweeperStop chan struct{}
+	// endpointMemo 是"每个角色自己发过的最近真实端点"，只用于对向腿未学习时的引导，
+	// 目标 IP 必须等于该角色游戏 TCP 会话观察到的 IPv4。
+	memoMu       sync.Mutex
+	endpointMemo map[uint16]currentPartyUDPRelayEndpointMemo
 
 	logWarn func(string, ...any)
+
+	// viaPort >0 = 用共享端口替代定向腿口（见 currentPartyUDPRelay.viaPort）。
+	viaPort int
 
 	socketBufferBytes       int
 	lastEffectiveRcvbuf     atomic.Int64
@@ -277,27 +422,110 @@ type currentPartyUDPRelay struct {
 	loggedSocketBufferIssue atomic.Bool
 }
 
-// Settings for authenticated per-leg forwarding. Recovery experiments were retired.
+// currentPartyUDPRelaySettings 是 currentPartyUDPRelay 的全部构造参数。
+// 旧构造器（newCurrentPartyUDPRelay / ...WithEndpointFallback / ...WithProbeReplay）保留原来的
+// 签名并把新字段留零值，因此既有单测/探针路径行为逐字节不变。
 type currentPartyUDPRelaySettings struct {
-	enabled               bool
-	advertiseIP, bindHost string
-	portStart, portCount  int
-	probeListen           bool
-	probePorts            []int
-	socketBufferBytes     int
-	logWarn               func(string, ...any)
+	enabled          bool
+	advertiseIP      string
+	bindHost         string // Empty preserves the original advertise-address binding.
+	portStart        int
+	portCount        int
+	endpointFallback bool
+	probeReplay      bool
+	probeListen      bool
+	probePorts       []int
+	seedForward      bool
+	datagramTrace    bool
+	// observedEndpointFanout 打开"无归属观测端点进候选集"（同上文件；默认档由
+	// optionsFromConfig 打开，零值 false = 旧行为）。
+	observedEndpointFanout bool
+	memoTTL                time.Duration
+	kickTiming             partyUDPRelayKickTiming
+	pendingWindow          time.Duration
+	onSilentPeer           func(partyID, memberID uint16) bool
+	prepareStalledPeer     func(uint16, currentPartyUDPRelayBinding) *partyUDPRelayRecoveryPlan
+	logWarn                func(string, ...any)
+	// viaPort >0 = 用共享端口替代定向腿口（见 currentPartyUDPRelay.viaPort）。
+	viaPort           int
+	socketBufferBytes int
 }
 
 func newCurrentPartyUDPRelay(enabled bool, advertiseIP string, portStart, portCount int, logWarn func(string, ...any)) (*currentPartyUDPRelay, error) {
-	return newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{enabled: enabled, advertiseIP: advertiseIP, portStart: portStart, portCount: portCount, logWarn: logWarn})
+	return newCurrentPartyUDPRelayWithEndpointFallback(enabled, advertiseIP, portStart, portCount, false, logWarn)
 }
 
+// newCurrentPartyUDPRelayWithEndpointFallback 与 newCurrentPartyUDPRelay 相同，只是额外
+// 打开"反向腿未学习时回落到对端**自报**端口"这一个单变量实验。默认构造路径
+// （endpointFallback=false）与加开关之前逐字节一致。
+func newCurrentPartyUDPRelayWithEndpointFallback(
+	enabled bool,
+	advertiseIP string,
+	portStart, portCount int,
+	endpointFallback bool,
+	logWarn func(string, ...any),
+) (*currentPartyUDPRelay, error) {
+	return newCurrentPartyUDPRelayWithProbeReplay(enabled, advertiseIP, portStart, portCount, endpointFallback, false, logWarn)
+}
+
+// newCurrentPartyUDPRelayWithProbeReplay 是全参构造：额外带上"首包留存重放"
+// （party_udp_relay_probe_replay.go）。probeReplay=false 的路径与加该开关之前逐字节一致，
+// 所以既有单测/探针（用前两个构造器或零值结构体）行为不受影响。
+func newCurrentPartyUDPRelayWithProbeReplay(
+	enabled bool,
+	advertiseIP string,
+	portStart, portCount int,
+	endpointFallback bool,
+	probeReplay bool,
+	logWarn func(string, ...any),
+) (*currentPartyUDPRelay, error) {
+	return newCurrentPartyUDPRelayWithSettings(currentPartyUDPRelaySettings{
+		enabled:          enabled,
+		advertiseIP:      advertiseIP,
+		portStart:        portStart,
+		portCount:        portCount,
+		endpointFallback: endpointFallback,
+		probeReplay:      probeReplay,
+		logWarn:          logWarn,
+	})
+}
+
+// newCurrentPartyUDPRelayWithSettings 是全参构造：额外带上"常驻原生探针监听 / 种子端点投递 /
+// 每个入向数据报 trace"（party_udp_relay_probe_listener.go）。三个新字段为 false 时
+// 与加该文件之前逐字节一致（首包只留存或丢弃）。
 func newCurrentPartyUDPRelayWithSettings(settings currentPartyUDPRelaySettings) (*currentPartyUDPRelay, error) {
 	enabled := settings.enabled
 	advertiseIP := settings.advertiseIP
 	portStart := settings.portStart
 	portCount := settings.portCount
-	relay := &currentPartyUDPRelay{enabled: enabled, probeListen: settings.probeListen, socketBufferBytes: settings.socketBufferBytes, logWarn: settings.logWarn, done: make(chan struct{})}
+	endpointFallback := settings.endpointFallback
+	probeReplay := settings.probeReplay
+	logWarn := settings.logWarn
+	relay := &currentPartyUDPRelay{
+		enabled:          enabled,
+		endpointFallback: endpointFallback,
+		probeReplay:      probeReplay,
+		probeListen:      settings.probeListen,
+		seedForward:      settings.seedForward,
+		datagramTrace:    settings.datagramTrace,
+		// 零值 false = 旧行为（不记表、不生成 observed_probe_endpoint 候选）。
+		observedEndpointFanout: settings.observedEndpointFanout,
+		memoTTL:                settings.memoTTL,
+		kickTiming:             settings.kickTiming,
+		onSilentPeer:           settings.onSilentPeer,
+		prepareStalledPeer:     settings.prepareStalledPeer,
+		viaPort:                settings.viaPort,
+		socketBufferBytes:      settings.socketBufferBytes,
+		logWarn:                logWarn,
+		done:                   make(chan struct{}),
+	}
+	if relay.memoTTL <= 0 || relay.memoTTL > memoTTL {
+		relay.memoTTL = defaultPartyUDPRelayMemoTTLSeconds * time.Second
+	}
+	if relay.kickTiming.interval <= 0 {
+		relay.kickTiming = readPartyUDPRelayKickTiming("", "")
+	}
+	relay.pendingWindow = settings.pendingWindow
 	if !enabled {
 		return relay, nil
 	}
@@ -321,12 +549,18 @@ func newCurrentPartyUDPRelayWithSettings(settings currentPartyUDPRelaySettings) 
 	relay.portStart = portStart
 	relay.portCount = portCount
 	relay.usedPorts = make(map[int]struct{})
-	relay.portAvailableAt = make(map[int]time.Time)
+	relay.pvpReleasedAt = make(map[int]time.Time)
 	relay.legs = make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
+	relay.probes = make(map[uint16]currentPartyUDPRelayProbeEndpoint)
 	// 常驻原生探针监听（默认档；绑不上只记日志，绝不影响 dnfbridge 启动）。
 	relay.startProbeListeners(settings.probePorts)
-	relay.wg.Add(1)
-	go relay.reportTraffic(relay.done)
+	// relay 级待投清扫器：待投队列 TTL 到期必须能被**记出来**（旧实现只在同一条腿再次收到
+	// 数据报时才会去检查 TTL ⇒ "对端整场不发"这种最该被记出来的情形反而永远静默）。
+	if probeReplay && settings.seedForward {
+		relay.sweeperStop = make(chan struct{})
+		relay.wg.Add(1)
+		go relay.pendingProbeSweeper(relay.sweeperStop)
+	}
 	return relay, nil
 }
 
@@ -381,16 +615,19 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 		}
 	}
 
+	// 种子端点在**取 r.mu 之前**算好：seedEndpointFor 内部要读 r.mu 保护的探针表，
+	// 而在下面持锁的循环里取锁会自锁（2026-09-25 单测当场抓到过）。
+	seeds := make(map[uint16]*net.UDPAddr, len(bindings))
+	if r.seedForward || r.probeListen {
+		for _, binding := range bindings {
+			seeds[binding.characterID] = r.seedEndpointFor(binding.characterID, binding.address)
+		}
+	}
+
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
 		return false
-	}
-	before := make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
-	for key, leg := range r.legs {
-		if key.partyID == partyID && key.pvp == pvp {
-			before[key] = leg
-		}
 	}
 	newLegs := make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
 	// ★ 端口分配必须稳定：newLegLocked 在端口池里从 portStart 顺序扫描，
@@ -424,56 +661,35 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 				r.releaseLegLocked(created)
 			}
 			r.mu.Unlock()
-			for _, created := range newLegs {
-				_ = created.conn.Close()
-			}
 			r.log("party UDP relay synchronization deferred", "party_id", partyID, "error", err)
 			return false
 		}
+		// 腿建立时就把"这条腿的 owner 已被我们观测到的端点"写死（原生探针 → 端点备忘）。
+		// 方向核对：腿 (owner=O, peer=P) 的 socket 是**广告给 O** 的那个口，它的出向投递
+		// （learnedEndpoint / pending 队列 / 投递目标）全部指向 **O 自己**；因此种子必须取
+		// owner（= O）的观测端点，IP 校验用它自己 binding 里那份 TCP 观测 IPv4。
+		// 有了它，对面那个人发来的第一个数据报会被**立即投给 O**，而不是被留存/丢弃后两端互等。
+		leg.seedEndpoint = seeds[key.ownerID]
 		leg.peerBinding = byID[key.peerID]
 		newLegs[key] = leg
 	}
 
-	// Socket allocation ran outside the topology lock. A concurrent change
-	// to this group invalidates the plan; other parties can proceed freely.
-	current := !r.closed
-	count := 0
-	for key, leg := range r.legs {
-		if key.partyID == partyID && key.pvp == pvp {
-			count++
-			current = current && before[key] == leg
-		}
-	}
-	if !current || count != len(before) {
-		for _, leg := range newLegs {
-			r.releaseLegLocked(leg)
-		}
-		r.mu.Unlock()
-		for _, leg := range newLegs {
-			_ = leg.conn.Close()
-		}
-		return false
-	}
 	toClose := make([]*currentPartyUDPRelayLeg, 0)
 	for key, existing := range r.legs {
 		if key.partyID != partyID || key.pvp != pvp {
 			continue
 		}
 		if binding, wanted := wanted[key]; !wanted || existing.binding != binding || existing.peerBinding != byID[key.peerID] {
-			existing.retired.Store(true)
 			toClose = append(toClose, existing)
 			delete(r.legs, key)
 			delete(r.usedPorts, int(existing.port))
-			r.notePortReleasedLocked(existing)
+			if existing.key.pvp {
+				r.notePVPPortReleasedLocked(int(existing.port))
+			}
 		}
 	}
 	for key, leg := range newLegs {
 		r.legs[key] = leg
-	}
-	for key, leg := range r.legs {
-		if key.partyID == partyID && key.pvp == pvp {
-			leg.opposite.Store(r.legs[currentPartyUDPRelayLegKey{pvp: key.pvp, partyID: key.partyID, ownerID: key.peerID, peerID: key.ownerID}])
-		}
 	}
 	r.wg.Add(len(newLegs))
 	r.mu.Unlock()
@@ -489,7 +705,8 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 	return true
 }
 
-// CloseParty closes sockets immediately; their ports remain quarantined.
+// CloseParty releases all directed ports for a party immediately. It is used
+// when the current client creates a new PartyID during leadership transfer.
 func (r *currentPartyUDPRelay) CloseParty(partyID uint16) {
 	if r == nil || partyID == 0 {
 		return
@@ -503,6 +720,64 @@ func (r *currentPartyUDPRelay) CloseParty(partyID uint16) {
 	r.logLegClosure(legs, "close_party")
 }
 
+// TransferParty 处理"队长退队 ⇒ 幸存者换新 PartyID 重建"（RuntimePartyManager 的 Retired）。
+//
+// ★ 2026-11-18 23:47～23:51 90CN 实测（msp/liyutou/速成奶/萌喵喵丶 四人反复进退队）：
+// 旧实现在这里直接 CloseParty(旧 ID)，新 ID 的 Sync 再从 portStart 顺序扫描分端口，
+// 于是幸存者之间每一对方向的端口都被整体洗牌。客户端对**已经认识的队友**不会改用
+// 新 op11 里的端口（silent peer kick 重推名册 3 次也无效），继续往旧端口发：
+//
+//	liyutou(54) 23:47:34 前发 30008/30009/30010（队伍 4 里它的三条腿）；
+//	换队长后新腿是 30001/30002，但它整整 30 秒只发 30009/30010 ——
+//	而这两个口在队伍 5 里已经分给 msp→萌喵喵丶 与 liyutou→msp ⇒ 串线/单向黑洞。
+//
+// 普通队员退队只增删那个人的腿、其余端口不动，所以从没出过事。这里让换队长与之等价：
+// 幸存者每一对 (owner, peer) 的端口记录原样转到新 PartyID，新 ID 的 Sync 经
+// newLegLockedPass 的 preferred 路径拿回**同一个端口**；旧腿照常关闭（端口立即释放，
+// 紧接着的 Sync 重新 bind 同一口，客户端下一个包到达即重新学习端点）。
+func (r *currentPartyUDPRelay) TransferParty(retiredID, nextID uint16) {
+	if r == nil || retiredID == 0 {
+		return
+	}
+	if nextID == 0 || nextID == retiredID {
+		r.CloseParty(retiredID)
+		return
+	}
+	r.mu.Lock()
+	live := make(map[currentPartyUDPRelayLegKey]struct{})
+	for _, key := range r.portOwners {
+		if key.partyID == nextID && !key.pvp {
+			live[key] = struct{}{}
+		}
+	}
+	carried := make(map[int]currentPartyUDPRelayLegKey)
+	for port, key := range r.portOwners {
+		if key.partyID != retiredID || key.pvp {
+			continue
+		}
+		key.partyID = nextID
+		// 新 ID 已经先 Sync 出了这一对（理论上调用顺序不会如此）⇒ 以在用的为准，不留两条记录。
+		if _, exists := live[key]; exists {
+			continue
+		}
+		carried[port] = key
+	}
+	legs := r.removePartyLocked(retiredID)
+	for port, key := range carried {
+		r.portOwners[port] = key
+	}
+	r.mu.Unlock()
+	for _, leg := range legs {
+		_ = leg.conn.Close()
+	}
+	r.logLegClosure(legs, "leader_transfer")
+	r.log("party UDP relay leader transfer kept directed ports",
+		"retired_party_id", retiredID,
+		"party_id", nextID,
+		"carried_ports", len(carried),
+		"meaning", "surviving_pairs_reuse_the_ports_their_clients_already_cached")
+}
+
 func (r *currentPartyUDPRelay) Close() error {
 	if r == nil {
 		return nil
@@ -513,6 +788,10 @@ func (r *currentPartyUDPRelay) Close() error {
 		return nil
 	}
 	r.closed = true
+	if r.sweeperStop != nil {
+		close(r.sweeperStop)
+		r.sweeperStop = nil
+	}
 	if r.done != nil {
 		close(r.done)
 		r.done = nil
@@ -521,7 +800,6 @@ func (r *currentPartyUDPRelay) Close() error {
 	r.probeListener = nil
 	legs := make([]*currentPartyUDPRelayLeg, 0, len(r.legs))
 	for _, leg := range r.legs {
-		leg.retired.Store(true)
 		legs = append(legs, leg)
 	}
 	r.legs = make(map[currentPartyUDPRelayLegKey]*currentPartyUDPRelayLeg)
@@ -544,19 +822,56 @@ func (r *currentPartyUDPRelay) Endpoint(partyID, ownerID, peerID uint16) ([4]byt
 	r.mu.Lock()
 	leg := r.legs[currentPartyUDPRelayLegKey{partyID: partyID, ownerID: ownerID, peerID: peerID}]
 	address := r.advertise
+	viaPort := r.viaPort
 	r.mu.Unlock()
 	if leg == nil {
 		return [4]byte{}, 0, false
 	}
+	// viaPort 档（DNFBRIDGE_PARTY_UDP_RELAY_VIA_PORT>0）：两端都被通告**同一个共享端口**，
+	// 因为现场那个 NAT 只放行"客户端自己持续发包的那一个目的端口"的入向
+	// （见 party_udp_relay_via_port.go 的现场依据）。默认（viaPort=0）逐字节不变。
+	if viaPort > 0 && viaPort <= 65535 {
+		return address, uint16(viaPort), true
+	}
 	return address, leg.port, true
 }
 
-// Rotate through the pool without overriding cooldown on exhaustion.
+// newLegLocked 在端口池里给一条腿绑定一个 UDP 端口。
+//
+// ★ PVP 腿优先避开**上一局刚释放**的端口（`pvpRelayPortQuarantine`）：端口池是
+// "取最小空闲"，所以连续两局会拿到同一个端口，通告给客户端的对端端点也就一字不差，
+// 客户端那边的 UDP 会话四元组跨局完全不变 —— 现场表现就是第二局黑屏。
+// 静默期把端口池抽干时**忽略静默期再扫一遍**：绝不能让决斗开不起来。
 func (r *currentPartyUDPRelay) newLegLocked(key currentPartyUDPRelayLegKey, binding currentPartyUDPRelayBinding) (*currentPartyUDPRelayLeg, error) {
-	now := time.Now()
-	for offset := 0; offset < r.portCount; offset++ {
-		index := (r.nextPort + offset) % r.portCount
-		port := r.portStart + index
+	leg, err := r.newLegLockedPass(key, binding, key.pvp)
+	if err == nil || !key.pvp {
+		return leg, err
+	}
+	return r.newLegLockedPass(key, binding, false)
+}
+
+// newLegLockedPass 是 newLegLocked 的单趟扫描。honorQuarantine 为真时跳过
+// 仍处于静默期的 PVP 端口。
+func (r *currentPartyUDPRelay) newLegLockedPass(key currentPartyUDPRelayLegKey, binding currentPartyUDPRelayBinding, honorQuarantine bool) (*currentPartyUDPRelayLeg, error) {
+	preferred := -1
+	if !key.pvp {
+		for port, owner := range r.portOwners {
+			if owner == key {
+				preferred = port
+				break
+			}
+		}
+	}
+	for offset := -1; offset < r.portCount; offset++ {
+		port := r.portStart + offset
+		if offset == -1 {
+			port = preferred
+		} else if port == preferred {
+			continue
+		}
+		if port < r.portStart || port >= r.portStart+r.portCount {
+			continue
+		}
 		// Native keepalives keep targeting probe ports after party formation.
 		// Reusing one as a directed leg lets a same-NAT peer overwrite its owner.
 		if r.probeListener != nil {
@@ -567,31 +882,33 @@ func (r *currentPartyUDPRelay) newLegLocked(key currentPartyUDPRelayLegKey, bind
 		if _, used := r.usedPorts[port]; used {
 			continue
 		}
-		if now.Before(r.portAvailableAt[port]) {
-			continue
+		if honorQuarantine {
+			if releasedAt, ok := r.pvpReleasedAt[port]; ok && time.Since(releasedAt) < pvpRelayPortQuarantine {
+				continue
+			}
 		}
-		if r.closed {
-			return nil, net.ErrClosed
-		}
-		r.usedPorts[port] = struct{}{}
-		address := &net.UDPAddr{IP: append(net.IP(nil), r.bindIP...), Port: port}
-		r.mu.Unlock()
-		conn, err := net.ListenUDP("udp4", address)
-		if err == nil {
-			r.applySocketBuffer(conn, port, "relay_leg")
-		}
-		r.mu.Lock()
+		conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: append(net.IP(nil), r.bindIP...), Port: port})
 		if err != nil {
-			delete(r.usedPorts, port)
 			continue
 		}
-		r.nextPort = (index + 1) % r.portCount
-		delete(r.portAvailableAt, port)
+		r.applySocketBuffer(conn, port, "relay_leg")
+		r.usedPorts[port] = struct{}{}
+		if r.portOwners == nil {
+			r.portOwners = make(map[int]currentPartyUDPRelayLegKey)
+		}
+		if key.pvp {
+			delete(r.portOwners, port)
+		} else {
+			r.portOwners[port] = key
+		}
 		return &currentPartyUDPRelayLeg{
-			key:     key,
-			binding: binding,
-			conn:    conn,
-			port:    uint16(port),
+			key:           key,
+			binding:       binding,
+			conn:          conn,
+			port:          uint16(port),
+			memoTTL:       r.memoTTL,
+			createdAt:     time.Now(),
+			pendingWindow: r.pendingWindow,
 		}, nil
 	}
 	return nil, fmt.Errorf("no free ports in configured range %d-%d", r.portStart, r.portStart+r.portCount-1)
@@ -602,22 +919,36 @@ func (r *currentPartyUDPRelay) releaseLegLocked(leg *currentPartyUDPRelayLeg) {
 		return
 	}
 	delete(r.usedPorts, int(leg.port))
-	// Never published. The caller closes its socket after releasing r.mu.
+	if leg.key.pvp {
+		r.notePVPPortReleasedLocked(int(leg.port))
+	}
+	_ = leg.conn.Close()
 }
 
-// Both namespaces share the same pool; switching modes cannot bypass cooldown.
-func (r *currentPartyUDPRelay) notePortReleasedLocked(leg *currentPartyUDPRelayLeg) {
-	if r.portAvailableAt == nil {
-		r.portAvailableAt = make(map[int]time.Time)
+// notePVPPortReleasedLocked 记下某个 PVP 腿端口刚被释放的时刻（调用方持 r.mu）。
+// 顺手清掉已经过了静默期的条目，避免这张表无限增长。
+func (r *currentPartyUDPRelay) notePVPPortReleasedLocked(port int) {
+	if r == nil || port <= 0 {
+		return
 	}
-	delay := 60 * time.Second
-	if leg.key.pvp {
-		delay = pvpRelayPortQuarantine
+	now := time.Now()
+	if r.pvpReleasedAt == nil {
+		r.pvpReleasedAt = make(map[int]time.Time)
 	}
-	r.portAvailableAt[int(leg.port)] = time.Now().Add(delay)
+	for released, at := range r.pvpReleasedAt {
+		if now.Sub(at) >= pvpRelayPortQuarantine {
+			delete(r.pvpReleasedAt, released)
+		}
+	}
+	r.pvpReleasedAt[port] = now
 }
 
 func (r *currentPartyUDPRelay) removePartyLocked(partyID uint16) []*currentPartyUDPRelayLeg {
+	for port, key := range r.portOwners {
+		if key.partyID == partyID && !key.pvp {
+			delete(r.portOwners, port)
+		}
+	}
 	legs := make([]*currentPartyUDPRelayLeg, 0)
 	for key, leg := range r.legs {
 		if key.partyID != partyID || key.pvp {
@@ -625,130 +956,147 @@ func (r *currentPartyUDPRelay) removePartyLocked(partyID uint16) []*currentParty
 		}
 		delete(r.legs, key)
 		delete(r.usedPorts, int(leg.port))
-		r.notePortReleasedLocked(leg)
-		leg.retired.Store(true)
 		legs = append(legs, leg)
 	}
 	return legs
 }
 
-// The socket reader owns its rate window. Routes, endpoint ports and counters
-// are atomic; no topology/leg lock, formatting or allocation occurs per packet.
 func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 	defer r.wg.Done()
-	var buffer [currentPartyUDPRelayMaxDatagram]byte
-	window := time.Now()
-	packets, empty := 0, 0
+	buffer := make([]byte, currentPartyUDPRelayMaxDatagram)
 	for {
-		n, source, err := leg.conn.ReadFromUDPAddrPort(buffer[:])
-		if err != nil || leg.retired.Load() {
+		n, source, err := leg.conn.ReadFromUDP(buffer)
+		if err != nil {
 			return
 		}
-		now := time.Now()
-		if now.Sub(window) >= time.Second {
-			window, packets, empty = now, 0, 0
-		}
-		packets++
-		if n == 0 {
-			leg.traffic.empty.Add(1)
-			empty++
-			if empty > 100 {
-				leg.traffic.limited.Add(1)
+		if n <= 0 {
+			if count, first := leg.noteDrop(relayLegDropEmptyPayload); first {
+				r.logDrop(leg, relayLegDropEmptyPayload, count, nil,
+					"meaning", "client_sent_a_zero_length_udp_datagram")
 			}
+			r.traceRelayDatagram(leg, source, n, nil, "dropped_empty_payload")
 			continue
 		}
-		if packets > 3000 {
-			leg.traffic.limited.Add(1)
-			continue
-		}
-		if !source.Addr().Is4() || source.Addr().As4() != leg.binding.address {
-			leg.traffic.rejected.Add(1)
-			continue
-		}
-		leg.traffic.received.Add(1)
-		leg.learnedPort.Store(uint32(source.Port()))
-		r.flushInitial(leg, now)
-		opposite := leg.opposite.Load()
-		if opposite == nil || opposite.retired.Load() {
-			leg.traffic.missing.Add(1)
-			continue
-		}
-		if opposite.learnedPort.Load() == 0 {
-			leg.traffic.unlearned.Add(1)
-			for i := range opposite.initial {
-				slot := &opposite.initial[i]
-				if !slot.state.CompareAndSwap(0, 1) {
-					continue
-				}
-				slot.sender, slot.created, slot.size = leg, now, n
-				copy(slot.data[:], buffer[:n])
-				slot.state.Store(2)
-				// Learning may have raced publication; either reader can drain.
-				r.flushInitial(opposite, now)
-				break
+		if !currentPartyUDPRelaySourceMatches(source, leg.binding.address) {
+			if count, first := leg.noteDrop(relayLegDropSourceMismatch); first {
+				r.logDrop(leg, relayLegDropSourceMismatch, count, source,
+					"expected", formatCurrentPartyUDPRelayIPv4(leg.binding.address),
+					"meaning", "expected_is_the_game_tcp_sessions_observed_ipv4_the_client_cs_op2_report_is_not_used_here")
 			}
+			r.traceRelayDatagram(leg, source, n, buffer[:n], "dropped_source_mismatch")
 			continue
 		}
-		r.forwardDatagram(leg, opposite, buffer[:n])
-	}
-}
-
-func (r *currentPartyUDPRelay) flushInitial(target *currentPartyUDPRelayLeg, now time.Time) {
-	if target.learnedPort.Load() == 0 {
-		return
-	}
-	for i := range target.initial {
-		slot := &target.initial[i]
-		if slot.state.CompareAndSwap(2, 3) && now.Sub(slot.created) <= 5*time.Second {
-			r.forwardDatagram(slot.sender, target, slot.data[:slot.size])
-		}
-	}
-}
-
-func (r *currentPartyUDPRelay) forwardDatagram(from, to *currentPartyUDPRelayLeg, payload []byte) {
-	if from.retired.Load() || to.retired.Load() || from.opposite.Load() != to {
-		return
-	}
-	port := to.learnedPort.Load()
-	if port == 0 {
-		return
-	}
-	// A stale writer owns only its old socket. Close fails it naturally, and
-	// port quarantine prevents that socket's address from changing owners.
-	if err := to.conn.SetWriteDeadline(time.Now().Add(currentPartyRelayWriteTimeout)); err != nil {
-		to.traffic.failed.Add(1)
-		return
-	}
-	if _, err := to.conn.WriteToUDPAddrPort(payload, netip.AddrPortFrom(netip.AddrFrom4(to.binding.address), uint16(port))); err != nil {
-		from.traffic.failed.Add(1)
-		return
-	}
-	from.traffic.forwarded.Add(1)
-	from.traffic.bytes.Add(uint64(len(payload)))
-	r.forwardedTotal.Add(1)
-}
-
-// Diagnostics run off the packet path, at most once per ten seconds per leg.
-func (r *currentPartyUDPRelay) reportTraffic(done <-chan struct{}) {
-	defer r.wg.Done()
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			r.mu.Lock()
-			legs := sortedCurrentPartyUDPRelayLegs(r.legs)
+		r.mu.Lock()
+		if r.closed || r.legs[leg.key] != leg {
 			r.mu.Unlock()
-			for _, leg := range legs {
-				t := &leg.traffic
-				if t.empty.Load()+t.rejected.Load()+t.missing.Load()+t.unlearned.Load()+t.limited.Load()+t.failed.Load() == 0 {
-					continue
-				}
-				r.log("party UDP relay traffic summary", "party_id", leg.key.partyID, "owner_id", leg.key.ownerID, "peer_id", leg.key.peerID,
-					"empty_payload", t.empty.Load(), "source_mismatch", t.rejected.Load(), "unlearned", t.unlearned.Load(), "rate_limited", t.limited.Load(), "write_failed", t.failed.Load())
+			return
+		}
+		leg.noteReceived()
+		leg.mu.Lock()
+		firstLearn := !leg.endpointKnown
+		leg.endpointKnown = true
+		leg.learnedEndpoint = cloneCurrentPartyUDPRelayAddr(source)
+		leg.mu.Unlock()
+		r.rememberEndpoint(leg, source)
+		r.mu.Unlock()
+		r.logStalledMemberTrafficResumed(leg)
+		if firstLearn {
+			// 首包留存重放：这条腿第一次学到"写给它的对端"的真实端点 ⇒ 把之前为它
+			// 留存下来的（对向腿的）首包原样补投过去。off 档下本函数立即返回。
+			r.flushPendingProbes(leg)
+		}
+		r.logPendingProbeExpiry(leg)
+		if leg.noteLearnedEndpointAfterFallback() {
+			// 判定性证据：这条腿先前只被"自报端点回落"喂过包，现在它**自己**发来了数据报
+			// ⇒ 对端客户端被唤醒并回话了（响应式模型成立），且从这里开始 learnedEndpoint
+			// 就是权威目标，回落路径自动让位。
+			r.log("party UDP relay endpoint fallback learned real endpoint",
+				"party_id", leg.key.partyID,
+				"owner_id", leg.key.ownerID,
+				"peer_id", leg.key.peerID,
+				"leg_listen_port", leg.port,
+				"learned_endpoint", source.String(),
+				"meaning", "the_leg_that_was_only_fed_by_the_advertised_endpoint_guess_has_now_sent_its_own_datagram")
+		}
+
+		r.mu.Lock()
+		if r.closed || r.legs[leg.key] != leg {
+			r.mu.Unlock()
+			return
+		}
+		opposite := r.legs[currentPartyUDPRelayLegKey{
+			pvp:     leg.key.pvp,
+			partyID: leg.key.partyID,
+			ownerID: leg.key.peerID,
+			peerID:  leg.key.ownerID,
+		}]
+		r.mu.Unlock()
+		if opposite == nil {
+			if count, first := leg.noteDrop(relayLegDropMissingOppositeLeg); first {
+				r.logDrop(leg, relayLegDropMissingOppositeLeg, count, source,
+					"meaning", "relay_topology_changed_mid_flight_party_close_or_member_leave")
 			}
+			r.traceRelayDatagram(leg, source, n, buffer[:n], "dropped_missing_opposite_leg")
+			continue
+		}
+		opposite.mu.Lock()
+		destination := cloneCurrentPartyUDPRelayAddr(opposite.learnedEndpoint)
+		opposite.mu.Unlock()
+		if destination == nil {
+			// 这条是**最隐蔽的黑洞**：对面那条腿还没发过任何数据报 ⇒ 没学到 endpoint ⇒
+			// 本方向的包全被丢弃。旧实现静默 continue，"通道建了但单向没通"看起来与
+			// "客户端一个包都没发"完全一样。
+			if count, first := leg.noteDrop(relayLegDropUnlearnedPeerEndpoint); first {
+				r.logDrop(leg, relayLegDropUnlearnedPeerEndpoint, count, source,
+					"meaning", "the_opposite_directed_leg_has_not_sent_yet_so_its_endpoint_is_unknown")
+			}
+			// 判定顺序（**先真值、后猜测、能发多少发多少**）：
+			//   ① 留存首包（对端一开口就补投）+ 新鲜备忘引导（≤ MEMO_TTL_SECONDS；
+			//      party_udp_relay_probe_replay.go）；
+			//   ② 多候选扇出（party_udp_relay_probe_listener.go）：原生探针端点 / 陈旧备忘 /
+			//      自报端口 —— 每个候选各投一份、各自计数与首次日志，绝不静默；
+			//   ③ 让沉默的对端开口（party_udp_relay_silent_peer_kick.go，严格限量）。
+			memoWrote := r.handleUnlearnedProbe(leg, opposite, source, buffer[:n])
+			fanOut, kinds, deliverySourcePort := r.fanOutUnlearnedDatagram(leg, opposite, buffer[:n], memoWrote)
+			if !fanOut {
+				// 没有任何候选可投时仍然走自报端口回落（它受旧开关控制，默认 off = 旧行为）。
+				r.forwardToAdvertisedEndpoint(leg, opposite, buffer[:n])
+			}
+			// 让沉默的对端开口（+ 沉默期间周期重投待投首包）：**看门狗**，不是一次性内联判断。
+			// 23:31 那次的时序 bug 就是"唯一的数据报在腿龄 65ms 时到达、一次性判断因 minAge=2s
+			// 直接 return，之后再没有数据报 ⇒ 永远不会再评估"。现在起一个 per-leg goroutine，
+			// 睡到腿龄够 minAge 再动手，之后按 interval 周期重试，直到对端开口/腿被回收/relay 关闭。
+			r.watchSilentPeer(leg, opposite)
+			decision := "held_queued_for_replay"
+			switch {
+			case fanOut:
+				decision = "fanout_" + kinds
+			case memoWrote:
+				decision = "memo_bootstrap"
+			}
+			// delivery_source_port：真相在这一格 —— 无归属观测端点档是从**探针口**发出去的
+			// （现场判据：对端只认它自己探测过的那个源口），其余候选与退化路径是腿口。
+			r.traceRelayDatagramDelivered(leg, source, n, buffer[:n], decision, deliverySourcePort)
+			continue
+		}
+		if _, err := r.writeCurrentPairDatagram(leg, opposite, opposite.conn, buffer[:n], destination); err != nil {
+			r.log("party UDP relay forward failed", "party_id", leg.key.partyID, "owner_id", leg.key.ownerID, "peer_id", leg.key.peerID, "error", err)
+			r.traceRelayDatagram(leg, source, n, buffer[:n], "forward_failed")
+			continue
+		}
+		datagrams, bytesForwarded, first := leg.noteForwarded(n)
+		r.forwardedTotal.Add(1)
+		r.traceRelayDatagram(leg, source, n, buffer[:n], "forwarded_learned_endpoint")
+		r.watchStalledPartyMember(leg, opposite)
+		if first {
+			r.log("party UDP relay leg carries traffic",
+				"party_id", leg.key.partyID,
+				"owner_id", leg.key.ownerID,
+				"peer_id", leg.key.peerID,
+				"listen_port", leg.port,
+				"datagrams", datagrams,
+				"bytes", bytesForwarded,
+				"meaning", "client_p2p_path_is_live_for_this_directed_pair")
 		}
 	}
 }
@@ -808,28 +1156,61 @@ func (r *currentPartyUDPRelay) logLegClosure(legs []*currentPartyUDPRelayLeg, re
 	if r == nil || len(legs) == 0 {
 		return
 	}
-	var received, forwarded, bytes, empty, rejected, unlearned, limited, failed, missing uint64
-	idle := 0
+	var forwarded, received, idle uint64
+	var emptyPayload, rejectedSource, missingOpposite, unlearnedPeer uint64
+	var fallbackDatagrams, fallbackFailed uint64
+	var pendingDropped, pendingExpired, replayed, memoDatagrams, memoFailed uint64
+	var seedDatagrams, seedFailed uint64
 	for _, leg := range legs {
-		st := leg.relayLegStatsSnapshot()
-		received += st.Received
-		forwarded += st.Forwarded
-		bytes += st.BytesForwarded
-		empty += st.EmptyPayload
-		rejected += st.RejectedSource
-		unlearned += st.UnlearnedPeerEndpoint
-		missing += st.MissingOppositeLeg
-		limited += st.RateLimited
-		failed += st.WriteFailed
-		if st.Received == 0 {
+		stats := leg.relayLegStatsSnapshot()
+		forwarded += stats.Forwarded
+		received += stats.Received
+		emptyPayload += stats.EmptyPayload
+		rejectedSource += stats.RejectedSource
+		missingOpposite += stats.MissingOppositeLeg
+		unlearnedPeer += stats.UnlearnedPeerEndpoint
+		fallbackDatagrams += stats.EndpointFallbackDatagrams
+		fallbackFailed += stats.EndpointFallbackFailed
+		pendingDropped += stats.PendingDropped
+		pendingExpired += stats.PendingExpired
+		replayed += stats.ReplayedDatagrams
+		memoDatagrams += stats.MemoBootstrapDatagrams
+		memoFailed += stats.MemoBootstrapFailed
+		seedDatagrams += stats.SeedForwardDatagrams
+		seedFailed += stats.SeedForwardFailed
+		if stats.Forwarded == 0 && stats.ReplayedDatagrams == 0 && stats.SeedForwardDatagrams == 0 {
 			idle++
 		}
 	}
-	r.log("party UDP relay legs closed", "party_id", legs[0].key.partyID, "reason", reason, "closed_legs", len(legs), "idle_legs", idle,
-		"received_datagrams", received, "leg_forwarded_datagrams", forwarded, "forwarded_bytes", bytes, "empty_payload", empty, "source_mismatch", rejected,
-		"unlearned_peer_endpoint", unlearned, "rate_limited", limited, "write_failed", failed,
-		"rejected_source_datagrams", rejected, "dropped_empty_datagrams", empty,
-		"dropped_missing_opposite_leg", missing, "dropped_unlearned_peer_endpoint", unlearned)
+	r.log("party UDP relay legs closed",
+		"reason", reason,
+		"legs", len(legs),
+		"idle_legs", idle,
+		"received_datagrams", received,
+		"leg_forwarded_datagrams", forwarded,
+		"total_forwarded_datagrams", r.ForwardedDatagramTotal(),
+		"rejected_source_datagrams", rejectedSource,
+		"dropped_empty_datagrams", emptyPayload,
+		"dropped_missing_opposite_leg", missingOpposite,
+		"dropped_unlearned_peer_endpoint", unlearnedPeer,
+		"endpoint_fallback_datagrams", fallbackDatagrams,
+		"endpoint_fallback_failed", fallbackFailed,
+		"endpoint_fallback_mode", r.endpointFallbackModeLabel(),
+		// 首包留存重放（party_udp_relay_probe_replay.go）：`replayed_probe_datagrams > 0`
+		// 就是"单向死锁已被打破"的机器证据；`expired_probe_datagrams > 0` 则是
+		// "这一端整场一个数据报都没发"的机器证据。
+		"probe_replay_mode", r.probeReplayModeLabel(),
+		"replayed_probe_datagrams", replayed,
+		"dropped_pending_probe_datagrams", pendingDropped,
+		"expired_probe_datagrams", pendingExpired,
+		"endpoint_memo_bootstrap_datagrams", memoDatagrams,
+		"endpoint_memo_bootstrap_failed", memoFailed,
+		// 种子端点投递（party_udp_relay_probe_listener.go）：`seed_forward_datagrams > 0` 就是
+		// "对端在组队前已被我们观测到，所以第一个数据报直接被投出去"的机器证据。
+		"native_probe_listen_mode", r.probeListenModeLabel(),
+		"seed_forward_mode", r.seedForwardModeLabel(),
+		"seed_forward_datagrams", seedDatagrams,
+		"seed_forward_failed", seedFailed)
 }
 
 // logLegCreation 在腿刚绑定时记一条，把 `expected`（= 该会话游戏 TCP 连接看到的对端 IPv4）
@@ -859,10 +1240,25 @@ func (r *currentPartyUDPRelay) logLegCreation(legs []*currentPartyUDPRelayLeg) {
 			"advertise", advertise,
 			"expected", stats.ExpectedIPv4,
 			"advertised_udp_port", stats.AdvertisedPort,
-			"probe_replay", "per_leg_four_packets_five_seconds",
-			"native_probe_listen", r.probeListen,
+			// seed_endpoint = 腿建立时就已经能写死的对端目标（原生探针观测 → 端点备忘）。
+			// 非空即代表"这一端的第一个数据报会被立即投递"；空 = 只能等对端自己先发包。
+			"seed_endpoint", stats.SeedEndpoint,
+			"endpoint_fallback", r.endpointFallbackModeLabel(),
+			"probe_replay", r.probeReplayModeLabel(),
+			"native_probe_listen", r.probeListenModeLabel(),
+			"seed_forward", r.seedForwardModeLabel(),
 			"source", "binding_is_the_owner_sessions_observed_game_tcp_ipv4_not_the_cs_op2_report")
 	}
+}
+
+// endpointFallbackModeLabel 是 DNFBRIDGE_PARTY_UDP_RELAY_ENDPOINT_FALLBACK 当前档位的
+// 日志标签（`off` = 默认现行为 / `advertised` = 打开自报端点回落）。leg 建立与腿汇总
+// 都带这个字段，判读时不必去翻 env。
+func (r *currentPartyUDPRelay) endpointFallbackModeLabel() string {
+	if r != nil && r.endpointFallback {
+		return partyUDPRelayEndpointFallbackValueAdvertised
+	}
+	return partyUDPRelayEndpointFallbackValueOff
 }
 
 // bindAddressString 是 relay 实际 ListenUDP 用的 IPv4（可与通告地址不同）。

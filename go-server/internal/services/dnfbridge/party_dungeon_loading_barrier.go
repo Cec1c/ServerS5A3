@@ -147,8 +147,6 @@ type partyDungeonLoadingCycle struct {
 	started             time.Time
 	expiring            bool
 	warned              bool
-	snapshots           *partyLoadingSnapshots
-	snapshotFinished    map[uint16]bool
 	preparing           map[uint16]*partyLoadingPreparation
 	activationScheduled bool
 	PartyID             uint16
@@ -612,17 +610,7 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 	for id, owner := range expected.owners {
 		owners[id] = owner
 	}
-	preload := expected.preparing == nil
-	if preload {
-		expected.snapshots = newPartyLoadingSnapshots()
-		for _, owner := range owners {
-			if owner.session != nil {
-				expected.snapshots.owners[owner.session] = owner.epoch
-			}
-		}
-		for owner := range expected.snapshots.owners {
-			owner.partyLoadingSnapshots.Store(expected.snapshots)
-		}
+	if expected.preparing == nil {
 		expected.preparing = make(map[uint16]*partyLoadingPreparation)
 		for _, id := range members {
 			if owner, ok := owners[id]; ok && owner.session != nil && owner.runtime != nil {
@@ -636,11 +624,7 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 			p.wantTail = true
 		}
 	}
-	cache := expected.snapshots
 	s.partyDungeonLoadingMu.Unlock()
-	if preload {
-		s.preloadPartyLoadingSnapshots(cache, owners)
-	}
 	// Each member keeps its own session loop, bounded dispatch wait and the existing
 	// cycle/owner guard. Only the wait for the previous member is removed: the
 	// callbacks are submitted to their own loops at the same time instead of one
@@ -732,7 +716,6 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 			return nil
 		}
 		if plan != nil {
-			defer s.finishPartyLoadingSnapshot(partyID, expected, charID)
 			session.partyLoadingPrepared = plan
 			defer func() { session.partyLoadingPrepared = nil }()
 			activation := plan.activation
