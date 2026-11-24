@@ -109,6 +109,22 @@ func TestRealPVFAdventureShopExperienceSynchronizesAcrossCapsules(t *testing.T) 
 		t.Fatal("战斗中打开冒险团失败")
 	}
 	assertInfo(frames[0].Body[1:], wantGrowth, 1_000_000)
+	// A max-level character can accumulate capsules but cannot claim them:
+	// the current PVF restricts claimants to levels 50..86.
+	beforeAccount, _, err := repos.Account.Load(ctx, "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.conn.(*bufferConn).write.Reset()
+	if err := s.handleCurrentAdventureGrowthCapsule(p, nil); err != nil {
+		t.Fatal(err)
+	}
+	claimFrames := splitAllCurrentGameServerUpperPackets(t, p.conn.(*bufferConn).write.Bytes())
+	afterAccount, _, err := repos.Account.Load(ctx, "account-1")
+	if err != nil || len(claimFrames) != 1 || claimFrames[0].Header.MsgID != currentAdventureGrowthCapsuleMsgID || claimFrames[0].Body[0] != 0 ||
+		afterAccount.Metadata[adventuregroup.RuntimeStateMetadataKey] != beforeAccount.Metadata[adventuregroup.RuntimeStateMetadataKey] {
+		t.Fatalf("out-of-range claim changed capsule balance: frames=%+v err=%v", claimFrames, err)
+	}
 	// 同账号的68级角色重新打开页面，检查账号累计不依赖当前满级角色快照。
 	c, _, err := repos.Character.Load(ctx, "99")
 	if err != nil {

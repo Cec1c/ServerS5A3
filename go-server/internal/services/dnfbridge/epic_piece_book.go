@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfpvf "longheng.io/server/internal/modules/dnf/pvf"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
@@ -516,10 +515,20 @@ func (s *Service) sendCurrentEpicPieceBalanceUpdate(
 
 // epicPiecePickupFollowups 是"碎片已入账"之后的下行尾巴：只发增量账本。
 //
-// 与 0.1.8 的 `sendCurrentEpicPiecePickupFollowups` 的唯一差别是不发主背包刷新：
-// 参考实现那一版会先补一条 list 0 的整容器刷新，而本服务端这条路径一个背包槽位都没动
-// （碎片不写 character_items），补刷新只会让客户端重建一次无变化的材料页。
-// 拾取本身的"到手特效"由 op39 回包（目的槽位 64）承担，形状与参考一致。
+// 形状与 0.1.8 的 `sendCurrentEpicPiecePickupFollowups` 一致：先补一条 **list 0 整容器**
+// 刷新，再发增量账本。
+//
+// ★ 2026-11-04 现场（90CN 玩家报障「史诗碎片掉落进了背包装备栏」）证伪了"单槽刷新够用"：
+// op39 回包的目的槽位是哨兵 64，而 list 0 的槽 64 恰好是**装备页最后一格**（装备页 9..64）。
+// 客户端原生 NOTI39 会把地面对象真的插进这一格，形成一堆**只存在于客户端**的碎片。
+// 服务端从头到尾没写过这条道具 —— 真档核对：`stackable/epicpiece/10300582.stk`
+// （冰火之莲碎片）在 8 个账号的 `epic_piece:` 账本里有数，在 `dnf_inventory_items` /
+// `dnf_account_inventory_items` 里**一行都没有**。
+// 原来只对哨兵槽发一条单槽 op14：那一格**本来就有装备**时能把真道具写回去、盖掉碎片堆；
+// 但全库 54 个角色里只有 4 个的 `0:64` 有东西，其余 50 个"恢复"的是空槽
+// （`patchCore(slot, MaxUint32, 0)`），客户端不会因此删掉自己造出来的那一堆。
+// 所以改成整容器重建：客户端按服务端快照重排整个 list 0，碎片堆必然消失
+// （同一条路见 `monster_card.go` 的「卡片升级后主背包刷新」）。
 func (s *Service) epicPiecePickupFollowups(
 	session *gameSession,
 	pieceID uint32,
@@ -530,12 +539,23 @@ func (s *Service) epicPiecePickupFollowups(
 		return nil
 	}
 	if s.options.currentClientVersion == "official-24.9" {
-		// Native NOTI39 202EC26..202EC55 inserts the scene item into its
-		// destination slot. A book-only pickup's sentinel 64 is not an asset
-		// destination: restore that slot from the real repository, including
-		// its pre-existing item, so no client-only fragment stack remains.
-		if err := s.sendSelectedIncrementalItemSlotRefreshes(session, "epic_piece_pickup_authoritative_sentinel_slot", []alignedcmd.ItemSlotRefresh{{ListType: dnfrepo.MainInventoryListType, SlotIndex: int16(currentEpicPiecePickupEffectSlot)}}); err != nil {
-			return err
+		// Native NOTI39 202EC26..202EC55 inserts the scene item into its destination
+		// slot. A book-only pickup's sentinel 64 is not an asset destination: rebuild
+		// the whole list 0 from the repository so no client-only fragment stack
+		// survives — a single-slot restore is a no-op whenever that slot is empty.
+		if err := s.sendCurrentContainerListTypesWithRefresh(
+			session,
+			"epic_piece_pickup_container_resync",
+			true,
+			[]byte{dnfrepo.MainInventoryListType},
+		); err != nil {
+			// 账本已入、op39 已发，这里失败只影响"客户端残留一堆碎片"的观感。
+			// 绝不能 return —— 那会把一次已经成功的拾取变成会话级错误。
+			s.logGameEvent(session, "game-epic-piece-pickup-container-resync-failed",
+				"piece_id", pieceID,
+				"absolute_balance", balance,
+				"source", source,
+				"error", err)
 		}
 	}
 	return s.sendCurrentEpicPieceBalanceUpdate(session, pieceID, balance, source)

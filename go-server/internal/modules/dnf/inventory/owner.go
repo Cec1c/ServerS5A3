@@ -713,6 +713,19 @@ func (o *Owner) Move(ctx context.Context, cmd Command) (MoveResult, error) {
 	}
 
 	characterID := strconv.FormatUint(uint64(cmd.SelectedCharacterID), 10)
+	if cmd.SourceListType == listTypePersonalCargo && cmd.DestinationListType == listTypeMain {
+		record, found, err := o.repo.Load(ctx, characterID)
+		if err != nil {
+			return MoveResult{}, err
+		}
+		if found {
+			if source, exists := record.Warehouse[slotKey(cmd.SourceListType, cmd.SourceSlotIndex)]; exists {
+				if _, shared := dnfrepo.AccountWarehouseSlotForItem(source.ItemID); shared {
+					return o.withdrawPersonalCargoWarehouseMaterial(ctx, characterID, cmd)
+				}
+			}
+		}
+	}
 	petSegment, petMove := petInventoryMoveSegment(cmd)
 	if cmd.SourceListType == listTypePet && cmd.DestinationListType == listTypePet {
 		if !petMove {

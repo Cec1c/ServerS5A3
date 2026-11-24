@@ -2,10 +2,12 @@ package dnfbridge
 
 import (
 	"context"
+	"math"
 	"os"
 	"strings"
 	"testing"
 
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	r "longheng.io/server/internal/modules/dnf/repository"
 	pvf "longheng.io/server/internal/platform/pvf"
 )
@@ -56,6 +58,54 @@ func TestInventorySortUsesPVFKeysThroughNativeRequest(t *testing.T) {
 	frames := splitSortLockFrames(t, f.buffer.write.Bytes())
 	if len(frames) < 2 || frames[0].Header.MsgID != 20 || frames[1].Header.MsgID != 13 {
 		t.Fatalf("sort ACK/list order: %+v", frames)
+	}
+}
+
+// TestInventorySortToleratesItemMissingFromPVF 验证：PVF 里查不到的道具
+// 不能让整次整理失败。
+//
+// 2026-11-08 角色 PPP 现场：时装背包里有 7 件礼包时装的道具号在当前 PVF
+// 的 stackable/equipment 索引里都不存在，整理在解析排序键这一步整批失败、
+// response_allowed=false 不回包，客户端于是把物品栏锁死 ——
+// 表现就是「正在使用物品栏」，连分解时装都点不动。
+func TestInventorySortToleratesItemMissingFromPVF(t *testing.T) {
+	source := dungeonDropCatalogTestSource{
+		"monster/monster.lst": "", "equipment/equipment.lst": "9001 `weapon/a.equ`\n",
+		"stackable/stackable.lst": "100 `a.stk`\n",
+		"equipment/weapon/a.equ":  "[equipment type] `[weapon]`\n[minimum level] 90\n[rarity] 4\n",
+		"stackable/a.stk":         "[stackable type] `[waste]`\n",
+	}
+	catalog, err := newPVFDungeonDropCatalog(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newRefreshCostFixture(t)
+	f.service.pvfItemCatalog = catalog
+
+	const missingItemID = 612552715
+	keys, err := f.service.currentInventorySortKeys(r.ItemStack{ItemID: missingItemID})
+	if err != nil {
+		t.Fatalf("查不到的道具不应让排序键解析失败: %v", err)
+	}
+	if keys != (alignedcmd.InventorySortKeys{PartRank: math.MaxInt16}) {
+		t.Fatalf("兜底排序键=%+v，应为中性键（Rarity/MinimumLevel 归零、PartRank 最大）", keys)
+	}
+
+	// 端到端：时装背包（list 1 / category 8）里混一件查不到的道具，整理仍须成功回包。
+	ctx := context.Background()
+	if err := f.group.Inventory.Save(ctx, r.InventoryRecord{CharacterID: "19", Slots: map[string]r.ItemStack{
+		"1:10": {ItemID: missingItemID, Count: 1, Extra: map[string]string{"item_kind": "avatar"}},
+		"1:11": {ItemID: 9001, Count: 1, Extra: map[string]string{"item_kind": "equipment"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	handled, err := f.service.handleAlignedGameCommand(f.session, 1, 20, []byte{6, 0, 0, 0, 16, 1, 24, 8, 32, 0})
+	if err != nil || !handled {
+		t.Fatalf("时装背包整理 handled=%v err=%v", handled, err)
+	}
+	frames := splitSortLockFrames(t, f.buffer.write.Bytes())
+	if len(frames) < 2 || frames[0].Header.MsgID != 20 || frames[1].Header.MsgID != 13 {
+		t.Fatalf("整理 ACK/刷新顺序: %+v", frames)
 	}
 }
 

@@ -2,14 +2,21 @@ package dnfbridge
 
 import (
 	"context"
-	"encoding/binary"
 	"reflect"
 	"testing"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-func TestOfficialEpicPiecePickupRestoresSentinelWithoutGrantOrOverwrite(t *testing.T) {
+// 2026-11-04 现场（90CN 玩家报障「史诗碎片掉落进了背包装备栏」）之后，这条尾巴
+// 从"只恢复哨兵槽 64"改成"重建整个 list 0"。
+//
+// 为什么单槽不够：op39 的目的槽位 64 就是装备页最后一格，客户端原生 NOTI39 会把地面
+// 对象真的插进这一格。原来那条 op14 只把 64 号槽按仓库恢复一次 —— 该槽本来有装备时
+// 能盖掉碎片堆，空槽时发的是 `itemID = MaxUint32` 的空行标记，客户端并不会因此删掉
+// 自己造出来的那一堆。全库 54 个角色里只有 4 个的 `0:64` 有东西，所以绝大多数人看到
+// 的都是残留。改成整容器重建后与槽位占用无关：客户端按服务端快照重排整页。
+func TestOfficialEpicPiecePickupResyncsMainContainerWithoutGrantOrOverwrite(t *testing.T) {
 	for _, occupied := range []bool{false, true} {
 		service, runtime, repos := prepareCurrentEpicPieceDropTest(t)
 		service.options.currentClientVersion = "official-24.9"
@@ -29,19 +36,11 @@ func TestOfficialEpicPiecePickupRestoresSentinelWithoutGrantOrOverwrite(t *testi
 				t.Fatal(err)
 			}
 			packets := splitAllGameServerUpperPackets(t, session.conn.(*bufferConn).write.Bytes())
-			if len(packets) != 3 || packets[0].Header.MsgID != 39 || packets[1].Header.MsgID != 14 || packets[2].Header.MsgID != 1149 {
+			if len(packets) != 3 ||
+				packets[0].Header.MsgID != 39 ||
+				packets[1].Header.MsgID != 13 ||
+				packets[2].Header.MsgID != 1149 {
 				t.Fatalf("occupied=%v packets=%+v", occupied, packets)
-			}
-			row := packets[1].Body
-			if len(row) != 122 || row[0] != 0 || binary.LittleEndian.Uint16(row[1:3]) != 1 || binary.LittleEndian.Uint16(row[3:5]) != 64 {
-				t.Fatalf("slot refresh=%x", row)
-			}
-			wantID := ^uint32(0) // native incremental empty-row marker
-			if occupied {
-				wantID = 9001
-			}
-			if binary.LittleEndian.Uint32(row[5:9]) != wantID {
-				t.Fatalf("authoritative original item not restored: %x", row)
 			}
 			after, _, _ := repos.Inventory.Load(context.Background(), "99")
 			if !reflect.DeepEqual(inventory.Slots, after.Slots) {
