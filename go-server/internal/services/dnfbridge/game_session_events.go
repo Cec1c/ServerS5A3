@@ -340,7 +340,18 @@ func (s *Service) shutdownGameSessionEvents(session *gameSession, closeDproto bo
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if err := s.stopGameSessionEvents(context.Background(), session); err != nil {
+			// 有界等待：processor 一旦卡死（已知 database/sql closingMutex 互等），
+			// 无界 Background() 会让这个 goroutine 永不退出，retiring 栅栏挂在
+			// finished() 上永不释放，该账号之后每次登录都等满超时再失败。
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), gameSessionShutdownWait)
+			defer stopCancel()
+			if err := s.stopGameSessionEvents(stopCtx, session); err != nil {
+				// stop 卡住/失败也要释放栅栏：会话早已 loginRevoked、transport 关闭，
+				// 不可能再产生副作用；不再等它自己收尾。
+				s.logWarn("dnfbridge deferred session stop failed, releasing retirement fence anyway",
+					"conn_id", session.connID, "error", err)
+				s.releaseAccountEditAdmission(session)
+				s.accountLogins.forceReleaseSessionFence(session)
 				return
 			}
 			if !cleanupCompleted.Load() {
