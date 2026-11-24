@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"strings"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
@@ -67,6 +69,27 @@ func loginPacketLogMetadata(kind string, data []byte, fields []any) ([]any, bool
 	return metadata, true
 }
 
+// packetLogErrorPlaintext 决定诊断用的 error 字段是否以明文落盘。
+//
+// 默认**明文**。理由：错误文本是服务端代码自己拼的（"plan current start-map
+// body: dnf start-map ...: count=..."），不含凭证；而 2026-11-07 排查超时空
+// 双人黑屏时，一条 192 字节的错误只剩 sha256，靠穷举错误模板反推了两个小时
+// 都没命中，排查成本远高于收益。
+//
+// ★ 凭证那一层不受影响：登录包（game-raw / channel-raw / type=GameTypeLogin /
+// msg_id==1）的**整包 payload** 由 loginPacketLogMetadata 独立脱敏，即使这个
+// 开关是明文也照样只落 hash。这个开关只管 error/诊断文本。
+//
+// 需要恢复旧的「错误也哈希」策略时设 DNFBRIDGE_PACKET_LOG_ERROR_REDACT=on。
+func packetLogErrorPlaintext() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DNFBRIDGE_PACKET_LOG_ERROR_REDACT"))) {
+	case "on", "1", "true", "yes":
+		return false
+	default:
+		return true
+	}
+}
+
 // Parser/provider errors may embed payload bytes in Error(), and a caller can
 // already have converted that error to a string. Only logging receives this
 // replacement: the original error, unwrap chain and control flow are unchanged.
@@ -87,11 +110,16 @@ func redactPacketDiagnosticErrors(fields []any) []any {
 			text, redact = fmt.Sprint(diagnostic.value), true
 		}
 		if err, ok := value.(error); !redact && ok && err != nil {
-			// fmt protects typed-nil and panicking Error methods. Its representation
-			// may contain a panic body, so only length/hash are allowed in the log.
-			text, redact = fmt.Sprint(err), true
+			// fmt protects typed-nil and panicking Error methods.
+			// 默认明文；DNFBRIDGE_PACKET_LOG_ERROR_REDACT=on 时保留旧的 length/hash。
+			text = fmt.Sprint(err)
+			redact = !packetLogErrorPlaintext()
 		} else if !redact && fields[i] == "error" {
-			text, redact = value.(string)
+			// comma-ok：value 不是 string 时保持原值不动（text 为零值、不脱敏）。
+			if s, ok := value.(string); ok {
+				text = s
+				redact = !packetLogErrorPlaintext()
+			}
 		}
 		if redact {
 			if out == nil {

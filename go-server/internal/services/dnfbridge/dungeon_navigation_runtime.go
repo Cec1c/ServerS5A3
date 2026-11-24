@@ -803,7 +803,8 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 			"msg_id", currentDungeonInfoNotification,
 			"dungeon_id", runtime.Dungeon.ID,
 			"reason", "typed_runtime_packet_plan_failed",
-			"error", err)
+			"error", err,
+			"detail", err.Error())
 		return nil
 	}
 	if err := s.sendCurrentGuildPracticeSnapshot(session, runtime); err != nil {
@@ -1115,7 +1116,12 @@ func (s *Service) logDungeonEntryStepFailure(
 		"step", step,
 		"entry_mode", entryMode,
 		"symptom_if_last_line", "client_loading_bar_vanishes_without_actor_models",
-		"error", err)
+		"error", err,
+		// 日志层只脱敏 key=="error" 的值和 error 类型（见 login_packet_log_redaction.go），
+		// `detail` 是普通 string，会原样落盘。进图失败时只留一个 192 字节的
+		// `error_sha256` 根本没法定位（2026-11-07 超时空双人黑屏就卡在这里），
+		// 所以这里同时给一份明文。
+		"detail", err.Error())
 }
 
 func (s *Service) prepareRuntimePartyDungeonEntry(
