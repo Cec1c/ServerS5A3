@@ -37,8 +37,8 @@ func TestEmbeddedRelayStaleForwardMustNotReachRejoinedPair(t *testing.T) {
 	port := uint32(client.LocalAddr().(*net.UDPAddr).Port)
 	oldBA.learnedPort.Store(port)
 	newBA.learnedPort.Store(port)
-	relay.forwardDatagram(oldAB, oldBA, []byte("stale-old-route"))
-	relay.forwardDatagram(oldAB, newBA, []byte("stale-new-route"))
+	relay.forwardDatagram(oldAB, oldBA, []byte("stale-old-route"), time.Now())
+	relay.forwardDatagram(oldAB, newBA, []byte("stale-new-route"), time.Now())
 	if err := client.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestEmbeddedRelayStaleForwardMustNotReachRejoinedPair(t *testing.T) {
 	} else if timeout, ok := e.(net.Error); !ok || !timeout.Timeout() {
 		t.Fatal(e)
 	}
-	relay.forwardDatagram(newAB, newBA, []byte("current"))
+	relay.forwardDatagram(newAB, newBA, []byte("current"), time.Now())
 	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}

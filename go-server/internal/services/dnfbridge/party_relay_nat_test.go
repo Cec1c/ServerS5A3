@@ -57,7 +57,7 @@ func TestPartyRelayFourMembersWithTwelveIndependentNATMappings(t *testing.T) {
 	// Allocation is measured after setup and learning; every measured call
 	// performs the actual UDP write through the production forwarding path.
 	for _, leg := range r.legs {
-		if allocations := testing.AllocsPerRun(100, func() { r.forwardDatagram(leg, leg.opposite.Load(), buffer[:4]) }); allocations != 0 {
+		if allocations := testing.AllocsPerRun(100, func() { r.forwardDatagram(leg, leg.opposite.Load(), buffer[:4], time.Now()) }); allocations != 0 {
 			t.Fatalf("forward allocations=%v", allocations)
 		}
 		break
