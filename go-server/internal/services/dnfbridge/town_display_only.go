@@ -50,12 +50,39 @@ func (s *Service) currentTownDisplayOnlyProjection(target *gameSession, actor on
 		!s.onlinePlayers.PeerInSameArea(actor.CharacterID, target.selectedCharacterID) {
 		return false
 	}
-	// A real retained singleton lobby is not a multiplayer actor. Keep its
-	// authoritative op9 row and invitation/join semantics while avoiding the
-	// full equipment/skill initialization for this ordinary town projection.
-	return townDisplayOnlySoloState(s.townCopresenceActorPartyState(target), target.selectedCharacterID) &&
-		townDisplayOnlySoloState(s.townCopresenceActorPartyState(actor.Session), actor.CharacterID) &&
+	// Any two town actors that are not members of the same multiplayer party
+	// stay on lightweight mode0 display-only projection. Their authoritative
+	// op9 party state row is still emitted so joinable lobbies remain visible,
+	// and joining the same party promotes display peers to full mode1 first.
+	observerState := s.townCopresenceActorPartyState(target)
+	actorState := s.townCopresenceActorPartyState(actor.Session)
+	return !townDisplayOnlySameMultiplayerParty(observerState, actorState, target.selectedCharacterID, actor.CharacterID) &&
 		s.boundGameSessionCharacterCurrent(observerIdentity) && s.boundGameSessionCharacterCurrent(actorIdentity)
+}
+
+func townDisplayOnlySameMultiplayerParty(observerState, actorState alignedcmd.PartyState, observerID, actorID uint16) bool {
+	if observerID == 0 || actorID == 0 || observerID == actorID {
+		return true
+	}
+	if observerState.PartyID < 0 || actorState.PartyID < 0 {
+		return true
+	}
+	if observerState.PartyID > 0 && observerState.PartyID == actorState.PartyID {
+		return true
+	}
+	if observerState.PartyID > 0 {
+		members := runtimePartyMembers(observerState)
+		if len(members) >= 2 && containsRuntimePartyMember(members, actorID) {
+			return true
+		}
+	}
+	if actorState.PartyID > 0 {
+		members := runtimePartyMembers(actorState)
+		if len(members) >= 2 && containsRuntimePartyMember(members, observerID) {
+			return true
+		}
+	}
+	return false
 }
 
 func townDisplayOnlySoloState(state alignedcmd.PartyState, characterID uint16) bool {

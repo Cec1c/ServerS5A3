@@ -111,6 +111,7 @@ func (s *Service) broadcastCurrentWeddingPeerInfo(actor boundGameSessionCharacte
 	if !s.boundGameSessionCharacterCurrent(actor) {
 		return nil
 	}
+	s.invalidateTownMode0Character(actor.character)
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	body, err := s.currentWeddingPeerInfo(ctx, c)
@@ -126,6 +127,7 @@ func (s *Service) broadcastCurrentWeddingPeerBody(actor boundGameSessionCharacte
 	if !s.boundGameSessionCharacterCurrent(actor) || len(body) != 14 {
 		return nil
 	}
+	s.invalidateTownMode0Character(actor.character)
 	return s.sendCurrentWeddingPeerBody(actor, body, s.currentWeddingPeerReceivers(actor))
 }
 

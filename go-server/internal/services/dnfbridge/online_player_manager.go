@@ -11,6 +11,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // onlinePlayerInfo is one player's town presence state.
@@ -108,6 +109,36 @@ func resolvePresenceChannelID(info *onlinePlayerInfo) int {
 	return info.ChannelID
 }
 
+const (
+	townMode0CacheTTL        = 5 * time.Second
+	townMode0CacheMaxEntries = 2048
+)
+
+type townMode0CacheKey struct {
+	characterID   uint16
+	generation    uint64
+	channelID     int
+	remoteOwner   byte
+	appearanceRev uint64
+}
+
+type townMode0CacheEntry struct {
+	accountID      string
+	charName       string
+	character      dnfrepo.CharacterRecord
+	mode0Body      []byte
+	hasWeddingBody bool
+	weddingBody    []byte
+	expiresAt      time.Time
+}
+
+type townMode0Inflight struct {
+	done  chan struct{}
+	entry townMode0CacheEntry
+	valid bool
+	err   error
+}
+
 // OnlinePlayerManager tracks online players grouped by (TownID, AreaID)
 // and provides broadcast capabilities for town multiplayer visibility.
 type OnlinePlayerManager struct {
@@ -115,13 +146,97 @@ type OnlinePlayerManager struct {
 	mu                     sync.RWMutex
 	byArea                 map[areaKey]map[uint16]*onlinePlayerInfo // areaKey -> characterID -> info
 	byChar                 map[uint16]areaKey                       // characterID -> current area
+
+	// mode0CacheMu is a leaf lock protecting short-TTL display-only mode0 snapshots
+	// and concurrent singleflight coalescing. Never acquire any other lock under it.
+	mode0CacheMu  sync.Mutex
+	mode0Cache    map[townMode0CacheKey]townMode0CacheEntry
+	mode0Inflight map[townMode0CacheKey]*townMode0Inflight
+	mode0Now      func() time.Time
 }
 
 func newOnlinePlayerManager() *OnlinePlayerManager {
 	return &OnlinePlayerManager{
-		byArea: make(map[areaKey]map[uint16]*onlinePlayerInfo),
-		byChar: make(map[uint16]areaKey),
+		byArea:        make(map[areaKey]map[uint16]*onlinePlayerInfo),
+		byChar:        make(map[uint16]areaKey),
+		mode0Cache:    make(map[townMode0CacheKey]townMode0CacheEntry),
+		mode0Inflight: make(map[townMode0CacheKey]*townMode0Inflight),
 	}
+}
+
+func (m *OnlinePlayerManager) nowForMode0Cache() time.Time {
+	if m != nil && m.mode0Now != nil {
+		return m.mode0Now()
+	}
+	return time.Now()
+}
+
+// InvalidateMode0Cache eagerly drops any cached town display-only mode0
+// snapshots for characterID. Pure leaf lock; safe to call from any handler.
+func (m *OnlinePlayerManager) InvalidateMode0Cache(characterID uint16) {
+	if m == nil || characterID == 0 {
+		return
+	}
+	m.mode0CacheMu.Lock()
+	for k := range m.mode0Cache {
+		if k.characterID == characterID {
+			delete(m.mode0Cache, k)
+		}
+	}
+	m.mode0CacheMu.Unlock()
+}
+
+func (m *OnlinePlayerManager) lookupMode0Cache(key townMode0CacheKey, accountID string) (townMode0CacheEntry, bool) {
+	if m == nil {
+		return townMode0CacheEntry{}, false
+	}
+	now := m.nowForMode0Cache()
+	m.mode0CacheMu.Lock()
+	defer m.mode0CacheMu.Unlock()
+	entry, ok := m.mode0Cache[key]
+	if !ok {
+		return townMode0CacheEntry{}, false
+	}
+	if !now.Before(entry.expiresAt) || entry.accountID != accountID {
+		delete(m.mode0Cache, key)
+		return townMode0CacheEntry{}, false
+	}
+	return entry, true
+}
+
+func (m *OnlinePlayerManager) storeMode0Cache(key townMode0CacheKey, entry townMode0CacheEntry) {
+	if m == nil {
+		return
+	}
+	now := m.nowForMode0Cache()
+	entry.expiresAt = now.Add(townMode0CacheTTL)
+	m.mode0CacheMu.Lock()
+	defer m.mode0CacheMu.Unlock()
+	if m.mode0Cache == nil {
+		m.mode0Cache = make(map[townMode0CacheKey]townMode0CacheEntry)
+	}
+	if len(m.mode0Cache) >= townMode0CacheMaxEntries {
+		for k, v := range m.mode0Cache {
+			if !now.Before(v.expiresAt) {
+				delete(m.mode0Cache, k)
+			}
+		}
+		if len(m.mode0Cache) >= townMode0CacheMaxEntries {
+			// Evict oldest entry by expiry so the cache remains strictly bounded.
+			var oldestKey townMode0CacheKey
+			var oldestTime time.Time
+			first := true
+			for k, v := range m.mode0Cache {
+				if first || v.expiresAt.Before(oldestTime) {
+					oldestKey, oldestTime, first = k, v.expiresAt, false
+				}
+			}
+			if !first {
+				delete(m.mode0Cache, oldestKey)
+			}
+		}
+	}
+	m.mode0Cache[key] = entry
 }
 
 // EnterArea registers a player in an area and returns the list of other
@@ -171,10 +286,10 @@ func (m *OnlinePlayerManager) LeaveArea(characterID uint16) (areaKey, []onlinePl
 		return areaKey{}, nil
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	key, ok := m.byChar[characterID]
 	if !ok {
+		m.mu.Unlock()
+		m.InvalidateMode0Cache(characterID)
 		return areaKey{}, nil
 	}
 	m.removeFromAreaLocked(characterID)
@@ -184,6 +299,8 @@ func (m *OnlinePlayerManager) LeaveArea(characterID uint16) (areaKey, []onlinePl
 	for _, other := range m.byArea[key] {
 		others = append(others, *other)
 	}
+	m.mu.Unlock()
+	m.InvalidateMode0Cache(characterID)
 	return key, others
 }
 
@@ -197,15 +314,15 @@ func (m *OnlinePlayerManager) LeaveAreaSession(characterID uint16, session *game
 		return areaKey{}, nil, false
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	key, ok := m.byChar[characterID]
 	if !ok {
+		m.mu.Unlock()
 		return areaKey{}, nil, false
 	}
 	area := m.byArea[key]
 	current := area[characterID]
 	if current == nil || current.Session != session {
+		m.mu.Unlock()
 		return areaKey{}, nil, false
 	}
 	m.removeFromAreaLocked(characterID)
@@ -213,6 +330,8 @@ func (m *OnlinePlayerManager) LeaveAreaSession(characterID uint16, session *game
 	for _, other := range m.byArea[key] {
 		others = append(others, *other)
 	}
+	m.mu.Unlock()
+	m.InvalidateMode0Cache(characterID)
 	return key, others, true
 }
 
@@ -512,6 +631,150 @@ func (s *Service) sendTownRemoteActorStateChecked(target *gameSession, actor onl
 	return errTownDisplayEligibilityChanged
 }
 
+func (s *Service) invalidateTownMode0Actor(session *gameSession) {
+	if session == nil {
+		return
+	}
+	invalidateCurrentCrossSceneAppearance(session)
+	if s == nil || s.onlinePlayers == nil {
+		return
+	}
+	s.mu.Lock()
+	charID := session.selectedCharacterID
+	s.mu.Unlock()
+	if charID != 0 {
+		s.onlinePlayers.InvalidateMode0Cache(charID)
+	}
+}
+
+func (s *Service) invalidateTownMode0Character(characterID uint16) {
+	if s == nil || characterID == 0 {
+		return
+	}
+	if session, online := s.onlineGameSession(characterID); online && session != nil {
+		invalidateCurrentCrossSceneAppearance(session)
+	}
+	if s.onlinePlayers != nil {
+		s.onlinePlayers.InvalidateMode0Cache(characterID)
+	}
+}
+
+// loadOrBuildTownDisplayMode0 serves short-TTL cached immutable mode0 (+ optional
+// wedding peer) templates for display-only town co-presence projections and
+// coalesces concurrent misses for the same actor so 50 entering observers build
+// mode0 once instead of 50 times.
+func (s *Service) loadOrBuildTownDisplayMode0(
+	ctx context.Context,
+	actor onlinePlayerInfo,
+	actorIdentity boundGameSessionCharacter,
+	actorAccountID string,
+	key townMode0CacheKey,
+) (townMode0CacheEntry, bool, error) {
+	m := s.onlinePlayers
+	buildEntry := func(remoteOwner byte) (townMode0CacheEntry, error) {
+		buildCtx, err := s.currentRemoteActorEquipmentSnapshot(ctx, actor.Session, actor.CharacterID)
+		if err != nil {
+			return townMode0CacheEntry{}, err
+		}
+		charID, charName, character, hasCharacter := s.characterForEnter(buildCtx, actor.Session, actor.CharacterID)
+		if charID != actor.CharacterID || !hasCharacter {
+			return townMode0CacheEntry{}, fmt.Errorf(
+				"remote town actor repository record unavailable: requested=%d loaded=%d found=%t",
+				actor.CharacterID,
+				charID,
+				hasCharacter,
+			)
+		}
+		mode0Body, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(
+			buildCtx,
+			actor.Session,
+			charID,
+			charName,
+			character,
+			hasCharacter,
+			remoteOwner,
+		)
+		if err != nil {
+			return townMode0CacheEntry{}, fmt.Errorf("build remote town actor mode0: %w", err)
+		}
+		weddingBody, weddingErr := s.currentWeddingPeerInfo(buildCtx, character)
+		return townMode0CacheEntry{
+			accountID:      actorAccountID,
+			charName:       charName,
+			character:      character,
+			mode0Body:      append([]byte(nil), mode0Body...),
+			hasWeddingBody: weddingErr == nil,
+			weddingBody:    append([]byte(nil), weddingBody...),
+		}, nil
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		key.appearanceRev = currentCrossSceneAppearanceRevision(actor.Session)
+		if entry, hit := m.lookupMode0Cache(key, actorAccountID); hit {
+			return entry, true, nil
+		}
+		m.mode0CacheMu.Lock()
+		if m.mode0Inflight == nil {
+			m.mode0Inflight = make(map[townMode0CacheKey]*townMode0Inflight)
+		}
+		if existing, waiting := m.mode0Inflight[key]; waiting {
+			m.mode0CacheMu.Unlock()
+			select {
+			case <-existing.done:
+				if existing.err == nil && existing.valid && existing.entry.accountID == actorAccountID {
+					return existing.entry, true, nil
+				}
+				if existing.err != nil {
+					if (errors.Is(existing.err, context.Canceled) || errors.Is(existing.err, context.DeadlineExceeded)) && ctx.Err() == nil && attempt == 0 {
+						continue
+					}
+					return townMode0CacheEntry{}, false, existing.err
+				}
+				continue
+			case <-ctx.Done():
+				return townMode0CacheEntry{}, false, ctx.Err()
+			}
+		}
+		flight := &townMode0Inflight{done: make(chan struct{})}
+		m.mode0Inflight[key] = flight
+		m.mode0CacheMu.Unlock()
+
+		var built townMode0CacheEntry
+		var buildErr error
+		func() {
+			defer func() {
+				m.mode0CacheMu.Lock()
+				if m.mode0Inflight[key] == flight {
+					delete(m.mode0Inflight, key)
+				}
+				m.mode0CacheMu.Unlock()
+				close(flight.done)
+			}()
+			built, buildErr = buildEntry(key.remoteOwner)
+			if buildErr != nil {
+				flight.err = buildErr
+				return
+			}
+			// Only publish to cache if actor binding and appearance revision did not
+			// change while the repository snapshot was being built.
+			if currentCrossSceneAppearanceRevision(actor.Session) == key.appearanceRev &&
+				s.boundGameSessionCharacterCurrent(actorIdentity) {
+				m.storeMode0Cache(key, built)
+				flight.entry = built
+				flight.valid = true
+			} else {
+				flight.entry = built
+			}
+		}()
+		return built, false, buildErr
+	}
+	if err := ctx.Err(); err != nil {
+		return townMode0CacheEntry{}, false, err
+	}
+	built, err := buildEntry(key.remoteOwner)
+	return built, false, err
+}
+
 func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onlinePlayerInfo, source string, partyFrame bool, current func() bool) error {
 	constructionStarted := time.Now()
 	if target == nil || target.conn == nil || actor.Session == nil || actor.CharacterID == 0 {
@@ -534,65 +797,98 @@ func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onl
 
 	ctx, cancel := gameTransportBudget(target, nil)
 	defer cancel()
-	ctx, err := s.currentRemoteActorEquipmentSnapshot(ctx, actor.Session, actor.CharacterID)
-	if err != nil {
-		return err
-	}
-	charID, charName, character, hasCharacter := s.characterForEnter(
-		ctx,
-		actor.Session,
-		actor.CharacterID,
-	)
-	if charID != actor.CharacterID || !hasCharacter {
-		return fmt.Errorf(
-			"remote town actor repository record unavailable: requested=%d loaded=%d found=%t",
-			actor.CharacterID,
-			charID,
-			hasCharacter,
-		)
-	}
 
-	remoteOwner := currentTownRemoteActorOwnerContext(target, charID)
+	remoteOwner := currentTownRemoteActorOwnerContext(target, actor.CharacterID)
 	if remoteOwner == currentSceneObjectContext {
 		return fmt.Errorf("remote town actor owner channel is not committed")
 	}
-	mode0Body, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(
-		ctx,
-		actor.Session,
-		charID,
-		charName,
-		character,
-		hasCharacter,
-		remoteOwner,
+
+	var (
+		charID               uint16
+		charName             string
+		character            dnfrepo.CharacterRecord
+		hasCharacter         bool
+		mode0Body            []byte
+		mode1Body            []byte
+		subtype0Body         []byte
+		cachedWeddingBody    []byte
+		hasCachedWeddingBody bool
 	)
-	if err != nil {
-		return fmt.Errorf("build remote town actor mode0: %w", err)
-	}
-	var mode1Body, subtype0Body []byte
-	if !displayOnly {
-		adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(
-			ctx,
-			actor.Session,
-			character,
-			hasCharacter,
-		)
-		if peerSkillPageTownEnabled() {
-			// Mark this ctx as "the body built from it goes to a peer" so the mode1 tail
-			// carries the real skill/switch page (same gate the dungeon-party path uses).
-			// Only a full projection reaches this block; a display-only actor must not
-			// read account, skill-page, or legacy USERINFO dependencies for an unsent body.
-			ctx = withDungeonPartyPeerSkillPageTarget(ctx, charID)
+	if displayOnly && s.onlinePlayers != nil && actorIdentity.session != nil {
+		cacheKey := townMode0CacheKey{
+			characterID:   actor.CharacterID,
+			generation:    actorIdentity.generation,
+			channelID:     currentTownPresenceChannelID(actor.Session),
+			remoteOwner:   remoteOwner,
+			appearanceRev: currentCrossSceneAppearanceRevision(actor.Session),
 		}
-		mode1Body = s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
+		entry, _, err := s.loadOrBuildTownDisplayMode0(ctx, actor, actorIdentity, s.accountIDForSession(actor.Session), cacheKey)
+		if err != nil {
+			return err
+		}
+		charID = actor.CharacterID
+		charName = entry.charName
+		character = entry.character
+		hasCharacter = true
+		mode0Body = entry.mode0Body
+		cachedWeddingBody = entry.weddingBody
+		hasCachedWeddingBody = entry.hasWeddingBody
+	} else {
+		var err error
+		ctx, err = s.currentRemoteActorEquipmentSnapshot(ctx, actor.Session, actor.CharacterID)
+		if err != nil {
+			return err
+		}
+		charID, charName, character, hasCharacter = s.characterForEnter(
 			ctx,
 			actor.Session,
+			actor.CharacterID,
+		)
+		if charID != actor.CharacterID || !hasCharacter {
+			return fmt.Errorf(
+				"remote town actor repository record unavailable: requested=%d loaded=%d found=%t",
+				actor.CharacterID,
+				charID,
+				hasCharacter,
+			)
+		}
+		mode0Body, err = s.buildCurrentSceneObjectListBodyForSessionInContextStrict(
+			ctx,
+			actor.Session,
+			charID,
+			charName,
 			character,
 			hasCharacter,
-			charID,
-			uint32(adventureSummary.ManageLevel),
 			remoteOwner,
-			true,
 		)
+		if err != nil {
+			return fmt.Errorf("build remote town actor mode0: %w", err)
+		}
+		if !displayOnly {
+			adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(
+				ctx,
+				actor.Session,
+				character,
+				hasCharacter,
+			)
+			if peerSkillPageTownEnabled() {
+				// Mark this ctx as "the body built from it goes to a peer" so the mode1 tail
+				// carries the real skill/switch page (same gate the dungeon-party path uses).
+				// Only a full projection reaches this block; a display-only actor must not
+				// read account, skill-page, or legacy USERINFO dependencies for an unsent body.
+				ctx = withDungeonPartyPeerSkillPageTarget(ctx, charID)
+			}
+			mode1Body = s.buildCurrentActorBindingMode1BodyForSelectedWithEquipmentInContext(
+				ctx,
+				actor.Session,
+				character,
+				hasCharacter,
+				charID,
+				uint32(adventureSummary.ManageLevel),
+				remoteOwner,
+				true,
+			)
+		}
 	}
 	// Clone appearance uses this independent carrier even for display-only
 	// actors. Preserve it while avoiding only the unsent full mode1 work.
@@ -632,8 +928,12 @@ func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onl
 		if err != nil {
 			return err
 		}
-		if err := projectCurrentTownPartyHPIntoMode0(mode0Body, realtime, charID); err != nil {
-			return fmt.Errorf("initialize remote town actor party HP: %w", err)
+		if len(realtime) != 0 {
+			// Copy before mutating HP so cached immutable mode0 templates are never written in place.
+			mode0Body = append([]byte(nil), mode0Body...)
+			if err := projectCurrentTownPartyHPIntoMode0(mode0Body, realtime, charID); err != nil {
+				return fmt.Errorf("initialize remote town actor party HP: %w", err)
+			}
 		}
 	}
 	s.logCurrentPeerActorAppearanceEvent(target, actor.Session, source, mode0Body, mode1Body, subtype0Body)
@@ -690,7 +990,13 @@ func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onl
 		}
 		s.logGameEvent(target, "game-party-clone-appearance-after-equipment", "peer_char_id", charID, "source", source)
 	}
-	if err := s.sendCurrentWeddingPeerInfo(ctx, target, character); err != nil {
+	if hasCachedWeddingBody {
+		if len(cachedWeddingBody) != 0 {
+			if err := s.sendGameUpperRawClass(target, 1013, cachedWeddingBody, 0); err != nil {
+				return err
+			}
+		}
+	} else if err := s.sendCurrentWeddingPeerInfo(ctx, target, character); err != nil {
 		return err
 	}
 	// Current EXE sub_1D64CA0 kind0 does not create an actor. Resolve and send

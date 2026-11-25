@@ -33,12 +33,45 @@ func TestTownDisplayOnlyDefaultsAndScope(t *testing.T) {
 		{name: "finish loading replay", setting: "on", profile: "official-24.9", source: "town_copresence_actor_state_after_finish_loading", want: true},
 		{name: "party remote path", setting: "on", profile: "official-24.9", source: "town_remote_party_actor_after_set_user_area"},
 		{name: "unknown source", setting: "on", profile: "official-24.9", source: "unknown"},
-		{name: "actor has party", setting: "on", profile: "official-24.9", mutate: func(_ *Service, _ *gameSession, a *onlinePlayerInfo) {
-			storeRuntimePartyState(a.Session, alignedcmd.PartyState{PartyID: 9})
-		}},
-		{name: "observer has party", setting: "on", profile: "official-24.9", mutate: func(_ *Service, p *gameSession, _ *onlinePlayerInfo) {
+		{name: "actor in other party", setting: "on", profile: "official-24.9", mutate: func(_ *Service, _ *gameSession, a *onlinePlayerInfo) {
+			storeRuntimePartyState(a.Session, alignedcmd.PartyState{
+				PartyID: 9,
+				UserID:  1002,
+				Members: []alignedcmd.PartyMemberState{{UserID: 1002}, {UserID: 2002}},
+			})
+		}, want: true},
+		{name: "observer in other party", setting: "on", profile: "official-24.9", mutate: func(_ *Service, p *gameSession, _ *onlinePlayerInfo) {
+			storeRuntimePartyState(p, alignedcmd.PartyState{
+				PartyID: 8,
+				UserID:  1001,
+				Members: []alignedcmd.PartyMemberState{{UserID: 1001}, {UserID: 2001}},
+			})
+		}, want: true},
+		{name: "different multiplayer parties", setting: "on", profile: "official-24.9", mutate: func(_ *Service, p *gameSession, a *onlinePlayerInfo) {
+			storeRuntimePartyState(p, alignedcmd.PartyState{
+				PartyID: 8,
+				UserID:  1001,
+				Members: []alignedcmd.PartyMemberState{{UserID: 1001}, {UserID: 2001}},
+			})
+			storeRuntimePartyState(a.Session, alignedcmd.PartyState{
+				PartyID: 9,
+				UserID:  1002,
+				Members: []alignedcmd.PartyMemberState{{UserID: 1002}, {UserID: 2002}},
+			})
+		}, want: true},
+		{name: "same multiplayer party", setting: "on", profile: "official-24.9", mutate: func(_ *Service, p *gameSession, a *onlinePlayerInfo) {
+			same := alignedcmd.PartyState{
+				PartyID: 9,
+				UserID:  1001,
+				Members: []alignedcmd.PartyMemberState{{UserID: 1001}, {UserID: 1002}},
+			}
+			storeRuntimePartyState(p, same)
+			storeRuntimePartyState(a.Session, same)
+		}, want: false},
+		{name: "same party id transitional", setting: "on", profile: "official-24.9", mutate: func(_ *Service, p *gameSession, a *onlinePlayerInfo) {
 			storeRuntimePartyState(p, alignedcmd.PartyState{PartyID: 9})
-		}},
+			storeRuntimePartyState(a.Session, alignedcmd.PartyState{PartyID: 9})
+		}, want: false},
 		{name: "private instance", setting: "on", profile: "official-24.9", mutate: func(s *Service, _ *gameSession, a *onlinePlayerInfo) {
 			a.Instance = 1
 			s.onlinePlayers.EnterArea(a)

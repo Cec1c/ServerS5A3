@@ -13,6 +13,7 @@ import (
 
 // Read the current slot on retries; never clear a newly equipped replacement.
 func (s *Service) sendCurrentExpiredPetWornSlot(session *gameSession) error {
+	s.invalidateTownMode0Actor(session)
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Equipment == nil {
 		return fmt.Errorf("pet expiry equipment unavailable")

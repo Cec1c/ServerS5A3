@@ -307,7 +307,7 @@ func (s *Service) sendSelectedActorMode0AppearanceRefreshGuarded(session *gameSe
 }
 
 func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSession, operation string, sequence string, current func() bool, committedWear bool) (bool, error) {
-	invalidateCurrentCrossSceneAppearance(session)
+	s.invalidateTownMode0Actor(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	// 穿脱装备/换时装的关键路径：这一段是**纯读**（durable 写入已在 ACK 之前完成），
@@ -362,7 +362,7 @@ func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSe
 }
 
 func (s *Service) sendSelectedActorAppearanceRefresh(session *gameSession, operation string, sequence string) error {
-	invalidateCurrentCrossSceneAppearance(session)
+	s.invalidateTownMode0Actor(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, charName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
@@ -435,7 +435,7 @@ func (s *Service) sendSelectedActorMode1AppearanceWithBuffPolicy(session *gameSe
 // Town transitions own a resumable metadata/item/growth suffix. They defer
 // the creature notification until that cursor has committed the new op105.
 func (s *Service) sendSelectedActorMode1AppearanceWithPostState(session *gameSession, operation string, sequence string, committedWear, refreshCreature bool) error {
-	invalidateCurrentCrossSceneAppearance(session)
+	s.invalidateTownMode0Actor(session)
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
