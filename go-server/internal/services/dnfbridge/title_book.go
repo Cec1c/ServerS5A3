@@ -127,6 +127,7 @@ func (s *Service) handleCurrentTitleBookPut(session *gameSession, body []byte) e
 		"source_slot", result.SourceSlot,
 		"target_slot", result.TargetSlot)
 
+	s.invalidateTownMode0Actor(session)
 	if err := s.sendTitleBookPutAck(
 		session,
 		result.ItemSpace,
@@ -210,6 +211,7 @@ func (s *Service) handleCurrentTitleBookGet(session *gameSession, body []byte) e
 		"book_index", result.BookIndex,
 		"target_slot", result.TargetSlot)
 
+	s.invalidateTownMode0Actor(session)
 	if err := s.sendTitleBookGetAck(
 		session,
 		result.ItemSpace,

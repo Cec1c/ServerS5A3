@@ -1194,6 +1194,9 @@ func alignedPostActionTouchesCombatPower(action alignedcmd.PostAction) bool {
 }
 
 func (s *Service) sendAlignedPostAction(session *gameSession, result alignedcmd.Result, action alignedcmd.PostAction) error {
+	if (result.EquipmentMoveFact != nil && result.EquipmentMoveFact.Changed) || alignedPostActionTouchesCombatPower(action) || action == alignedcmd.PostActionRefreshSelectedPetMoveSlots {
+		s.invalidateTownMode0Actor(session)
+	}
 	operation := result.Operation
 	switch action {
 	case alignedcmd.PostActionRefreshGuildMedalContainer:

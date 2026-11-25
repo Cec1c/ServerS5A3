@@ -453,6 +453,7 @@ func (s *Service) requestCurrentGuildMembershipRefresh(peer boundGameSessionChar
 	if peer.session == nil {
 		return
 	}
+	s.invalidateTownMode0Character(peer.character)
 	s.mu.Lock()
 	if s.gameSessions[peer.character] != peer.session || peer.session.selectedCharacterID != peer.character || peer.session.characterGeneration != peer.generation {
 		s.mu.Unlock()
