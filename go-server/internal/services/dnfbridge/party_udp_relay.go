@@ -51,12 +51,17 @@ type relayInitialDatagram struct {
 	data    [currentPartyUDPRelayMaxDatagram]byte
 }
 
+// Monotonic origin shared by reader timestamps and cached socket deadlines.
+var currentPartyRelayClockOrigin = time.Now()
+
 type currentPartyUDPRelayLeg struct {
-	opposite    atomic.Pointer[currentPartyUDPRelayLeg]
-	retired     atomic.Bool
-	learnedPort atomic.Uint32 // IP is the immutable authenticated binding address
-	traffic     relayTraffic
-	initial     [4]relayInitialDatagram
+	writeDeadline atomic.Int64 // nanoseconds since currentPartyRelayClockOrigin
+	deadlineMu    sync.Mutex   // serialize refreshes from concurrent initial datagram drains
+	opposite      atomic.Pointer[currentPartyUDPRelayLeg]
+	retired       atomic.Bool
+	learnedPort   atomic.Uint32 // IP is the immutable authenticated binding address
+	traffic       relayTraffic
+	initial       [4]relayInitialDatagram
 
 	key         currentPartyUDPRelayLegKey
 	binding     currentPartyUDPRelayBinding
@@ -689,7 +694,7 @@ func (r *currentPartyUDPRelay) readLoop(leg *currentPartyUDPRelayLeg) {
 			}
 			continue
 		}
-		r.forwardDatagram(leg, opposite, buffer[:n])
+		r.forwardDatagram(leg, opposite, buffer[:n], now)
 	}
 }
 
@@ -700,12 +705,12 @@ func (r *currentPartyUDPRelay) flushInitial(target *currentPartyUDPRelayLeg, now
 	for i := range target.initial {
 		slot := &target.initial[i]
 		if slot.state.CompareAndSwap(2, 3) && now.Sub(slot.created) <= 5*time.Second {
-			r.forwardDatagram(slot.sender, target, slot.data[:slot.size])
+			r.forwardDatagram(slot.sender, target, slot.data[:slot.size], now)
 		}
 	}
 }
 
-func (r *currentPartyUDPRelay) forwardDatagram(from, to *currentPartyUDPRelayLeg, payload []byte) {
+func (r *currentPartyUDPRelay) forwardDatagram(from, to *currentPartyUDPRelayLeg, payload []byte, now time.Time) {
 	if from.retired.Load() || to.retired.Load() || from.opposite.Load() != to {
 		return
 	}
@@ -715,17 +720,43 @@ func (r *currentPartyUDPRelay) forwardDatagram(from, to *currentPartyUDPRelayLeg
 	}
 	// A stale writer owns only its old socket. Close fails it naturally, and
 	// port quarantine prevents that socket's address from changing owners.
-	if err := to.conn.SetWriteDeadline(time.Now().Add(currentPartyRelayWriteTimeout)); err != nil {
-		to.traffic.failed.Add(1)
+	if err := to.ensureWriteDeadline(now); err != nil {
+		if !from.retired.Load() && !to.retired.Load() && from.opposite.Load() == to {
+			to.traffic.failed.Add(1)
+		}
 		return
 	}
 	if _, err := to.conn.WriteToUDPAddrPort(payload, netip.AddrPortFrom(netip.AddrFrom4(to.binding.address), uint16(port))); err != nil {
-		from.traffic.failed.Add(1)
+		to.writeDeadline.Store(0)
+		if !from.retired.Load() && !to.retired.Load() && from.opposite.Load() == to {
+			from.traffic.failed.Add(1)
+		}
 		return
 	}
 	from.traffic.forwarded.Add(1)
 	from.traffic.bytes.Add(uint64(len(payload)))
 	r.forwardedTotal.Add(1)
+}
+
+// Initial datagrams may be drained by either reader. Publish a new deadline
+// only after the socket accepted it. Regular sends only load the timestamp.
+func (leg *currentPartyUDPRelayLeg) ensureWriteDeadline(now time.Time) error {
+	elapsed := now.Sub(currentPartyRelayClockOrigin)
+	refreshBelow := int64(elapsed + currentPartyRelayWriteTimeout/2)
+	if leg.writeDeadline.Load() >= refreshBelow {
+		return nil
+	}
+	leg.deadlineMu.Lock()
+	defer leg.deadlineMu.Unlock()
+	if leg.writeDeadline.Load() >= refreshBelow {
+		return nil
+	}
+	if err := leg.conn.SetWriteDeadline(now.Add(currentPartyRelayWriteTimeout)); err != nil {
+		leg.writeDeadline.Store(0)
+		return err
+	}
+	leg.writeDeadline.Store(int64(elapsed + currentPartyRelayWriteTimeout))
+	return nil
 }
 
 // Diagnostics run off the packet path, at most once per ten seconds per leg.
