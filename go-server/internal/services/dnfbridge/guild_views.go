@@ -337,21 +337,35 @@ func (s *Service) sendCurrentGuildRosterDisplay(ctx context.Context, bound bound
 
 func (s *Service) sendCurrentGuildRosterDisplayShared(ctx context.Context, bound boundGameSessionCharacter, g *dnfguild.Guild, opcode uint16, full, cursor bool, source string, notifyMembership bool, shared *guildPresenceReadCache, buildTime, writeTime *time.Duration) error {
 	session := bound.session
+	if session == nil || !s.boundGameSessionCharacterCurrent(bound) {
+		return nil
+	}
+	// channelExitAcknowledged is protected by townMu. Establish that the scene
+	// is still eligible before paying for either priming phase, with a blocking
+	// check for the client's own request and a non-blocking check for optional
+	// cross-session projections.
+	if source == "client" {
+		session.townMu.Lock()
+	} else if !session.townMu.TryLock() {
+		return nil
+	}
+	sceneEligible := !session.channelExitAcknowledged && s.boundGameSessionCharacterCurrent(bound)
+	session.townMu.Unlock()
+	if !sceneEligible {
+		return nil
+	}
 	online, sampledAt := shared.sharedOnlineChannels(s, g)
 	shouldPrime := full || notifyMembership || s.hasIncompleteGuildRosterPrime(bound, g)
-	var (
-		primeCtx     context.Context
-		primeCancel  context.CancelFunc
-		primeAllowed bool
-	)
 	primeWriteCtx := ctx
 	if session != nil {
 		// Keep admitted priming socket writes on the independent transport budget
 		// (gameTransportWriteTimeout) rather than the 3s guild query ctx.
 		primeWriteCtx = session.gameTransportContext()
 	}
+	var weddingPrimeSpent time.Duration
 	if shouldPrime {
-		primeCtx, primeCancel, primeAllowed = newGuildRosterPrimeContext(ctx, time.Now(), guildSameChannelPrimeMaxDuration, guildSameChannelPrimeMinCtxHeadway)
+		primeStarted := time.Now()
+		primeCtx, primeCancel, primeAllowed := newGuildRosterPrimeContext(ctx, time.Now(), guildSameChannelPrimeMaxDuration, guildSameChannelPrimeMinCtxHeadway)
 		defer primeCancel()
 		if primeAllowed {
 			if primeErr := s.primeCurrentWeddingGuildRosterForBoundWithBudget(primeCtx, primeWriteCtx, bound, g); primeErr != nil {
@@ -365,17 +379,11 @@ func (s *Service) sendCurrentGuildRosterDisplayShared(ctx context.Context, bound
 		} else {
 			s.setWeddingGuildRosterPrimeIncomplete(bound, g, true)
 		}
+		weddingPrimeSpent = time.Since(primeStarted)
 	}
 	if full || notifyMembership {
 		if err := s.sendCurrentGuildManagementProjectionWithOnline(session, g, len(online), sampledAt, notifyMembership); err != nil {
 			return err
-		}
-	}
-	if shouldPrime {
-		if primeAllowed && primeCtx.Err() == nil {
-			s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, primeWriteCtx, bound, g)
-		} else {
-			s.markSameChannelGuildPrimeIncomplete(bound, g)
 		}
 	}
 	members := 0
@@ -390,31 +398,63 @@ func (s *Service) sendCurrentGuildRosterDisplayShared(ctx context.Context, bound
 	buildStart := s.performanceStart()
 	chunks := shared.sharedRosterChunks(s, g, opcode, full, cursor, online, sampledAt, byte(s.channelAdvertiseID()))
 	s.performanceEnd(perfGuildProjectionBuild, buildStart, nil)
-	if !buildStart.IsZero() {
+	if !buildStart.IsZero() && buildTime != nil {
 		*buildTime = time.Since(buildStart)
 	}
-	// EXIT and these roster frames share the scene fence, just like NOTI127.
-	if source == "client" {
-		session.townMu.Lock()
-	} else if !session.townMu.TryLock() {
-		return nil // preserve optional cross-session projection lock ordering
+	// Send the roster before the optional same-channel peer cache sweep. That
+	// sweep prepares party-invite/profile metadata and can require a cold read
+	// per online guildmate. Keeping it ahead of this response made roster open
+	// time track the full priming budget instead of the roster read itself. The
+	// current native row path materializes a missing auxiliary actor from the
+	// op140 name/identity/level fields before opening its menu. Wedding roster
+	// priming remains above because its invitation list consumes the link first.
+	writeRoster := func() (bool, error) {
+		// EXIT and these roster frames share the scene fence, just like NOTI127.
+		if source == "client" {
+			session.townMu.Lock()
+		} else if !session.townMu.TryLock() {
+			return false, nil // preserve optional cross-session projection lock ordering
+		}
+		defer session.townMu.Unlock()
+		if session.channelExitAcknowledged || !s.boundGameSessionCharacterCurrent(bound) {
+			return false, nil
+		}
+		writeStart := s.performanceStart()
+		var writeErr error
+		written := 0
+		for _, chunk := range chunks {
+			if writeErr = s.sendGameUpperSuccess(session, chunk.opcode, chunk.body); writeErr != nil {
+				break
+			}
+			written++
+		}
+		s.performanceEnd(perfGuildRosterWrite, writeStart, writeErr)
+		if !writeStart.IsZero() && writeTime != nil {
+			*writeTime = time.Since(writeStart)
+		}
+		return written > 0, writeErr
 	}
-	defer session.townMu.Unlock()
-	if session.channelExitAcknowledged || !s.boundGameSessionCharacterCurrent(bound) {
-		return nil
+	rosterWritten, writeErr := writeRoster()
+	if writeErr != nil || !rosterWritten {
+		return writeErr
 	}
-	writeStart := s.performanceStart()
-	var err error
-	for _, chunk := range chunks {
-		if err = s.sendGameUpperSuccess(session, chunk.opcode, chunk.body); err != nil {
-			break
+	if shouldPrime {
+		// Resume after the roster write while charging only prior priming work,
+		// not the roster transport, against the one shared priming allowance.
+		if guildSameChannelPrimeMaxDuration > 0 && weddingPrimeSpent >= guildSameChannelPrimeMaxDuration {
+			s.markSameChannelGuildPrimeIncomplete(bound, g)
+		} else {
+			primeStarted := time.Now().Add(-weddingPrimeSpent)
+			primeCtx, primeCancel, primeAllowed := newGuildRosterPrimeContext(ctx, primeStarted, guildSameChannelPrimeMaxDuration, guildSameChannelPrimeMinCtxHeadway)
+			defer primeCancel()
+			if primeAllowed && primeCtx.Err() == nil {
+				s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, primeWriteCtx, bound, g)
+			} else {
+				s.markSameChannelGuildPrimeIncomplete(bound, g)
+			}
 		}
 	}
-	s.performanceEnd(perfGuildRosterWrite, writeStart, err)
-	if !writeStart.IsZero() {
-		*writeTime = time.Since(writeStart)
-	}
-	return err
+	return writeErr
 }
 
 func (s *Service) broadcastCurrentGuildMembers(g *dnfguild.Guild, skip uint16) {

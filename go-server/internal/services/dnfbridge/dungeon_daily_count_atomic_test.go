@@ -52,6 +52,21 @@ type injectableCharacterAssets struct {
 	save  *injectedCharacterSave
 }
 
+// Activity-enabled entry uses the settlement transaction. Inject the same
+// character write failure there so the rollback case reaches its real path.
+type injectableCharacterSettlement struct {
+	dnfrepo.CharacterSettlementUnitOfWork
+	save *injectedCharacterSave
+}
+
+func (u *injectableCharacterSettlement) WithinCharacterSettlement(ctx context.Context, id string, apply func(dnfrepo.Group) error) error {
+	return u.CharacterSettlementUnitOfWork.WithinCharacterSettlement(ctx, id, func(tx dnfrepo.Group) error {
+		u.save.CharacterRepository = tx.Character
+		tx.Character = u.save
+		return apply(tx)
+	})
+}
+
 func (u *injectableCharacterAssets) WithinCharacterAssets(ctx context.Context, characterID string, apply func(dnfrepo.CharacterRepository, dnfrepo.InventoryRepository, dnfrepo.EquipmentRepository) error) error {
 	return u.inner.WithinCharacterAssets(ctx, characterID, func(chars dnfrepo.CharacterRepository, bags dnfrepo.InventoryRepository, equip dnfrepo.EquipmentRepository) error {
 		u.save.CharacterRepository = chars
@@ -85,6 +100,7 @@ func newDailyCountAtomicTestService(t *testing.T, path string) (*Service, dnfrep
 	repos := memory.NewMemoryGroup()
 	save := &injectedCharacterSave{err: errInjectedCounterSave}
 	repos.CharacterAssets = &injectableCharacterAssets{inner: repos.CharacterAssets, save: save}
+	repos.CharacterSettlement = &injectableCharacterSettlement{CharacterSettlementUnitOfWork: repos.CharacterSettlement, save: save}
 	queue := newFakeCurrentDungeonDeathTimerQueue()
 	queue.now = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	s := &Service{options: options{currentClientVersion: "official-24.9", pvfPath: path, gameUpperBodyCodec: gameUpperBodyCodecPlain}, worldMapTable: table, worldMapResolver: resolver, dungeonMonsterTable: monsters, initialEquipmentArchive: a, adventureGroupTable: adventure, gameplayTimers: queue, dungeonChoice: func(int) (int, error) { return 0, nil }, dungeonSeed: func() (uint32, error) { return 1, nil }, repositoryProvider: func() (dnfrepo.Group, bool) { return repos, true }}

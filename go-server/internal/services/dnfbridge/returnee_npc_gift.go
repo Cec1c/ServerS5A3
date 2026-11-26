@@ -57,9 +57,9 @@ func (s *Service) handleCurrentReturneeNPCGift(session *gameSession, body []byte
 	if archive == nil {
 		return fail(101, "pvf_unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
-	rules, err := s.currentReturneeGiftRules(ctx, archive, npc)
+	loadCtx, cancelLoad := context.WithTimeout(context.Background(), createWriteTimeout)
+	rules, err := s.currentReturneeGiftRules(loadCtx, archive, npc)
+	cancelLoad()
 	if err != nil {
 		return fail(101, err.Error())
 	}
@@ -67,6 +67,10 @@ func (s *Service) handleCurrentReturneeNPCGift(session *gameSession, body []byte
 	if !ok {
 		return fail(101, "repository_unavailable")
 	}
+	// Catalog preparation and repository admission must not spend the budget
+	// reserved for the asset transaction, especially on the first cold request.
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
 	result, err := dnfonlineevent.GiveReturneeNPCGift(ctx, repos, rules, s.accountIDForSession(session), strconv.Itoa(int(session.selectedCharacterID)), body[5], slot, s.gameplayNow())
 	if err != nil {
 		code := byte(100)
