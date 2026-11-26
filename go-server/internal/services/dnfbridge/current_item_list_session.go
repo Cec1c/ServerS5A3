@@ -17,6 +17,15 @@ import (
 const currentGoldWalletProjectionSource = "character_gold_wallet_projection"
 
 func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, session *gameSession, listType byte) ([]byte, string, int, bool) {
+	return s.buildCurrentItemListBodyForSessionWithSnapshot(ctx, session, listType, nil)
+}
+
+func (s *Service) buildCurrentItemListBodyForSessionWithSnapshot(
+	ctx context.Context,
+	session *gameSession,
+	listType byte,
+	bootstrapSnapshot *selectInventoryBootstrapSnapshot,
+) ([]byte, string, int, bool) {
 	ctx = s.withPartyLoadingSnapshot(ctx, session)
 	repos, ok := s.repositoryGroupFor(ctx)
 	if !ok {
@@ -151,6 +160,16 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 				"fallback", "retain_recoverable_contract_item")
 		}
 		committed = s.reconcileCurrentPVFItemExpirationsBestEffort(session, repos, characterID, accountID)
+		if bootstrapSnapshot != nil && committed.Available {
+			bootstrapSnapshot.hasInventory = true
+			if committed.Inventory != nil {
+				bootstrapSnapshot.found = true
+				bootstrapSnapshot.inventory = *committed.Inventory
+			} else {
+				bootstrapSnapshot.found = false
+				bootstrapSnapshot.inventory = dnfrepo.InventoryRecord{}
+			}
+		}
 	}
 	var entries []currentItemListEntry
 	var source string
@@ -161,6 +180,24 @@ func (s *Service) buildCurrentItemListBodyForSession(ctx context.Context, sessio
 		if committed.Inventory != nil {
 			entries = currentItemListEntriesFromRecord(*committed.Inventory, listType)
 			source, known = "inventory", true
+		}
+	} else if bootstrapSnapshot != nil && bootstrapSnapshot.hasInventory && listType != dnfrepo.MainInventoryListType {
+		if bootstrapSnapshot.found {
+			entries = currentItemListEntriesFromRecord(bootstrapSnapshot.inventory, listType)
+			source, known = "inventory", true
+		}
+	} else if bootstrapSnapshot != nil && repos.Inventory != nil {
+		record, found, loadErr := repos.Inventory.Load(ctx, characterID)
+		if loadErr != nil {
+			source, inventorySnapshotErr = currentInventorySnapshotFailureSource, loadErr
+		} else {
+			bootstrapSnapshot.hasInventory = true
+			bootstrapSnapshot.found = found
+			if found {
+				bootstrapSnapshot.inventory = record
+				entries = currentItemListEntriesFromRecord(record, listType)
+				source, known = "inventory", true
+			}
 		}
 	} else {
 		entries, source, known, inventorySnapshotErr = currentItemListEntriesFromInventorySnapshot(ctx, repos.Inventory, characterID, listType)

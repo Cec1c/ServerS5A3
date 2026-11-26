@@ -114,7 +114,7 @@ func (s *Service) raidStartEntryCostMembers(ctx context.Context, state runtimeRa
 	members := make([]raidStartMemberCost, 0, len(state.Members))
 	for _, member := range state.Members {
 		id := strconv.FormatUint(uint64(member.CharID), 10)
-		inventory, found, err := repos.Inventory.Load(ctx, id)
+		slots, found, err := dnfrepo.LoadInventorySlotItemPrefixFound(ctx, repos.Inventory, id, "", int64(rule.ItemID))
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +125,7 @@ func (s *Service) raidStartEntryCostMembers(ctx context.Context, state runtimeRa
 		}
 		members = append(members, raidStartMemberCost{
 			CharacterID: member.CharID,
-			Owned:       raidEntryCostOwnedCount(inventory, int64(rule.ItemID)),
+			Owned:       raidEntryCostOwnedCount(dnfrepo.InventoryRecord{CharacterID: id, Slots: slots}, int64(rule.ItemID)),
 		})
 	}
 	return members, nil

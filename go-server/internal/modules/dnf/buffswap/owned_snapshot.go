@@ -93,8 +93,9 @@ type OwnedProjectionOptions struct {
 	MigrateCurrentInstances bool
 	// Group selects one native group's skill tree without changing the active
 	// compatibility view. Group projections never migrate the active tree.
-	Group       *byte
-	legacyLists []byte
+	Group             *byte
+	legacyLists       []byte
+	loadFullInventory bool
 }
 
 func validateBindingIdentity(b Binding) error {
@@ -135,7 +136,14 @@ func readOwnedSources(ctx context.Context, tx repo.Group, characterID string, op
 	if tx.Inventory == nil || tx.Equipment == nil {
 		return ownedSourceSnapshot{}, repo.ErrBuffOwnedSnapshotUnavailable
 	}
-	inventory, inventoryFound, err := tx.Inventory.Load(ctx, characterID)
+	var inventory repo.InventoryRecord
+	var inventoryFound bool
+	var err error
+	if options.loadFullInventory {
+		inventory, inventoryFound, err = tx.Inventory.Load(ctx, characterID)
+	} else {
+		inventory, inventoryFound, err = repo.LoadInventorySlots(ctx, tx.Inventory, characterID)
+	}
 	if err != nil {
 		return ownedSourceSnapshot{}, err
 	}
@@ -299,14 +307,20 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 			within = repo.WithinBuffOwnedSnapshot
 		}
 		return within(ctx, base, characterID, accountID, func(tx repo.Group) error {
-			owner, ownerFound, err := tx.Character.Load(ctx, characterID)
+			owner, ownerFound, err := repo.LoadCharacterMirrorStats(ctx, tx.Character, characterID)
 			if err != nil {
 				return err
 			}
 			if !ownerFound || owner.CharacterID != characterID || owner.AccountID != accountID {
 				return repo.ErrBuffLegacyOwnerMismatch
 			}
-			result.Owner = repo.CloneCharacter(owner)
+			result.Owner = repo.CharacterRecord{
+				CharacterID: owner.CharacterID,
+				AccountID:   owner.AccountID,
+				Name:        owner.Name,
+				Job:         owner.Job,
+				Level:       owner.Level,
+			}
 			state, found, err := Load(ctx, tx, characterID, accountID)
 			if err != nil {
 				return err
@@ -378,7 +392,9 @@ func LoadResolvedOwnedWithOptions(ctx context.Context, base repo.Group, characte
 					}
 				}
 			}
-			view, err := readOwnedSources(ctx, tx, characterID, options)
+			readOptions := options
+			readOptions.loadFullInventory = writable && options.MigrateCurrentInstances
+			view, err := readOwnedSources(ctx, tx, characterID, readOptions)
 			if err != nil {
 				return err
 			}

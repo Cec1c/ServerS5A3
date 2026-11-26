@@ -96,7 +96,7 @@ func withinBuffOwnedSnapshot(ctx context.Context, base Group, characterID, accou
 		if c == nil || s == nil {
 			return ErrBuffOwnedSnapshotUnavailable
 		}
-		owner, found, err := c.Load(ctx, characterID)
+		owner, found, err := LoadCharacterIdentity(ctx, c, characterID)
 		if err != nil {
 			return err
 		}

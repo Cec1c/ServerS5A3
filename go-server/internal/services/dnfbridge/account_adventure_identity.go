@@ -21,6 +21,13 @@ func (s *Service) currentRepresentAccountIdentity(
 	if err != nil {
 		return "", 0, "unavailable_zero", err
 	}
+	return representAccountIdentityFromRecord(account, found)
+}
+
+func representAccountIdentityFromRecord(
+	account dnfrepo.AccountRecord,
+	found bool,
+) (string, uint32, string, error) {
 	if !found {
 		return "", 0, "unavailable_zero", nil
 	}

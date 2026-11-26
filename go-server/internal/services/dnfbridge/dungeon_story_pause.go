@@ -172,6 +172,7 @@ func (s *Service) handleCurrentDungeonStoryPause(session *gameSession, body []by
 	); err != nil {
 		return err
 	}
+	session.dungeonUserStateActive.Store(true)
 	runtime.tutorialInitialUserStateSent = true
 	s.logGameEvent(session, "game-dungeon-tutorial-user-state-op3-sent",
 		"char_id", session.selectedCharacterID,

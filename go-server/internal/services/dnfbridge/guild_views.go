@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -268,7 +269,22 @@ func (s *Service) handleCurrentGuildMemberListObserved(session *gameSession, opc
 	return s.handleCurrentGuildMemberListObservedShared(session, opcode, source, nil)
 }
 
-func (s *Service) handleCurrentGuildMemberListObservedShared(session *gameSession, opcode uint16, source string, shared *guildPresenceReadCache) (result error) {
+func (s *Service) handleCurrentGuildMemberListObservedShared(session *gameSession, opcode uint16, source string, shared *guildPresenceReadCache) error {
+	bound, ok := s.boundGameSessionCharacterSnapshot(session)
+	if !ok {
+		if source == "client" {
+			s.markCurrentGuildMemberListRequested(session)
+		}
+		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
+	}
+	return s.handleCurrentGuildMemberListObservedBoundShared(bound, 0, opcode, source, shared)
+}
+
+func (s *Service) handleCurrentGuildMemberListObservedBoundShared(bound boundGameSessionCharacter, expectedGuildID uint32, opcode uint16, source string, shared *guildPresenceReadCache) (result error) {
+	session := bound.session
+	if session == nil {
+		return nil
+	}
 	started := s.performanceStart()
 	var readTime, buildTime, writeTime time.Duration
 	defer func() {
@@ -287,14 +303,13 @@ func (s *Service) handleCurrentGuildMemberListObservedShared(session *gameSessio
 	if source == "client" {
 		s.markCurrentGuildMemberListRequested(session)
 	}
+	if !s.boundGameSessionCharacterCurrent(bound) {
+		return nil
+	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	full := opcode == uint16(dnfenum.CmdPacketGuildMemerList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberList)
 	cursor := opcode == uint16(dnfenum.CmdPacketGuildAllMemberList) || opcode == uint16(dnfenum.CmdPacketGuildAllMemberListNext)
-	bound, ok := s.boundGameSessionCharacterSnapshot(session)
-	if !ok {
-		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
-	}
 	readStart := s.performanceStart()
 	g, err := s.readCurrentGuildDisplayShared(ctx, bound, false, full, shared)
 	if !readStart.IsZero() {
@@ -304,7 +319,13 @@ func (s *Service) handleCurrentGuildMemberListObservedShared(session *gameSessio
 		return nil
 	}
 	if err != nil {
+		if expectedGuildID != 0 {
+			return err
+		}
 		return s.sendGameUpperFailure(session, opcode, currentGuildGenericError)
+	}
+	if expectedGuildID != 0 && (g == nil || g.ID != expectedGuildID) {
+		return nil
 	}
 	return s.sendCurrentGuildRosterDisplayShared(ctx, bound, g, opcode, full, cursor, source, false, shared, &buildTime, &writeTime)
 }
@@ -317,12 +338,38 @@ func (s *Service) sendCurrentGuildRosterDisplay(ctx context.Context, bound bound
 func (s *Service) sendCurrentGuildRosterDisplayShared(ctx context.Context, bound boundGameSessionCharacter, g *dnfguild.Guild, opcode uint16, full, cursor bool, source string, notifyMembership bool, shared *guildPresenceReadCache, buildTime, writeTime *time.Duration) error {
 	session := bound.session
 	online, sampledAt := shared.sharedOnlineChannels(s, g)
-	if full || notifyMembership {
-		if primeErr := s.primeCurrentWeddingGuildRosterForBound(ctx, bound, g); primeErr != nil {
-			s.logGameEvent(session, "game-wedding-guild-roster-prime-deferred", "error", primeErr)
+	shouldPrime := full || notifyMembership || s.hasIncompleteGuildRosterPrime(bound, g)
+	var (
+		primeCtx     context.Context
+		primeCancel  context.CancelFunc
+		primeAllowed bool
+	)
+	if shouldPrime {
+		primeCtx, primeCancel, primeAllowed = newGuildRosterPrimeContext(ctx, time.Now(), guildSameChannelPrimeMaxDuration, guildSameChannelPrimeMinCtxHeadway)
+		defer primeCancel()
+		if primeAllowed {
+			if primeErr := s.primeCurrentWeddingGuildRosterForBoundWithBudget(primeCtx, ctx, bound, g); primeErr != nil {
+				s.logGameEvent(session, "game-wedding-guild-roster-prime-deferred", "error", primeErr)
+				if (errors.Is(primeErr, context.DeadlineExceeded) || errors.Is(primeErr, context.Canceled)) && (ctx == nil || ctx.Err() == nil) {
+					s.setWeddingGuildRosterPrimeIncomplete(bound, g, true)
+				}
+			} else {
+				s.setWeddingGuildRosterPrimeIncomplete(bound, g, false)
+			}
+		} else {
+			s.setWeddingGuildRosterPrimeIncomplete(bound, g, true)
 		}
+	}
+	if full || notifyMembership {
 		if err := s.sendCurrentGuildManagementProjectionWithOnline(session, g, len(online), sampledAt, notifyMembership); err != nil {
 			return err
+		}
+	}
+	if shouldPrime {
+		if primeAllowed && primeCtx.Err() == nil {
+			s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, ctx, bound, g)
+		} else {
+			s.markSameChannelGuildPrimeIncomplete(bound, g)
 		}
 	}
 	members := 0

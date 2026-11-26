@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	dnfitemlock "longheng.io/server/internal/modules/dnf/itemlock"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // buildCurrentItemLockSnapshotForSession reads the durable lock owner after
@@ -13,12 +14,26 @@ import (
 // this state from an item row, so even an all-unlocked inventory must receive
 // the explicit empty op251 list.
 func (s *Service) buildCurrentItemLockSnapshotForSession(ctx context.Context, session *gameSession) ([]byte, bool) {
+	return s.buildCurrentItemLockSnapshotForSessionWithSnapshot(ctx, session, nil)
+}
+
+func (s *Service) buildCurrentItemLockSnapshotForSessionWithSnapshot(
+	ctx context.Context,
+	session *gameSession,
+	snapshot *selectInventoryBootstrapSnapshot,
+) ([]byte, bool) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
 		return nil, false
 	}
 	repositories, ok := s.repositoryGroup()
 	if !ok || repositories.Inventory == nil {
 		return nil, false
+	}
+	if snapshot != nil && snapshot.hasInventory {
+		if !snapshot.found {
+			return dnfitemlock.BuildLockListSnapshot(dnfrepo.InventoryRecord{}), true
+		}
+		return dnfitemlock.BuildLockListSnapshot(snapshot.inventory), true
 	}
 	characterID := strconv.Itoa(int(session.selectedCharacterID))
 	record, found, err := repositories.Inventory.Load(ctx, characterID)

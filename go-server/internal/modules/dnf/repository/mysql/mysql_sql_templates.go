@@ -5,7 +5,8 @@ import "sync"
 // mysqlSQLTemplates stores only SQL text derived from validated table names and
 // fixed column lists. It never holds player rows, assets or request results.
 type mysqlSQLTemplates struct {
-	characterBase sync.Map
+	characterMirrorBase sync.Map
+	characterBase       sync.Map
 }
 
 func (r mysqlRouter) characterBaseQuery(table string) string {

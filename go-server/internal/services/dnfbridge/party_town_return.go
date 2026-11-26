@@ -1,10 +1,6 @@
 package dnfbridge
 
-import (
-	"fmt"
-
-	"longheng.io/server/internal/modules/dnf/alignedcmd"
-)
+import "longheng.io/server/internal/modules/dnf/alignedcmd"
 
 // rebuildRuntimePartyTownCoPresenceAfterReturn restores the scene-owned town
 // actors only after every same-area party member has consumed its own op132
@@ -33,6 +29,12 @@ func (s *Service) rebuildRuntimePartyTownCoPresenceAfterReturn(session *gameSess
 		if !online || memberSession == nil || !currentPartyTownReturnSceneReady(memberSession) {
 			return nil
 		}
+		// Scene completion can precede area registration. Wait for the town
+		// actors before rebuilding any recipient's party records.
+		actor, registered := s.onlinePlayers.PlayerForCharacter(member.UserID)
+		if !registered || actor.Session != memberSession {
+			return nil
+		}
 		memberState := s.townCopresenceActorPartyState(memberSession)
 		if memberState.PartyID != state.PartyID || memberState.UserID != state.UserID ||
 			len(runtimePartyMembers(memberState)) != len(members) {
@@ -49,7 +51,7 @@ func (s *Service) rebuildRuntimePartyTownCoPresenceAfterReturn(session *gameSess
 			}
 			actor, found := s.onlinePlayers.PlayerForCharacter(member.UserID)
 			if !found || actor.Session == nil {
-				return fmt.Errorf("party return peer %d has no town actor", member.UserID)
+				return nil
 			}
 			// 频道隔离（彻底隔离口径）：跨频道队友一律不投影（op23 没有频道字段，
 			// 发它等于把对方声明成本地区域的一员；同 sendTownRemotePartyActors）。

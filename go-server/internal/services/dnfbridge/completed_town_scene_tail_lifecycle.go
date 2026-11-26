@@ -1,13 +1,16 @@
 package dnfbridge
 
+const currentTownEnterSelectReasonCompletedReturnTailPending = "completed_dungeon_return_town_scene_tail_pending"
+
 // Server-tail retirement only; never callback, actor or reward authorization.
 // Access holds townMu. Pointer identity separates consecutive return routes.
 type currentCompletedTownSceneTailOwner struct {
-	characterID  uint16
-	channelID    int
-	serverID     int
-	ownerContext byte
-	connectionID string
+	characterID   uint16
+	channelID     int
+	serverID      int
+	ownerContext  byte
+	connectionID  string
+	clientSettled bool
 }
 
 func currentCompletedTownSceneTailOwnerMatchesLocked(s *gameSession, o *currentCompletedTownSceneTailOwner) bool {
@@ -45,4 +48,42 @@ func finishCurrentCompletedTownSceneTailAfterAreaCommitLocked(s *gameSession, o 
 	s.sceneBootstrapTailDeferred = false
 	resetCurrentDeferredSelectSceneTailProgress(s)
 	s.completedTownSceneTailOwner = nil
+}
+
+// currentCompletedTownReturnPendingSettlementLocked reports whether a
+// completed-dungeon return has emitted its town route but the client has not
+// yet acknowledged town landing. Caller holds townMu.
+func currentCompletedTownReturnPendingSettlementLocked(s *gameSession) bool {
+	if s == nil {
+		return false
+	}
+	o := s.completedTownSceneTailOwner
+	return o != nil && !o.clientSettled && currentCompletedTownSceneTailOwnerMatchesLocked(s, o)
+}
+
+func currentCompletedTownReturnPendingSettlement(s *gameSession) bool {
+	if s == nil {
+		return false
+	}
+	s.townMu.Lock()
+	defer s.townMu.Unlock()
+	return currentCompletedTownReturnPendingSettlementLocked(s)
+}
+
+func markCurrentCompletedTownReturnSettledLocked(s *gameSession) {
+	if s == nil {
+		return
+	}
+	if o := s.completedTownSceneTailOwner; o != nil && currentCompletedTownSceneTailOwnerMatchesLocked(s, o) {
+		o.clientSettled = true
+	}
+}
+
+func markCurrentCompletedTownReturnSettled(s *gameSession) {
+	if s == nil {
+		return
+	}
+	s.townMu.Lock()
+	markCurrentCompletedTownReturnSettledLocked(s)
+	s.townMu.Unlock()
 }

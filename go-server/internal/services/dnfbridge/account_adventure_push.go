@@ -16,17 +16,27 @@ func (s *Service) sendCurrentAdventureActorRefreshFromAccount(
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	state, err := s.currentAccountAdventureGroupState(ctx, dnfrepo.CharacterRecord{}, false, session)
-	if err != nil {
+	summary, err := s.currentAccountAdventureGroupSummary(ctx, dnfrepo.CharacterRecord{}, false, session)
+	return s.sendCurrentAdventureActorRefreshFromSummary(session, currentObjectKey, summary, err, source)
+}
+
+func (s *Service) sendCurrentAdventureActorRefreshFromSummary(
+	session *gameSession,
+	currentObjectKey uint16,
+	summary adventuregroup.Summary,
+	summaryErr error,
+	source string,
+) error {
+	if summaryErr != nil {
 		s.logGameEvent(session, "game-adventure-actor-refresh-skipped",
 			"msg_id", currentAdventureActorRefreshMsgID,
 			"source", source,
 			"current_object_key", currentObjectKey,
-			"error", err,
+			"error", summaryErr,
 			"reason", "account_summary_unavailable")
 		return nil
 	}
-	body := buildCurrentAdventureActorRefreshBody(currentObjectKey, state.Summary)
+	body := buildCurrentAdventureActorRefreshBody(currentObjectKey, summary)
 	s.logGameEvent(session, "game-adventure-actor-refresh-send",
 		"msg_id", currentAdventureActorRefreshMsgID,
 		"classification", 0,
@@ -34,8 +44,8 @@ func (s *Service) sendCurrentAdventureActorRefreshFromAccount(
 		"current_object_key", currentObjectKey,
 		"plain_payload_len", len(body),
 		"raw_state_len", currentAdventureActorRefreshRawLength,
-		"total_point", state.Summary.TotalPoint,
-		"manage_level", state.Summary.ManageLevel)
+		"total_point", summary.TotalPoint,
+		"manage_level", summary.ManageLevel)
 	return s.sendGameUpperRawClass(session, currentAdventureActorRefreshMsgID, body, 0)
 }
 
@@ -49,16 +59,37 @@ func (s *Service) sendCurrentAdventureInfoPushFromAccount(
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	state, err := s.currentAccountAdventureGroupInfoState(ctx, dnfrepo.CharacterRecord{}, false, session)
-	if err != nil {
+	return s.sendCurrentAdventureInfoPushFromState(ctx, session, currentObjectKey, state, err, source)
+}
+
+func (s *Service) sendCurrentAdventureInfoPushFromState(
+	ctx context.Context,
+	session *gameSession,
+	currentObjectKey uint16,
+	state accountAdventureGroupState,
+	stateErr error,
+	source string,
+) error {
+	if stateErr != nil {
 		s.logGameEvent(session, "game-adventure-info-push-skipped",
 			"msg_id", currentAdventureInfoPushMsgID,
 			"source", source,
 			"current_object_key", currentObjectKey,
-			"error", err,
+			"error", stateErr,
 			"reason", "account_summary_unavailable")
 		return nil
 	}
-	name, createdDate, dateSource, err := s.currentRepresentAccountIdentity(ctx, session)
+	var (
+		name        string
+		createdDate uint32
+		dateSource  string
+		err         error
+	)
+	if state.HasAccount {
+		name, createdDate, dateSource, err = representAccountIdentityFromRecord(state.Account, true)
+	} else {
+		name, createdDate, dateSource, err = s.currentRepresentAccountIdentity(ctx, session)
+	}
 	if err != nil {
 		s.logGameEvent(session, "game-adventure-info-push-skipped",
 			"msg_id", currentAdventureInfoPushMsgID,
@@ -114,7 +145,16 @@ func (s *Service) sendCurrentSelectorAdventureInfoAfterHiddenProbe(session *game
 			"reason", "remembered_slot_not_in_current_roster")
 		return nil
 	}
-	name, createdDate, dateSource, err := s.currentRepresentAccountIdentity(ctx, session)
+	var (
+		name        string
+		createdDate uint32
+		dateSource  string
+	)
+	if state.HasAccount {
+		name, createdDate, dateSource, err = representAccountIdentityFromRecord(state.Account, true)
+	} else {
+		name, createdDate, dateSource, err = s.currentRepresentAccountIdentity(ctx, session)
+	}
 	if err != nil {
 		s.logGameEvent(session, "game-selector-adventure-info-push-skipped",
 			"msg_id", currentAdventureInfoPushMsgID,

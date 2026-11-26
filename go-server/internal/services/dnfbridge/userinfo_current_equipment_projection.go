@@ -89,6 +89,7 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 	}
 	record, found, err := repos.Equipment.Load(r.ctx, r.characterID)
 	if err != nil {
+		r.noteDegraded(err)
 		if r.session != nil {
 			r.service.logGameEvent(r.session, "game-upper-selected-userinfo-mode1-equipment-load-failed", "character_id", r.characterID, "error", err)
 		}
@@ -113,8 +114,11 @@ func (r *csharpLegacyUserInfoReader) currentMode1EquipmentObjectRows() []current
 				loaded, present, petErr := repos.Pet.Load(r.ctx, r.characterID)
 				if petErr == nil && present && loaded.CharacterID == r.characterID {
 					pets = loaded
-				} else if petErr != nil && r.session != nil {
-					r.service.logGameEvent(r.session, "game-upper-userinfo-creature-enchant-load-failed", "character_id", r.characterID, "error", petErr)
+				} else if petErr != nil {
+					r.noteDegraded(petErr)
+					if r.session != nil {
+						r.service.logGameEvent(r.session, "game-upper-userinfo-creature-enchant-load-failed", "character_id", r.characterID, "error", petErr)
+					}
 				}
 			}
 			equipped = currentEquippedCreatureWithDurableEnchant(equipped, pets)

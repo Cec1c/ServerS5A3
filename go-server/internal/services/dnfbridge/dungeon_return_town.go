@@ -738,15 +738,9 @@ func (s *Service) sendCurrentCompletedDungeonReturnToTown(
 		// （party_town_return.go:92），"最后一个成员到位后重建同屏"永远是 no-op，
 		// 两个人回城后互相看不见。默认档登记城镇同屏 + 作废本会话的副本运行键；
 		// 回退档一个字段都不改。见 dungeon_party_completion_return_town_presence.go。
-		published := s.publishCompletedDungeonReturnTownPresence(session, transition, "completed_town_route")
-		// The completed op72 route has no guaranteed trailing op15. A party of
-		// one still needs its realtime actor state restored after town presence
-		// becomes ready; the generic completion fanout intentionally skips it.
-		if state := runtimePartyStateSnapshot(session); published && state.PartyID > 0 && len(runtimePartyMembers(state)) == 1 {
-			if err := s.rebuildRuntimePartyTownCoPresenceAfterReturn(session, source+"_single_party_town_restore"); err != nil {
-				return err
-			}
-		}
+		// The presence rebind already sends op153 then op9, including retained
+		// single-member parties. Rebuilding again would replace that fresh record.
+		s.publishCompletedDungeonReturnTownPresence(session, transition, "completed_town_route")
 	}
 
 	s.logGameEvent(session, "game-dungeon-completed-town-route-committed",
@@ -1152,6 +1146,7 @@ func resetDungeonReturnSceneGates(session *gameSession) {
 	session.selectPreviewActorRemoved = false
 	session.preDungeonContextPlayerStateSent = false
 	session.deferredDungeonUserStateObjectKey = 0
+	session.dungeonUserStateActive.Store(false)
 	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
 }
@@ -1208,6 +1203,7 @@ func resetDungeonEntrySceneGates(session *gameSession) {
 	session.postStartMapPlayerStateSent = false
 	clearDeferredSelectedActorGuardianGemRowRefresh(session)
 	session.deferredDungeonUserStateObjectKey = 0
+	session.dungeonUserStateActive.Store(false)
 	session.setFinishLoadingGates(finishLoadingGates{})
 	session.returnTownFinishLoadingAckOnly = false
 }

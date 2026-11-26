@@ -129,3 +129,21 @@ func RecordedDailyLoginDays(account dnfrepo.AccountRecord) (uint32, error) {
 	_, days, _, err := parseDailyLoginState(account.Metadata[DailyLoginStateMetadataKey])
 	return days, err
 }
+
+// DailyLoginRecordedForDate reports whether account already has a committed
+// streak on or after observedAt's UTC+8 calendar day. Callers can use this
+// read-only check to skip locking and re-loading on repeat logins the same day.
+func DailyLoginRecordedForDate(account dnfrepo.AccountRecord, observedAt time.Time) (uint32, bool, error) {
+	if observedAt.IsZero() {
+		observedAt = time.Now()
+	}
+	previousDate, previousCount, hasState, err := parseDailyLoginState(account.Metadata[DailyLoginStateMetadataKey])
+	if err != nil {
+		return 0, false, err
+	}
+	today := calendarDate(observedAt)
+	if hasState && !today.After(previousDate) {
+		return previousCount, true, nil
+	}
+	return previousCount, false, nil
+}

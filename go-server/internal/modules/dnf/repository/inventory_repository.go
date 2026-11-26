@@ -3,6 +3,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,6 +25,66 @@ type InventorySlotPrefixReader interface {
 // item type. Like InventorySlotPrefixReader, it is never an asset before-image.
 type InventorySlotItemPrefixReader interface {
 	LoadInventorySlotItemPrefix(context.Context, string, string, int64) (map[string]ItemStack, error)
+}
+
+// InventorySlotItemPrefixFoundReader narrows a read-only slot projection to one
+// item type while distinguishing an absent inventory row from zero matching items.
+type InventorySlotItemPrefixFoundReader interface {
+	LoadInventorySlotItemPrefixFound(context.Context, string, string, int64) (map[string]ItemStack, bool, error)
+}
+
+// InventorySlotsReader is a read-only projection of only InventoryRecord.Slots
+// (skipping Warehouse). Callers must never pass its result to Save.
+type InventorySlotsReader interface {
+	LoadInventorySlots(context.Context, string) (InventoryRecord, bool, error)
+}
+
+// LoadInventorySlotItemPrefixFound loads matching slot stacks for one prefix
+// (or all slot keys when prefix is empty) and item ID while preserving whether
+// the inventory row exists.
+func LoadInventorySlotItemPrefixFound(
+	ctx context.Context,
+	repo InventoryRepository,
+	characterID, prefix string,
+	itemID int64,
+) (map[string]ItemStack, bool, error) {
+	if characterID == "" || itemID <= 0 {
+		return nil, false, fmt.Errorf("inventory item projection requires owner and positive item ID")
+	}
+	if reader, ok := repo.(InventorySlotItemPrefixFoundReader); ok {
+		return reader.LoadInventorySlotItemPrefixFound(ctx, characterID, prefix, itemID)
+	}
+	record, found, err := repo.Load(ctx, characterID)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	if record.CharacterID != characterID {
+		return nil, false, nil
+	}
+	var matched map[string]ItemStack
+	for key, stack := range record.Slots {
+		if !strings.HasPrefix(key, prefix) || stack.ItemID != itemID {
+			continue
+		}
+		if matched == nil {
+			matched = make(map[string]ItemStack)
+		}
+		matched[key] = stack
+	}
+	return matched, true, nil
+}
+
+// LoadInventorySlots reads only the character's Slots collection when the
+// backing repository supports narrow slot reads, falling back to full Load.
+func LoadInventorySlots(
+	ctx context.Context,
+	repo InventoryRepository,
+	characterID string,
+) (InventoryRecord, bool, error) {
+	if reader, ok := repo.(InventorySlotsReader); ok {
+		return reader.LoadInventorySlots(ctx, characterID)
+	}
+	return repo.Load(ctx, characterID)
 }
 
 // InventoryRecord 是角色背包仓储记录。

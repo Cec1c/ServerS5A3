@@ -323,5 +323,9 @@ func (r *csharpLegacyUserInfoReader) currentEquippedCreature() currentEquippedCr
 	if r == nil || r.service == nil {
 		return currentEquippedCreatureSnapshot{}
 	}
-	return r.service.currentEquippedCreatureForCharacter(r.ctx, r.characterID)
+	snapshot, err := r.service.currentEquippedCreatureForCharacterWithError(r.ctx, r.characterID)
+	if err != nil {
+		r.noteDegraded(err)
+	}
+	return snapshot
 }

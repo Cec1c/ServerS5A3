@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 	"strings"
+
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // sendCurrentDungeonStoryQuestAfterFreeCardLocked re-projects completion only
@@ -38,7 +40,7 @@ func (s *Service) sendCurrentDungeonStoryQuestAfterFreeCardLocked(
 	if !ok || repositories.Quest == nil {
 		return errDungeonClearMapCompletionUnavailable
 	}
-	record, found, err := repositories.Quest.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, strconv.Itoa(int(session.selectedCharacterID)))
 	if err != nil {
 		return err
 	}

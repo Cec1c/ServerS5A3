@@ -94,3 +94,16 @@ func sortRecords[T any](records []T, less func(T, T) bool) {
 		}
 	}
 }
+
+// ProjectMemoryRecord copies a read-only projection while the stored record is
+// protected by the read lock. project must not mutate or retain stored maps.
+func ProjectMemoryRecord[T, P any](s *MemoryStore[T], key string, project func(T) P) (P, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, found := s.records[key]
+	if !found {
+		var zero P
+		return zero, false
+	}
+	return project(record), true
+}

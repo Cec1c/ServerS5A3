@@ -17,6 +17,7 @@ func (r *csharpLegacyUserInfoReader) queryRows(table string, columns []string, o
 	}
 	rows, err := r.repo.SelectRows(r.ctx, r.characterID, table, columns, order)
 	if err != nil {
+		r.noteDegraded(err)
 		r.logQueryError(table, err)
 		return nil
 	}
@@ -32,6 +33,7 @@ func (r *csharpLegacyUserInfoReader) one(table string, columns []string) dnfrepo
 	}
 	row, ok, err := r.repo.SelectOne(r.ctx, r.characterID, table, columns)
 	if err != nil {
+		r.noteDegraded(err)
 		r.logQueryError(table, err)
 		return nil
 	}

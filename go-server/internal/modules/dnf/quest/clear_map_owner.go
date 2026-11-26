@@ -105,7 +105,17 @@ func (o *Owner) applyClearMapCompletion(
 			}
 		}
 	}
-	record, ok, err := o.quests.Load(ctx, characterID)
+	_, isDelta := o.quests.(dnfrepo.QuestDeltaWriter)
+	var (
+		record dnfrepo.QuestRecord
+		ok     bool
+		err    error
+	)
+	if isDelta && catalog != nil {
+		record, ok, err = catalog.LoadHuntPlanning(ctx, o.quests, characterID)
+	} else {
+		record, ok, err = o.quests.Load(ctx, characterID)
+	}
 	if err != nil {
 		return ClearMapPersistResult{}, err
 	}
@@ -133,7 +143,7 @@ func (o *Owner) applyClearMapCompletion(
 	if len(plan.ChangedFields) == 0 {
 		return result, nil
 	}
-	if _, delta := o.quests.(dnfrepo.QuestDeltaWriter); !delta && !pairLocked &&
+	if !isDelta && !pairLocked &&
 		(clearMapRecordHasWeddingPreparation(record) || clearMapRecordHasWeddingPreparation(plan.Record)) {
 		// An opaque/legacy store cannot safely replace a stale whole group
 		// containing preparation tasks after concurrent cancellation. A real
@@ -144,7 +154,11 @@ func (o *Owner) applyClearMapCompletion(
 	if err := dnfrepo.SaveQuestChanges(ctx, o.quests, record, plan.Record, plan.ChangedFields...); err != nil {
 		return ClearMapPersistResult{}, err
 	}
-	persisted, ok, err := o.quests.Load(ctx, characterID)
+	verifyIDs := make([]int64, 0, len(result.Completions))
+	for _, completion := range result.Completions {
+		verifyIDs = append(verifyIDs, completion.QuestID)
+	}
+	persisted, ok, err := dnfrepo.LoadQuestIDs(ctx, o.quests, characterID, verifyIDs)
 	if err != nil {
 		return ClearMapPersistResult{}, err
 	}

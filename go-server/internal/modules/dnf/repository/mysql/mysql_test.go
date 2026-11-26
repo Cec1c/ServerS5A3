@@ -265,6 +265,17 @@ func assignFakeSQLValue(dest any, value any) error {
 		default:
 			return errors.New("unsupported fake sql null int64 value")
 		}
+	case *sql.NullBool:
+		if value == nil {
+			*out = sql.NullBool{}
+			return nil
+		}
+		switch v := value.(type) {
+		case bool:
+			*out = sql.NullBool{Bool: v, Valid: true}
+		default:
+			return errors.New("unsupported fake sql null bool value")
+		}
 	case *time.Time:
 		if value == nil {
 			*out = time.Time{}

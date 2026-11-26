@@ -47,6 +47,15 @@ func (u *mysqlCharacterTradeUnitOfWork) withinScopedCharacterAssets(ctx context.
 	}
 	characters := &characterTradeScopedCharacterRepository{allowed: allowed, base: txGroup.Character}
 	inventories := &characterTradeScopedInventoryRepository{allowed: allowed, base: txGroup.Inventory}
+	// Each allowed owner gets its own isolated before-image on this same SQL
+	// transaction so multi-member raid admission writes slot/stat deltas
+	// without colliding across owners or rewriting full bags/stats.
+	characters.byOwner = make(map[string]repository.CharacterRepository, len(ids))
+	inventories.byOwner = make(map[string]repository.InventoryRepository, len(ids))
+	for _, id := range ids {
+		characters.byOwner[id] = &mysqlCharStore{mysqlStoreBase: mysqlStoreBase{router: txRouter}, trackStatChanges: true}
+		inventories.byOwner[id] = &mysqlBagStore{mysqlStoreBase: mysqlStoreBase{router: txRouter}, trackSlotChanges: true}
+	}
 	table, err := txRouter.writeTable(mysqlSettingsTable, scope)
 	if err != nil {
 		return err

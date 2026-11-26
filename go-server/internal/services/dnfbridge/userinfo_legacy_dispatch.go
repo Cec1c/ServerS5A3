@@ -69,7 +69,15 @@ type csharpLegacyUserInfoReader struct {
 	buffOwnedLoaded bool
 	buffOwned       buffswap.OwnedProjection
 	buffOwnedErr    error
+	degradedErr     error
 	loaded          bool
+}
+
+func (r *csharpLegacyUserInfoReader) noteDegraded(err error) {
+	if r == nil || err == nil || r.degradedErr != nil {
+		return
+	}
+	r.degradedErr = err
 }
 
 func (s *Service) buildCSharpLegacyUserInfoBody(ctx context.Context, session *gameSession, repo dnfrepo.LegacyUserInfoRepository, charID uint16, msgID uint16) ([]byte, bool) {

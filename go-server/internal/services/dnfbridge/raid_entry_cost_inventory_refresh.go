@@ -7,6 +7,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/raid"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // runtimeRaidEntryCostInventoryBaseline is the per-command before-image used
@@ -132,15 +133,15 @@ func (s *Service) runtimeRaidEntryCostOwnedForSession(session *gameSession, rule
 	ctx, cancel := context.WithTimeout(context.Background(), currentRepositorySnapshotTimeout)
 	defer cancel()
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	character, found, err := repositories.Character.Load(ctx, characterID)
+	character, found, err := dnfrepo.LoadCharacterIdentity(ctx, repositories.Character, characterID)
 	if err != nil || !found || character.CharacterID != characterID || character.AccountID != s.accountIDForSession(session) {
 		return 0, fmt.Errorf("raid entry-cost inventory owner unavailable")
 	}
-	inventory, found, err := repositories.Inventory.Load(ctx, characterID)
-	if err != nil || !found || inventory.CharacterID != characterID {
+	slots, found, err := dnfrepo.LoadInventorySlotItemPrefixFound(ctx, repositories.Inventory, characterID, "", int64(rule.ItemID))
+	if err != nil || !found {
 		return 0, fmt.Errorf("raid entry-cost inventory snapshot unavailable")
 	}
-	return raidEntryCostOwnedCount(inventory, int64(rule.ItemID)), nil
+	return raidEntryCostOwnedCount(dnfrepo.InventoryRecord{CharacterID: characterID, Slots: slots}, int64(rule.ItemID)), nil
 }
 
 func (s *Service) broadcastRuntimeRaidEntryCostInventoryRefresh(state runtimeRaidState) error {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/binary"
 	"strconv"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/guild"
 	r "longheng.io/server/internal/modules/dnf/repository"
-	"longheng.io/server/internal/platform/eventloop"
 )
 
 func (s *Service) currentGuildEssenceCatalog() (*guild.EssenceCatalog, error) {
@@ -83,7 +83,42 @@ func buildCurrentGuildEssenceNotice(ap uint32) []byte {
 	return body
 }
 
+func appendUniqueGuildID(ids []uint32, guildID uint32) []uint32 {
+	if guildID == 0 {
+		return ids
+	}
+	for _, id := range ids {
+		if id == guildID {
+			return ids
+		}
+	}
+	return append(ids, guildID)
+}
+
+func guildIDInSlice(guildID uint32, expected []uint32) bool {
+	if guildID == 0 {
+		return false
+	}
+	for _, id := range expected {
+		if id == guildID {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
+	return s.writeCurrentGuildEssenceSnapshotForGuilds(session, nil)
+}
+
+func (s *Service) writeCurrentGuildEssenceSnapshotForGuild(session *gameSession, expectedGuildID uint32) error {
+	if expectedGuildID == 0 {
+		return s.writeCurrentGuildEssenceSnapshotForGuilds(session, nil)
+	}
+	return s.writeCurrentGuildEssenceSnapshotForGuilds(session, []uint32{expectedGuildID})
+}
+
+func (s *Service) writeCurrentGuildEssenceSnapshotForGuilds(session *gameSession, expectedGuildIDs []uint32) error {
 	if !s.options.guildEssenceEnabled {
 		return nil
 	}
@@ -91,6 +126,94 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	// guild changes when the character returns, instead of changing that table
 	// while the server still owns the original combat snapshot.
 	identity, bound := s.boundGameSessionCharacterSnapshot(session)
+	if len(expectedGuildIDs) > 0 {
+		if !bound || session.loginRevoked.Load() || (session.ctx != nil && session.ctx.Err() != nil) {
+			return nil
+		}
+		session.guild.placement.mu.Lock()
+		defer session.guild.placement.mu.Unlock()
+		if p := &session.guild.placement; p.frozenPractice != (boundGameSessionCharacter{}) {
+			if p.frozenPractice == identity {
+				return nil
+			}
+			p.frozenPractice = boundGameSessionCharacter{}
+			p.identity = boundGameSessionCharacter{}
+		}
+		repos, ok := s.repositoryGroup()
+		if !ok || repos.Settings == nil {
+			return guild.ErrRepositoryUnavailable
+		}
+		ctx, cancel := s.currentGuildContext()
+		defer cancel()
+		// Acquire wireMu before reading the authoritative guild view so a wire
+		// wait overlapping a leave/kick/rebind observes the latest membership
+		// and writes 1297 + 191/777 atomically without interleaving NOTI151.
+		if hook := testBeforeGuildPeerWireLock; hook != nil {
+			hook("essence")
+		}
+		if err := s.lockGameWire(session, ctx); err != nil {
+			return err
+		}
+		defer session.wireMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if session.channelExitWireClosed || session.loginRevoked.Load() || !s.boundGameSessionCharacterCurrent(identity) {
+			return nil
+		}
+		character, err := s.currentGuildOwnedSelectedIdentity(session)
+		if err != nil {
+			return err
+		}
+		view, err := guild.ReadHallView(ctx, repos.Settings)
+		if err != nil {
+			return err
+		}
+		owner := r.GuildOwner{AccountID: character.AccountID, CharacterID: character.CharacterID}
+		projection, found := view.Projection(owner)
+		if !found || !guildIDInSlice(projection.GuildID, expectedGuildIDs) {
+			return nil
+		}
+		g := currentGuildHallDisplay(projection)
+		body, err := buildCurrentGuildGuardianSnapshot(g)
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if session.channelExitWireClosed || session.loginRevoked.Load() || !s.boundGameSessionCharacterCurrent(identity) {
+			return nil
+		}
+		// Use an independent transport write budget (gameTransportWriteTimeout)
+		// rather than the remaining slice of the 3s storage/prep context so slow
+		// DB reads cannot prematurely close a healthy player's connection.
+		finishWrite, err := beginGameWriteBudgetLocked(session, nil)
+		if err != nil {
+			return err
+		}
+		defer finishWrite()
+		sendLocked := func(op uint16, payload []byte) error {
+			if err := s.sendGameUpperRawClassCodecLocked(session, op, payload, 0, true); err != nil {
+				session.closeGameTransport()
+				return err
+			}
+			return nil
+		}
+		p := &session.guild.placement
+		initial := g == nil || p.identity != identity || p.guildID != g.ID || p.rows == nil
+		if initial {
+			if err = sendLocked(1297, body); err != nil {
+				return err
+			}
+			return s.writeCurrentGuildPlacementProjectionWithSendLocked(session, g, identity, sendLocked)
+		}
+		if err = s.writeCurrentGuildPlacementProjectionWithSendLocked(session, g, identity, sendLocked); err != nil {
+			return err
+		}
+		return sendLocked(1297, body)
+	}
+	owner := r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))}
 	session.guild.placement.mu.Lock()
 	defer session.guild.placement.mu.Unlock()
 	if p := &session.guild.placement; p.frozenPractice != (boundGameSessionCharacter{}) {
@@ -110,7 +233,7 @@ func (s *Service) writeCurrentGuildEssenceSnapshot(session *gameSession) error {
 	if err != nil {
 		return err
 	}
-	projection, found := view.Projection(r.GuildOwner{AccountID: s.accountIDForSession(session), CharacterID: strconv.Itoa(int(session.selectedCharacterID))})
+	projection, found := view.Projection(owner)
 	var g *guild.Guild
 	if found {
 		g = currentGuildHallDisplay(projection)
@@ -232,9 +355,197 @@ func (s *Service) projectCurrentGuildEssenceIncome(session *gameSession, income 
 	return s.sendGameUpperRawClass(session, 1284, buildCurrentGuildEssenceNotice(income.AP), 0)
 }
 
+// Bounded per-session coalesce token for peer essence/placement refreshes.
+// All mutable fields are guarded by session.guild.mu; no IO or queue submit holds it.
+type currentGuildEssenceRefresh struct {
+	peer            boundGameSessionCharacter
+	guildIDs        []uint32
+	revision        uint64
+	queued, running bool
+	coalesceTimer   *time.Timer
+	stopContext     func() bool
+}
+
+func clearCurrentGuildEssenceRefreshLocked(session *gameSession) {
+	if p := session.guild.essenceRefresh; p != nil {
+		if p.coalesceTimer != nil {
+			p.coalesceTimer.Stop()
+		}
+		if p.stopContext != nil {
+			p.stopContext()
+		}
+	}
+	session.guild.essenceRefresh = nil
+}
+
+func (s *Service) discardCurrentGuildEssenceRefresh(p *currentGuildEssenceRefresh) {
+	session := p.peer.session
+	session.guild.mu.Lock()
+	if session.guild.essenceRefresh == p {
+		clearCurrentGuildEssenceRefreshLocked(session)
+	}
+	session.guild.mu.Unlock()
+}
+
+func (s *Service) requestCurrentGuildEssenceRefresh(peer boundGameSessionCharacter, guildID uint32) {
+	if peer.session == nil || peer.session.events == nil || peer.session.events.loop == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.gameSessions[peer.character] != peer.session || peer.session.selectedCharacterID != peer.character || peer.session.characterGeneration != peer.generation {
+		s.mu.Unlock()
+		return
+	}
+	session := peer.session
+	session.guild.mu.Lock()
+	s.mu.Unlock()
+	if session.guild.presenceRefreshClosed || session.loginRevoked.Load() ||
+		!session.events.active.Load() ||
+		(session.ctx != nil && session.ctx.Err() != nil) {
+		session.guild.mu.Unlock()
+		return
+	}
+	p := session.guild.essenceRefresh
+	if p == nil || p.peer != peer {
+		clearCurrentGuildEssenceRefreshLocked(session)
+		p = &currentGuildEssenceRefresh{peer: peer}
+		session.guild.essenceRefresh = p
+		if session.ctx != nil {
+			p.stopContext = context.AfterFunc(session.ctx, func() { s.discardCurrentGuildEssenceRefresh(p) })
+		}
+	}
+	p.guildIDs = appendUniqueGuildID(p.guildIDs, guildID)
+	p.revision++
+	if p.queued || p.running || p.coalesceTimer != nil {
+		session.guild.mu.Unlock()
+		return
+	}
+	if window := s.guildPresenceCoalesceWindow(); window > 0 && !session.guild.lastEssenceRefreshAt.IsZero() {
+		if elapsed := s.guildRosterNow().Sub(session.guild.lastEssenceRefreshAt); elapsed >= 0 && elapsed < window {
+			p.coalesceTimer = s.armCurrentGuildEssenceCoalesceTimerLocked(session, p, window-elapsed)
+			session.guild.mu.Unlock()
+			return
+		}
+	}
+	p.queued = true
+	session.guild.mu.Unlock()
+	s.submitCurrentGuildEssenceRefresh(p)
+}
+
+func (s *Service) armCurrentGuildEssenceCoalesceTimerLocked(session *gameSession, p *currentGuildEssenceRefresh, delay time.Duration) *time.Timer {
+	return time.AfterFunc(delay, func() {
+		session.guild.mu.Lock()
+		if session.guild.essenceRefresh != p || session.guild.presenceRefreshClosed ||
+			session.loginRevoked.Load() ||
+			(session.events != nil && !session.events.active.Load()) ||
+			(session.ctx != nil && session.ctx.Err() != nil) {
+			if session.guild.essenceRefresh == p {
+				clearCurrentGuildEssenceRefreshLocked(session)
+			}
+			session.guild.mu.Unlock()
+			return
+		}
+		p.coalesceTimer = nil
+		if p.queued || p.running {
+			session.guild.mu.Unlock()
+			return
+		}
+		p.queued = true
+		session.guild.mu.Unlock()
+		s.submitCurrentGuildEssenceRefresh(p)
+	})
+}
+
+func (s *Service) submitCurrentGuildEssenceRefresh(p *currentGuildEssenceRefresh) {
+	if !s.boundGameSessionCharacterCurrent(p.peer) {
+		s.discardCurrentGuildEssenceRefresh(p)
+		return
+	}
+	session := p.peer.session
+	if session.events == nil || session.events.loop == nil {
+		s.discardCurrentGuildEssenceRefresh(p)
+		return
+	}
+	const source = "guild-essence-refresh"
+	err := s.tryPostGameSessionCharacterEventWithDiscard(session, source, p.peer.character, p.peer.generation,
+		func() error { return s.runCurrentGuildEssenceRefresh(p) },
+		func() { s.discardCurrentGuildEssenceRefresh(p) })
+	if err == nil {
+		return
+	}
+	session.guild.mu.Lock()
+	if session.guild.essenceRefresh == p {
+		p.queued = false
+		if !p.running && p.coalesceTimer == nil {
+			clearCurrentGuildEssenceRefreshLocked(session)
+		}
+	}
+	session.guild.mu.Unlock()
+	s.logGameEvent(session, "game-guild-essence-peer-refresh-deferred", "error", err)
+}
+
+func (s *Service) runCurrentGuildEssenceRefresh(p *currentGuildEssenceRefresh) error {
+	session := p.peer.session
+	session.guild.mu.Lock()
+	if session.guild.essenceRefresh != p {
+		session.guild.mu.Unlock()
+		return nil
+	}
+	p.queued, p.running = false, true
+	revision := p.revision
+	guildIDs := append([]uint32(nil), p.guildIDs...)
+	session.guild.mu.Unlock()
+	executedRealRefresh := false
+	defer func() {
+		session.guild.mu.Lock()
+		if session.guild.essenceRefresh != p {
+			session.guild.mu.Unlock()
+			return
+		}
+		p.running = false
+		if executedRealRefresh {
+			session.guild.lastEssenceRefreshAt = s.guildRosterNow()
+		}
+		followup := executedRealRefresh && p.revision != revision &&
+			!session.guild.presenceRefreshClosed && !session.loginRevoked.Load() &&
+			(session.events == nil || session.events.active.Load()) &&
+			(session.ctx == nil || session.ctx.Err() == nil)
+		submitNow := false
+		if followup {
+			if window := s.guildPresenceCoalesceWindow(); window > 0 && session.events != nil && session.events.loop != nil {
+				p.coalesceTimer = s.armCurrentGuildEssenceCoalesceTimerLocked(session, p, window)
+			} else {
+				p.queued = true
+				submitNow = true
+			}
+		} else {
+			clearCurrentGuildEssenceRefreshLocked(session)
+		}
+		session.guild.mu.Unlock()
+		if submitNow {
+			s.submitCurrentGuildEssenceRefresh(p)
+		}
+	}()
+	if !s.boundGameSessionCharacterCurrent(p.peer) {
+		return nil
+	}
+	// Peer income is already committed. Do not rebuild guild placements or
+	// perform repository reads while the peer owns a combat dungeon scene.
+	// Town/member-window refresh reads the latest balance on return.
+	if sessionInDungeon(session) {
+		s.logGameEvent(session, "game-guild-essence-peer-refresh-deferred", "reason", "dungeon_scene_owned")
+		return nil
+	}
+	executedRealRefresh = true
+	return s.writeCurrentGuildEssenceSnapshotForGuilds(session, guildIDs)
+}
+
 // Same commit may occur under a dungeon or town lock: use peer event queues,
 // recheck their owner/generation/membership, and never wait on a peer here.
 func (s *Service) queueCurrentGuildEssenceRefresh(guildID uint32, skip uint16) {
+	if !s.options.guildEssenceEnabled {
+		return
+	}
 	ctx, cancel := s.currentGuildContext()
 	defer cancel()
 	_, reg, err := s.readCurrentGuildDirectory(ctx)
@@ -252,32 +563,6 @@ func (s *Service) queueCurrentGuildEssenceRefresh(guildID uint32, skip uint16) {
 		if !ok || s.accountIDForSession(peer.session) != member.AccountID || peer.session.events == nil || peer.session.events.loop == nil {
 			continue
 		}
-		const source = "guild-essence-refresh"
-		err = peer.session.events.loop.Submit(eventloop.Event{Type: source, Priority: eventloop.PriorityMedium, Data: gameSessionEventTask{source: source, characterID: peer.character, characterGeneration: peer.generation, async: true, run: func() error {
-			if !s.boundGameSessionCharacterCurrent(peer) {
-				return nil
-			}
-			g, err := s.currentGuildForSelectedCharacter(peer.session)
-			if err != nil {
-				return err
-			}
-			if g == nil || g.ID != guildID {
-				return nil
-			}
-			// Peer income is already committed. Do not rebuild guild
-			// placements or block combat with its background snapshot.
-			// Town/member-window refresh reads the latest balance on return.
-			peer.session.dungeon.mu.Lock()
-			inDungeon := peer.session.dungeon.runtime != nil
-			peer.session.dungeon.mu.Unlock()
-			if inDungeon {
-				s.logGameEvent(peer.session, "game-guild-essence-peer-refresh-deferred", "reason", "dungeon_scene_owned")
-				return nil
-			}
-			return s.writeCurrentGuildEssenceSnapshot(peer.session)
-		}}})
-		if err != nil {
-			s.logGameEvent(peer.session, "game-guild-essence-peer-refresh-deferred", "error", err)
-		}
+		s.requestCurrentGuildEssenceRefresh(peer, guildID)
 	}
 }

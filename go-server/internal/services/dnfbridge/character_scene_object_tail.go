@@ -56,7 +56,7 @@ func writeCurrentSceneObjectEntryTailWithCreatureAndAdventureName(writer *packet
 	// 旧 DOVE entry 在这里带版本相关资源号；当前 NoPack 先用安全空状态创建对象，再让后续 359/124 刷新。
 	writer.writeByte(0) // sub_20038C0
 	writer.writeByte(0) // sub_2003970
-	writer.writeByte(0) // v112[1]
+	writer.writeByte(0) // v112[1]: SCharacterInfo+0x1c (user_state; 0x022c532b -> actor+0x4c)
 	writeCurrentSceneObjectEquipSummary(writer, currentSceneObjectMode0EquipSummary(character, hasCharacter))
 	writer.writeUint32(0) // v113: 对象资源/动作参数，随后传入对象虚表 +0x10。
 	writer.writeByte(0)   // v114

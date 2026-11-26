@@ -54,6 +54,9 @@ func (s *mysqlSettingsStore) Load(ctx context.Context, scope string) (repository
 	if err != nil {
 		return repository.SettingsRecord{}, false, err
 	}
+	if !s.router.lockReads {
+		return s.loadJoinedSettings(ctx, scope, table, valuesTable)
+	}
 	query := s.router.selectQuery("SELECT scope, updated_at FROM " + table + " WHERE scope = ?")
 	var record repository.SettingsRecord
 	var updatedAt sql.NullTime
@@ -149,4 +152,58 @@ func (s *mysqlSettingsStore) SaveFields(ctx context.Context, record repository.S
 		}
 		return replaceStringMap(ctx, database, valuesTable, "scope", scope, record.Values)
 	})
+}
+
+// scopedLockedSettingsCache is owned by exactly one UOW. Clear it on every exit,
+// including rollback/panic, so escaped repositories defer to the closed SQL tx.
+func scopedLockedSettingsCache(group repository.Group) func() {
+	store := group.Settings.(*mysqlSettingsStore)
+	store.cacheLockedReads = true
+	return func() {
+		store.lockedCacheMu.Lock()
+		store.lockedCacheGen++
+		store.lockedCache = nil
+		store.lockedCacheMu.Unlock()
+	}
+}
+
+// One statement supplies a fresh, consistent parent and values snapshot.
+// Omit ORDER BY v.entry_key: values populate an unordered map keyed by the
+// unique PRIMARY KEY (scope, entry_key), and sorting a LEFT JOIN containing
+// LONGTEXT entry_value forces MariaDB to spill an on-disk temporary table on
+// every read ("Using temporary; Using filesort").
+func (s *mysqlSettingsStore) loadJoinedSettings(ctx context.Context, scope, table, valuesTable string) (repository.SettingsRecord, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := s.router.db.QueryContext(ctx, "SELECT s.scope, s.updated_at, v.entry_key, v.entry_value FROM "+table+" s LEFT JOIN "+valuesTable+" v ON v.scope = s.scope WHERE s.scope = ?", scope)
+	if err != nil {
+		return repository.SettingsRecord{}, false, err
+	}
+	defer rows.Close()
+	var record repository.SettingsRecord
+	var updatedAt sql.NullTime
+	var key, value sql.NullString
+	found := false
+	dest := []any{&record.Scope, &updatedAt, &key, &value}
+	for rows.Next() {
+		if err := rows.Scan(dest...); err != nil {
+			return repository.SettingsRecord{}, false, err
+		}
+		found = true
+		if key.Valid {
+			if record.Values == nil {
+				record.Values = make(map[string]string)
+			}
+			record.Values[key.String] = value.String
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return repository.SettingsRecord{}, false, err
+	}
+	if err := rows.Close(); err != nil {
+		return repository.SettingsRecord{}, false, err
+	}
+	record.UpdatedAt = scanTime(updatedAt)
+	return record, found, nil
 }

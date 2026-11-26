@@ -34,6 +34,16 @@ type currentSelectInventoryBootstrapPacket struct {
 	entryCount  int
 }
 
+// selectInventoryBootstrapSnapshot holds a stack-local, single-bootstrap
+// post-reconciliation InventoryRecord reused only across the synchronous
+// container (lists 1, 2, 7, 38) and item-lock builders inside one bootstrap.
+// It is never stored on the session and never populated on a repository error.
+type selectInventoryBootstrapSnapshot struct {
+	hasInventory bool
+	found        bool
+	inventory    dnfrepo.InventoryRecord
+}
+
 // sendCurrentSelectInventoryBootstrap owns the one-shot inventory bootstrap
 // for a selected character. It must be called after the scene has created and
 // bound the selected actor, and before the full equipment-bearing mode1 packet.
@@ -154,12 +164,13 @@ func (s *Service) sendCurrentSelectInventoryBootstrapWithMainPreserved(session *
 			"switch_env", loginEquipmentContainerEnv,
 			"reason", "rollback_literal_restores_six_container_login_bootstrap")
 	}
+	var bootstrapSnapshot selectInventoryBootstrapSnapshot
 	plan := make([]currentSelectInventoryBootstrapPacket, 0, len(listTypes))
 	for _, listType := range listTypes {
 		if preserveMain && listType == dnfrepo.MainInventoryListType {
 			continue
 		}
-		body, entrySource, entryCount, ok := s.buildCurrentSelectInventoryBootstrapBody(ctx, session, listType)
+		body, entrySource, entryCount, ok := s.buildCurrentSelectInventoryBootstrapBodyWithSnapshot(ctx, session, listType, &bootstrapSnapshot)
 		if !ok {
 			s.logPacketEvent("game-upper-select-inventory-bootstrap-deferred",
 				"conn_id", session.connID,
@@ -182,7 +193,7 @@ func (s *Service) sendCurrentSelectInventoryBootstrapWithMainPreserved(session *
 	// snapshot before any container write and deliver it immediately after all
 	// containers. An explicit empty list is required to clear a stale local
 	// locked state before an item-use request such as op338 can be generated.
-	lockSnapshot, lockSnapshotOK := s.buildCurrentItemLockSnapshotForSession(ctx, session)
+	lockSnapshot, lockSnapshotOK := s.buildCurrentItemLockSnapshotForSessionWithSnapshot(ctx, session, &bootstrapSnapshot)
 	if !lockSnapshotOK {
 		s.logPacketEvent("game-upper-select-inventory-bootstrap-deferred",
 			"conn_id", session.connID,
@@ -286,7 +297,16 @@ func (s *Service) buildCurrentSelectInventoryBootstrapBody(
 	session *gameSession,
 	listType byte,
 ) ([]byte, string, int, bool) {
-	body, source, count, ok := s.buildCurrentItemListBodyForSession(ctx, session, listType)
+	return s.buildCurrentSelectInventoryBootstrapBodyWithSnapshot(ctx, session, listType, nil)
+}
+
+func (s *Service) buildCurrentSelectInventoryBootstrapBodyWithSnapshot(
+	ctx context.Context,
+	session *gameSession,
+	listType byte,
+	snapshot *selectInventoryBootstrapSnapshot,
+) ([]byte, string, int, bool) {
+	body, source, count, ok := s.buildCurrentItemListBodyForSessionWithSnapshot(ctx, session, listType, snapshot)
 	if ok {
 		return body, source, count, true
 	}

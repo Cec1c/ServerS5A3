@@ -8,6 +8,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	"longheng.io/server/internal/modules/dnf/party"
 	"longheng.io/server/internal/modules/dnf/raid"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 type currentRaidApplication struct {
@@ -56,10 +57,11 @@ func (s *Service) currentRaidApplicantRecord(session *gameSession, req raid.Curr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	c, found, err := repos.Character.Load(ctx, strconv.Itoa(int(selectedCharacterID(session))))
-	if err != nil || !found || c.AccountID != s.accountIDForSession(session) || c.Level <= 0 || c.Level > 65535 {
+	m, found, err := dnfrepo.LoadCharacterMirrorStats(ctx, repos.Character, strconv.Itoa(int(selectedCharacterID(session))), dnfrepo.CharacterGrowTypeStatKey)
+	if err != nil || !found || m.AccountID != s.accountIDForSession(session) || m.Level <= 0 || m.Level > 65535 {
 		return raid.CurrentApplicationRecord{}, false
 	}
+	c := dnfrepo.CharacterRecord{CharacterID: m.CharacterID, AccountID: m.AccountID, Name: m.Name, Job: m.Job, Level: m.Level, Stats: m.Stats}
 	return raid.CurrentApplicationRecord{CharKey: selectedCharacterID(session), Server: byte(s.channelAdvertiseID()), Channel: byte(session.channel.ID), Name: c.Name, Level: uint16(c.Level), Job: byte(numericCharacterStat(c.Job)), Grow: characterGrowTypeByte(c), ClientValue: req.ClientValue, NativeValue: req.NativeValue}, true
 }
 

@@ -429,6 +429,7 @@ func (r *csharpLegacyUserInfoReader) loadPeerSkillPageSkills(characterID string)
 	defer cancel()
 	record, found, err := repos.Skill.Load(loadCtx, characterID)
 	if err != nil {
+		r.noteDegraded(err)
 		r.service.logGameEvent(r.session, "game-peer-skill-page-load-failed",
 			"character_id", characterID,
 			"error", err)

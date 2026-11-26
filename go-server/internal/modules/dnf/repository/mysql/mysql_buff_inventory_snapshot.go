@@ -50,7 +50,58 @@ func (s *mysqlBuffInventoryStore) Load(ctx context.Context, characterID string) 
 		return repository.InventoryRecord{}, false, err
 	}
 	record.UpdatedAt = scanTime(updatedAt)
+	if s.trackSlotChanges {
+		snapshot := repository.CloneInventory(record)
+		s.loadedSnapshot = &snapshot
+	}
 	return repository.CloneInventory(record), true, nil
+}
+
+// LoadInventorySlots reads only the character's slots collection inside the
+// buff-owned snapshot transaction, skipping warehouse items and extras.
+// Because Warehouse is not read, it intentionally never seeds loadedSnapshot.
+func (s *mysqlBuffInventoryStore) LoadInventorySlots(ctx context.Context, characterID string) (repository.InventoryRecord, bool, error) {
+	if !s.router.lockReads && !s.router.consistentRead {
+		return repository.InventoryRecord{}, false, repository.ErrBuffOwnedSnapshotUnavailable
+	}
+	table, err := s.router.readTable(mysqlBagTable, characterID)
+	if err != nil {
+		return repository.InventoryRecord{}, false, err
+	}
+	itemsTable, err := s.router.readTable(mysqlInventoryItemsTable, characterID)
+	if err != nil {
+		return repository.InventoryRecord{}, false, err
+	}
+	extraTable, err := s.router.readTable(mysqlInventoryExtraTable, characterID)
+	if err != nil {
+		return repository.InventoryRecord{}, false, err
+	}
+	query := s.router.selectQuery("SELECT character_id, updated_at FROM " + table + " WHERE character_id = ?")
+	var record repository.InventoryRecord
+	var updatedAt sql.NullTime
+	err = s.router.db.QueryRowContext(ctx, query, characterID).Scan(
+		&record.CharacterID,
+		&updatedAt,
+	)
+	if err != nil {
+		ok, scanErr := scanErr(err)
+		return repository.InventoryRecord{}, ok, scanErr
+	}
+	record.Slots, err = loadBuffLockedItemStackCollection(
+		ctx, s.router.db, itemsTable, extraTable, "character_id", characterID, "slots", true, s.router.lockReads,
+	)
+	if err != nil {
+		return repository.InventoryRecord{}, false, err
+	}
+	record.UpdatedAt = scanTime(updatedAt)
+	return record, true, nil
+}
+
+func (r *rentalScopedInventoryRepository) LoadInventorySlots(ctx context.Context, characterID string) (repository.InventoryRecord, bool, error) {
+	if err := repository.TransactionKeyError(ctx, r.characterID, characterID); err != nil {
+		return repository.InventoryRecord{}, false, err
+	}
+	return repository.LoadInventorySlots(ctx, r.base, characterID)
 }
 
 func loadBuffLockedItemStackCollection(

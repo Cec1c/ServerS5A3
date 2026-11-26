@@ -109,7 +109,7 @@ func checkOwner(ctx context.Context, repos repo.Group, characterID, accountID st
 	if repos.Character == nil || repos.Settings == nil || strings.TrimSpace(characterID) == "" || strings.TrimSpace(accountID) == "" {
 		return errors.New("buff-swap owner unavailable")
 	}
-	c, found, err := repos.Character.Load(ctx, characterID)
+	c, found, err := repo.LoadCharacterIdentity(ctx, repos.Character, characterID)
 	if err != nil {
 		return err
 	}

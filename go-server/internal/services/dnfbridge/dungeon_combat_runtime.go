@@ -1148,7 +1148,7 @@ func (s *Service) handleDungeonMonsterDeathRequest(
 	if rewardMonsterCandidate {
 		// Recover the persisted decision even if this character's live quest
 		// filters changed. Never run the former unjournaled Type-1 path too.
-		if err := s.recoverQuestMaterials(session); err != nil {
+		if err := s.recoverQuestMaterialsIfNeeded(session, 0); err != nil {
 			s.logGameEvent(session, "game-quest-material-delivery-deferred", "error", err)
 		}
 	}

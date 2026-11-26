@@ -6,6 +6,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfproto "longheng.io/server/internal/modules/dnf/protocol"
 	"longheng.io/server/internal/modules/dnf/raid"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
 )
 
@@ -132,7 +133,7 @@ func (s *Service) runtimeRaidEntryCostStatusesInContext(parent context.Context, 
 	statuses := make([]raid.EntryCostStatus, 0, len(state.Members))
 	for _, member := range state.Members {
 		id := strconv.FormatUint(uint64(member.CharID), 10)
-		character, found, err := repos.Character.Load(ctx, id)
+		character, found, err := dnfrepo.LoadCharacterIdentity(ctx, repos.Character, id)
 		if err != nil || !found || character.CharacterID != id {
 			return nil, rule, fmt.Errorf("raid admission character unavailable")
 		}
@@ -142,11 +143,11 @@ func (s *Service) runtimeRaidEntryCostStatusesInContext(parent context.Context, 
 		if owners != nil {
 			owners[member.CharID] = character.AccountID
 		}
-		inventory, found, err := repos.Inventory.Load(ctx, id)
+		slots, found, err := dnfrepo.LoadInventorySlotItemPrefixFound(ctx, repos.Inventory, id, "", int64(rule.ItemID))
 		if err != nil || !found {
 			return nil, rule, fmt.Errorf("raid admission inventory unavailable")
 		}
-		count := raidEntryCostOwnedCount(inventory, int64(rule.ItemID))
+		count := raidEntryCostOwnedCount(dnfrepo.InventoryRecord{CharacterID: id, Slots: slots}, int64(rule.ItemID))
 		statuses = append(statuses, raid.EntryCostStatus{CharacterID: member.CharID, Ready: state.Started || count >= rule.Count, OwnedCount: uint16(count)})
 	}
 	return statuses, rule, nil

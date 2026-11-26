@@ -3,8 +3,10 @@ package dnfbridge
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
+	"longheng.io/server/internal/modules/dnf/adventuregroup"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
@@ -215,6 +217,71 @@ func (s *Service) buildCurrentSelectedUserInfoMode3BodyInContext(ctx context.Con
 		uint32(summary.ManageLevel),
 		ownerChannel,
 	)
+}
+
+// buildCurrentSelectedUserInfoMode3BodyStrictInContext builds mode3 and returns
+// an error if ctx was canceled or any underlying repository read degraded
+// (equipment, pet, name tag, legacy userinfo, adventure group, or skill page),
+// preventing partial/degraded frames from entering shared caches.
+func (s *Service) buildCurrentSelectedUserInfoMode3BodyStrictInContext(
+	ctx context.Context,
+	session *gameSession,
+	repo dnfrepo.LegacyUserInfoRepository,
+	character dnfrepo.CharacterRecord,
+	hasCharacter bool,
+	charID uint16,
+	ownerChannel byte,
+) ([]byte, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	summary, summaryErr := s.currentAccountAdventureGroupSummary(ctx, character, hasCharacter, session)
+	if summaryErr != nil {
+		if !errors.Is(summaryErr, errAdventureGroupTableUnavailable) {
+			if s != nil {
+				s.adventureGroupMu.Lock()
+				hasTable := s.adventureGroupTable != nil
+				s.adventureGroupMu.Unlock()
+				if hasTable {
+					return nil, summaryErr
+				}
+			}
+		}
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		summary = adventuregroup.Summary{}
+	}
+	pvfStats, hasPVFStats := s.characterPVFStatsForUserInfo(ctx, session, character, hasCharacter)
+	reader := csharpLegacyUserInfoReader{
+		ctx:         ctx,
+		repo:        repo,
+		characterID: strconv.Itoa(int(charID)),
+		service:     s,
+		session:     session,
+		pvfStats:    pvfStats,
+		hasPVFStats: hasPVFStats,
+	}
+	body := reader.buildCurrentUserInfoMode3InContext(
+		character,
+		hasCharacter,
+		currentSceneActorObjectKey(charID),
+		uint32(summary.ManageLevel),
+		ownerChannel,
+	)
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	if reader.degradedErr != nil {
+		return nil, reader.degradedErr
+	}
+	return body, nil
 }
 
 func (s *Service) buildCurrentSelectedUserInfoMode3BodyWithAdventureLevel(ctx context.Context, session *gameSession, repo dnfrepo.LegacyUserInfoRepository, character dnfrepo.CharacterRecord, hasCharacter bool, charID uint16, adventureLevel uint32) []byte {

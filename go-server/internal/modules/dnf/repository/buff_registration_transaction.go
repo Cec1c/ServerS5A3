@@ -16,7 +16,7 @@ func WithinBuffRegistration(ctx context.Context, base Group, characterID, accoun
 	}
 	scope := "character:" + characterID + ":buff_swap_native"
 	return base.CeraShopAssets.WithinCeraShopAssets(ctx, accountID, characterID, scope, func(_ AccountRepository, characters CharacterRepository, inventories InventoryRepository, equipment EquipmentRepository, settings SettingsRepository) error {
-		character, found, err := characters.Load(ctx, characterID)
+		character, found, err := LoadCharacterIdentity(ctx, characters, characterID)
 		if err != nil {
 			return err
 		}

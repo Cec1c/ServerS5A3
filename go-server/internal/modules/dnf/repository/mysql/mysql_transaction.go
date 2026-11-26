@@ -408,8 +408,10 @@ func (u *mysqlCharacterTradeUnitOfWork) withinCharacterInventoryGroup(ctx contex
 	// Each allowed owner gets its own complete before-image on this same SQL
 	// transaction. Loading the second trader must not replace the first one's
 	// baseline, nor the escrow's baseline in auction operations.
+	characters.byOwner = make(map[string]repository.CharacterRepository, len(ids))
 	inventories.byOwner = make(map[string]repository.InventoryRepository, len(ids))
 	for _, id := range ids {
+		characters.byOwner[id] = &mysqlCharStore{mysqlStoreBase: mysqlStoreBase{router: txRouter}, trackStatChanges: true}
 		inventories.byOwner[id] = &mysqlBagStore{mysqlStoreBase: mysqlStoreBase{router: txRouter}, trackSlotChanges: true}
 	}
 	var warehouse repository.AccountInventoryRepository
@@ -429,6 +431,14 @@ type characterTradeScopedCharacterRepository struct {
 	activity repository.ActivityRepository
 	allowed  map[string]struct{}
 	base     repository.CharacterRepository
+	byOwner  map[string]repository.CharacterRepository
+}
+
+func (r *characterTradeScopedCharacterRepository) ownerStore(id string) repository.CharacterRepository {
+	if store := r.byOwner[strings.TrimSpace(id)]; store != nil {
+		return store
+	}
+	return r.base
 }
 
 func (r *characterTradeScopedCharacterRepository) Load(ctx context.Context, characterID string) (repository.CharacterRecord, bool, error) {
@@ -436,14 +446,23 @@ func (r *characterTradeScopedCharacterRepository) Load(ctx context.Context, char
 	if _, allowed := r.allowed[characterID]; !allowed {
 		return repository.CharacterRecord{}, false, repository.ErrCharacterTradeTransactionUnavailable
 	}
-	return r.base.Load(ctx, characterID)
+	return r.ownerStore(characterID).Load(ctx, characterID)
 }
 
 func (r *characterTradeScopedCharacterRepository) Save(ctx context.Context, record repository.CharacterRecord) error {
-	if _, allowed := r.allowed[strings.TrimSpace(record.CharacterID)]; !allowed {
+	id := strings.TrimSpace(record.CharacterID)
+	if _, allowed := r.allowed[id]; !allowed {
 		return repository.ErrCharacterTradeTransactionUnavailable
 	}
-	return r.base.Save(ctx, record)
+	return r.ownerStore(id).Save(ctx, record)
+}
+
+func (r *characterTradeScopedCharacterRepository) SaveFields(ctx context.Context, record repository.CharacterRecord, fields ...repository.CharacterField) error {
+	id := strings.TrimSpace(record.CharacterID)
+	if _, allowed := r.allowed[id]; !allowed {
+		return repository.ErrCharacterTradeTransactionUnavailable
+	}
+	return repository.SaveCharacterFields(ctx, r.ownerStore(id), record, fields...)
 }
 
 func (r *characterTradeScopedCharacterRepository) ListByAccount(context.Context, string, int) ([]repository.CharacterRecord, error) {
