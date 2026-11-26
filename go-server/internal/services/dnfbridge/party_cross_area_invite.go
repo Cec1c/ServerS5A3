@@ -33,11 +33,13 @@ func guildSameChannelPrimeBudgetExhausted(ctx context.Context, started time.Time
 	return maxDuration > 0 && time.Since(started) >= maxDuration
 }
 
-// newGuildRosterPrimeContext derives a shared absolute deadline for optional
-// guild roster priming (wedding + same-channel peers), taking the earlier of
-// started+maxDuration and parentDeadline-minHeadway. When the budget is already
-// exhausted, ok is false and the returned context is already canceled so no
-// priming work starts and the parent context keeps its roster send headway.
+// newGuildRosterPrimeContext derives an absolute deadline for optional guild
+// roster priming, taking the earlier of started+maxDuration and
+// parentDeadline-minHeadway. Callers resuming after the roster write move
+// started back only by priming work already performed, so roster transport is
+// excluded while wedding and same-channel priming still share one allowance.
+// When the budget is exhausted, ok is false and the returned context is already
+// canceled, so no priming work starts and the parent context keeps its headway.
 func newGuildRosterPrimeContext(
 	parent context.Context,
 	started time.Time,
@@ -200,11 +202,12 @@ func (s *Service) canCurrentCrossAreaPartyPeerRequest(
 
 // primeCurrentSameChannelGuildPartyPeers silently primes online same-channel
 // guild members into the viewer's auxiliary actor cache (category 4 via mode8)
-// before guild roster frames are delivered, so cross-area guild-list party
-// invites find the peer without spawning visible ghost actors in the viewer's
-// local town area. Deduplicated via session.guild.weddingPrimedPeers, bounded
-// by an absolute priming deadline, and resumable across subsequent roster
-// requests when truncated.
+// immediately after guild roster frames are written, so cross-area guild-list
+// party invites find the peer without spawning visible ghost actors in the
+// viewer's local town area. The response write is not held behind these reads.
+// Deduplicated via session.guild.weddingPrimedPeers, bounded by an absolute
+// priming deadline, and resumable across subsequent roster requests when
+// truncated.
 func (s *Service) primeCurrentSameChannelGuildPartyPeers(
 	ctx context.Context,
 	bound boundGameSessionCharacter,

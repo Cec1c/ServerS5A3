@@ -20,7 +20,15 @@ type currentChannelSceneBatch struct {
 }
 
 func (s *Service) beginCurrentOrdinaryChannelSceneBatch(p *gameSession) (bool, error) {
-	if s == nil || p == nil || p.conn == nil || s.options.currentClientVersion != "official-24.9" || !p.channelReconnect || currentColdSpecialChannel(p.channel) {
+	if s == nil || p == nil || p.conn == nil || s.options.currentClientVersion != "official-24.9" || currentColdSpecialChannel(p.channel) {
+		return false, nil
+	}
+	// A server-owned return from a previous character runs the same complete
+	// town stream synchronously inside op4. Keep its ACK and final transition
+	// together so the client cannot display a partially initialized town while
+	// the remaining snapshots are loading. Cold selection still waits for the
+	// real client progress report and must not be held in this batch.
+	if !p.channelReconnect && !returnSelectTownReentryPending(p) {
 		return false, nil
 	}
 	if err := s.lockGameWire(p, nil); err != nil {

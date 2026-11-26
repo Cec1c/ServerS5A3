@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 )
@@ -167,9 +168,20 @@ func (s *Service) sendCurrentInitialTownRoute(
 		return nil
 	}
 
+	started := time.Now()
+	var loadTime, locationTime, actorTime, playerTime time.Duration
+	defer func() {
+		if elapsed := time.Since(started); elapsed >= 300*time.Millisecond {
+			s.logInfo("dnfbridge initial town preparation timing", "conn_id", session.connID,
+				"char_id", session.selectedCharacterID, "total_ms", elapsed.Milliseconds(),
+				"character_ms", loadTime.Milliseconds(), "location_ms", locationTime.Milliseconds(),
+				"actor_ms", actorTime.Milliseconds(), "player_state_ms", playerTime.Milliseconds())
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	characterID, characterName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
+	loadTime = time.Since(started)
 	if characterID != session.initialTownRouteCharacterID || !hasCharacter ||
 		selectedCharacterStartsInTutorial(character, hasCharacter) {
 		s.logGameEvent(session, "game-initial-town-route-blocked",
@@ -193,6 +205,7 @@ func (s *Service) sendCurrentInitialTownRoute(
 	// position remains client/PVF owned by that dungeon map's
 	// [dungeon start area].
 	character, townID, areaID, row, mapPath, err := s.currentCharacterListLoginTransition(ctx, session, characterID, character)
+	locationTime = time.Since(started) - loadTime
 	if err != nil {
 		s.logGameEvent(session, "game-initial-town-route-blocked",
 			"char_id", session.selectedCharacterID,
@@ -230,6 +243,7 @@ func (s *Service) sendCurrentInitialTownRoute(
 		adventureLevel,
 		ownerChannel,
 	)
+	actorTime = time.Since(started) - loadTime - locationTime
 
 	acceptedEvent := "game-initial-town-route-progress36-accepted"
 	sequence := "op143_ack_then_op376_then_msg2_mode0_then_actor_binding_mode1_then_full_player_state_then_typed_op24"
@@ -273,6 +287,7 @@ func (s *Service) sendCurrentInitialTownRoute(
 		}
 	}
 	session.townActorOwnerChannel = ownerChannel
+	playerStarted := time.Now()
 	if err := s.sendCurrentInitialTownActorRoutePacketsLocked(
 		session,
 		characterID,
@@ -283,8 +298,10 @@ func (s *Service) sendCurrentInitialTownRoute(
 		mode1Body,
 		transitionBody,
 	); err != nil {
+		playerTime = time.Since(playerStarted)
 		return err
 	}
+	playerTime = time.Since(playerStarted)
 	// 登录/初次入城的落点若是"每个角色一份"的私有房间（runtime PVF 的赛丽亚房间入口），
 	// 就按角色实例登记在线存在，避免"人在私房里但区域表里没有任何归属"的半私有状态；
 	// 共享城镇区域在这里仍然不登记（维持既有 op36 才登记的时序）。
