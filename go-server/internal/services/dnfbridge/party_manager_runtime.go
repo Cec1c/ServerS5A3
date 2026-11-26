@@ -748,22 +748,51 @@ func (s *Service) sendManagedRuntimePartySnapshotsForInitiator(initiator *gameSe
 	if !found {
 		return fmt.Errorf("runtime party %d is no longer current", state.PartyID)
 	}
+	// The caller's state may have been observed before a concurrent join. Prime
+	// every receiver from this exact manager snapshot so the roster fan-out
+	// cannot introduce a member whose town actor was never created.
+	state = snapshot.StateFor(snapshot.Leader)
+	s.prepareTownPartyActorsBeforeSnapshot(state, "managed_runtime_party_snapshot")
 	var initiatorErr error
+	type memberTarget struct {
+		userID  uint16
+		session *gameSession
+		state   alignedcmd.PartyState
+	}
+	targets := make([]memberTarget, 0, len(snapshot.Members))
 	for _, member := range snapshot.Members {
 		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || identity.generation != member.SessionGeneration {
 			continue
 		}
-		if err := s.sendRuntimePartySnapshot(identity.session, snapshot.StateFor(member.UserID)); err != nil {
-			if initiator != nil && identity.session == initiator {
+		targets = append(targets, memberTarget{
+			userID:  member.UserID,
+			session: identity.session,
+			state:   snapshot.StateFor(member.UserID),
+		})
+	}
+	// Deliver op11/op9/op153 to every party member back-to-back BEFORE
+	// broadcasting town bystander projections. Running synchronous bystander
+	// display-only upgrades between member 0 and members 1..3 stalls later
+	// members by 250ms-2081ms while member 0 is already probing the relay.
+	peerEndpointsAfterRoster := s.partyPeerEndpointsAfterRoster()
+	delivered := make([]memberTarget, 0, len(targets))
+	for _, target := range targets {
+		sent, err := s.sendRuntimePartySnapshotLocalTracked(target.session, target.state, true, peerEndpointsAfterRoster)
+		if err != nil {
+			if initiator != nil && target.session == initiator {
 				initiatorErr = err
 				continue
 			}
-			s.logGameEvent(identity.session, "game-party-snapshot-peer-failed",
+			s.logGameEvent(target.session, "game-party-snapshot-peer-failed",
 				"party_id", snapshot.ID,
-				"receiver_char_id", member.UserID,
+				"receiver_char_id", target.userID,
 				"leader_char_id", snapshot.Leader,
 				"error", err)
+			continue
+		}
+		if sent {
+			delivered = append(delivered, target)
 		}
 	}
 	// 上面这一轮（op153/op11/op9）里 op9 只描述"收包人自己"；队友那条记录在城镇靠
@@ -772,6 +801,22 @@ func (s *Service) sendManagedRuntimePartySnapshotsForInitiator(initiator *gameSe
 	// 这里对同一场副本里的成员再补一轮完整队伍帧（op153 + 每人一条 op9）。
 	s.sendDungeonPartyFrameRoster(state, "runtime_party_snapshot_dungeon_roster")
 	s.sendCurrentPartyCrossSceneProfiles(snapshot)
+	areaPeerSource := s.partyFormationOrder().areaPeerSource()
+	for _, target := range delivered {
+		if err := s.broadcastCurrentPartyActorProjection(target.session, target.state, areaPeerSource); err != nil {
+			if initiator != nil && target.session == initiator {
+				if initiatorErr == nil {
+					initiatorErr = err
+				}
+				continue
+			}
+			s.logGameEvent(target.session, "game-party-snapshot-peer-failed",
+				"party_id", snapshot.ID,
+				"receiver_char_id", target.userID,
+				"leader_char_id", snapshot.Leader,
+				"error", err)
+		}
+	}
 	return initiatorErr
 }
 
@@ -789,27 +834,52 @@ func (s *Service) sendChangeHostRuntimePartySnapshots(state alignedcmd.PartyStat
 	if !found {
 		return fmt.Errorf("runtime party %d is no longer current", state.PartyID)
 	}
-	var publicationErrors []error
+	type changeHostTarget struct {
+		userID  uint16
+		session *gameSession
+		state   alignedcmd.PartyState
+	}
+	targets := make([]changeHostTarget, 0, len(snapshot.Members))
 	for _, member := range snapshot.Members {
 		identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 		if !online || identity.generation != member.SessionGeneration {
 			continue
 		}
-		if err := s.sendRuntimePartyRosterRefresh(
-			identity.session,
-			snapshot.StateFor(member.UserID),
-			"managed_runtime_party_change_host_roster",
-		); err != nil {
-			s.logGameEvent(identity.session, "game-party-change-host-publication-error",
+		targets = append(targets, changeHostTarget{
+			userID:  member.UserID,
+			session: identity.session,
+			state:   snapshot.StateFor(member.UserID),
+		})
+	}
+	var publicationErrors []error
+	delivered := make([]changeHostTarget, 0, len(targets))
+	for _, target := range targets {
+		sent, err := s.sendRuntimePartySnapshotLocalTracked(target.session, target.state, false, partyPeerEndpointsAfterRosterOff)
+		if err != nil {
+			s.logGameEvent(target.session, "game-party-change-host-publication-error",
 				"party_id", snapshot.ID,
-				"receiver_char_id", member.UserID,
+				"receiver_char_id", target.userID,
 				"leader_char_id", snapshot.Leader,
 				"error", err.Error())
-			publicationErrors = append(publicationErrors, fmt.Errorf("member %d: %w", member.UserID, err))
+			publicationErrors = append(publicationErrors, fmt.Errorf("member %d: %w", target.userID, err))
+			continue
+		}
+		if sent {
+			delivered = append(delivered, target)
 		}
 	}
 	// Dungeon members have no town-area table. Keep the existing complete
 	// dungeon projection (op153 followed by every member's op9 record).
 	s.sendDungeonPartyFrameRoster(state, "managed_runtime_party_change_host_dungeon_roster")
+	for _, target := range delivered {
+		if err := s.broadcastCurrentPartyActorProjection(target.session, target.state, "managed_runtime_party_change_host_roster"); err != nil {
+			s.logGameEvent(target.session, "game-party-change-host-publication-error",
+				"party_id", snapshot.ID,
+				"receiver_char_id", target.userID,
+				"leader_char_id", snapshot.Leader,
+				"error", err.Error())
+			publicationErrors = append(publicationErrors, fmt.Errorf("member %d: %w", target.userID, err))
+		}
+	}
 	return errors.Join(publicationErrors...)
 }

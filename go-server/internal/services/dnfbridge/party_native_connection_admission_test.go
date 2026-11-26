@@ -24,6 +24,23 @@ func nativeAdmissionReply(p *partyNativeConnectionProof, session *gameSession, s
 	return body
 }
 
+func nativeAdmissionActiveRoundReplyForTest(s *Service, p *partyNativeConnectionProof, session *gameSession, status byte) ([]byte, uint64, bool) {
+	s.partyNativeAdmission.mu.Lock()
+	round := p.activeRound
+	s.partyNativeAdmission.mu.Unlock()
+	if round == nil {
+		return nil, 0, false
+	}
+	query, ok := round.queries[session]
+	if !ok {
+		return nil, 0, false
+	}
+	body := append(append([]byte(nil), query[:]...), make([]byte, 8)...)
+	copy(body, "PCR1")
+	body[32] = status
+	return body, round.nonce, true
+}
+
 // Synthetic clients supply the same fixed reply envelope as the bounded x86
 // tests. This drives the real server admission/resume path; it is not evidence
 // of a native UDP exchange or a rendered model.
@@ -49,7 +66,8 @@ func waitNativePartyAdmissionForTest(t *testing.T, s *Service, p *partyNativeCon
 	deadline := time.Now().Add(7 * time.Second)
 	for time.Now().Before(deadline) {
 		s.partyNativeAdmission.mu.Lock()
-		active := s.partyNativeAdmission.byNonce[p.nonce] == p
+		active := s.partyNativeAdmission.byNonce[p.nonce] == p ||
+			(p.leader.session != nil && s.partyNativeAdmission.bySession[p.leader.session] == p)
 		s.partyNativeAdmission.mu.Unlock()
 		if !active {
 			return

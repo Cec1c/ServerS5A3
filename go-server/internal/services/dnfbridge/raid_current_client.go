@@ -191,7 +191,13 @@ func (s *Service) handleCurrentModifyRaid(session *gameSession, op uint16, body 
 	if err := s.sendRuntimeRaidMetadata(session, snapshot, 2); err != nil {
 		return err
 	}
-	return s.broadcastRuntimeRaidRefresh(snapshot)
+	// The modifying client expects its compact profile before the roster.
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	if err := s.sendCurrentRuntimeRaidProfilesWithBatchForActors(session, snapshot, newCurrentRaidProfileBatch(s, ctx), map[uint16]bool{}); err != nil {
+		s.failRuntimeRaidRecipient(session, "modify_profiles", err)
+	}
+	return s.broadcastRuntimeRaidRoster(snapshot)
 }
 
 func currentRuntimeRaidMembers(state runtimeRaidState) []raid.CurrentMemberRecord {

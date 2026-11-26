@@ -12,6 +12,7 @@ import (
 
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/skinwarehouse"
 )
 
 const (
@@ -169,6 +170,9 @@ func (o *Owner) UnlockDamageFont(ctx context.Context, cmd Command, resolver alig
 		inventoryRecord.Slots[key] = stack
 	}
 	character.Stats[statKey] = int64(expiresAt)
+	if !alreadyOwned || existingExpiry > 0 && existingExpiry <= now.Unix() {
+		skinwarehouse.RecordAcquisition(character.Stats, skinwarehouse.DamageFont, uint32(resolution.FontIndex), now)
+	}
 	inventoryRecord.UpdatedAt = now
 	character.UpdatedAt = now
 	if err := dnfrepo.SaveInventoryFields(ctx, o.repo, inventoryRecord, dnfrepo.InventoryFieldSlots); err != nil {

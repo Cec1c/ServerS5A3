@@ -482,6 +482,28 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 		s.dispatchRoutedPartyEnterAsLeader(leaderSession, session, body, routedRequest)
 		return nil
 	}
+	if prepared == nil && currentCompletedTownReturnPendingSettlement(session) {
+		err := errors.New("leader completed dungeon return has not settled in town")
+		if fanoutParty || routed != nil {
+			refusalCtx, refusalCancel := context.WithTimeout(context.Background(), createWriteTimeout)
+			s.answerRoutedPartyEntryOwnerOnRefusal(refusalCtx, session, partyStateAtRequest, routed, request,
+				currentTownEnterSelectReasonCompletedReturnTailPending,
+				"entry_town_return_unsettled",
+				currentSelectDungeonInvalidSelectionStateReason,
+				err)
+			refusalCancel()
+		}
+		return s.refuseDungeonSelectEntry(
+			session,
+			request,
+			currentTownEnterSelectReasonCompletedReturnTailPending,
+			"entry_town_return_unsettled",
+			currentSelectDungeonInvalidSelectionStateReason,
+			err,
+			"party_id", partyStateAtRequest.PartyID,
+			"error_kind", "leader_town_return_unsettled",
+		)
+	}
 	if prepared == nil && fanoutParty {
 		var admissionErr error
 		nativeAdmissionDeferred, admissionErr = s.deferPartyNativeConnectionAdmission(session, body, partyStateAtRequest, routed, admitted, nativeProof)
@@ -492,7 +514,11 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 			return nil
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	entryTimeout := createWriteTimeout
+	if fanoutParty {
+		entryTimeout = partyDungeonEntryPreflightTimeout(len(runtimePartyMembers(partyStateAtRequest)))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), entryTimeout)
 	defer cancel()
 	if prepared == nil {
 		if err := s.validateCurrentRiftPartyUnlock(ctx, session, partyStateAtRequest, int64(request.DungeonID)); err != nil {
@@ -524,11 +550,13 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 		var err error
 		preparedFollowers, err = s.prepareRuntimePartyDungeonEntry(ctx, session, partyStateAtRequest, request, runtime, scene)
 		if err != nil {
+			errorKind := partyDungeonPreflightErrorKind(err)
 			s.logGameEvent(session, "game-party-dungeon-entry-blocked",
 				"char_id", session.selectedCharacterID,
 				"dungeon_id", runtime.Dungeon.ID,
 				"difficulty", request.Difficulty,
 				"reason", "party_entry_preflight_failed_before_any_member_commit",
+				"error_kind", errorKind,
 				"error", err)
 			// 文档段 104：整队进图在提交之前被拒绝时**必须回包并解掉队员的挂起态**。
 			// 改动前这里是静默 `return nil` —— 队长与队员两个客户端都收不到任何包，
@@ -549,6 +577,7 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 				err,
 				"party_id", partyStateAtRequest.PartyID,
 				"party_member_count", len(runtimePartyMembers(partyStateAtRequest)),
+				"error_kind", errorKind,
 			)
 		}
 	}
@@ -644,6 +673,32 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 		// preflight can outlive the reply or race a town leave/leader handoff.
 		if nativeProof != nil && !s.partyNativeProofCurrent(nativeProof) {
 			return s.refusePartyNativeConnectionAdmission(session, body, partyStateAtRequest, routed, errors.New("native connection proof changed before entry commit"))
+		}
+		if len(preparedFollowers) > 0 && runtime.antonHatcheryTransfer == nil {
+			if err := s.synchronizePreparedPartyFollowersEnterSelect(ctx, session, partyStateAtRequest, preparedFollowers, false); err != nil {
+				errorKind := partyDungeonPreflightErrorKind(err)
+				s.logGameEvent(session, "game-party-dungeon-entry-blocked",
+					"char_id", session.selectedCharacterID,
+					"dungeon_id", runtime.Dungeon.ID,
+					"difficulty", request.Difficulty,
+					"reason", "party_entry_preflight_failed_before_any_member_commit",
+					"error_kind", errorKind,
+					"error", err)
+				reason, class := currentSelectDungeonEntryFailureReason(err)
+				s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+					"party_entry_preflight_failed_before_any_member_commit", class, reason, err)
+				return s.refuseDungeonSelectEntry(
+					session,
+					request,
+					"party_entry_preflight_failed_before_any_member_commit",
+					class,
+					reason,
+					err,
+					"party_id", partyStateAtRequest.PartyID,
+					"party_member_count", len(runtimePartyMembers(partyStateAtRequest)),
+					"error_kind", errorKind,
+				)
+			}
 		}
 		if err := s.commitCurrentGuildDungeonEntryFatigue(ctx, session, runtime, scene, preparedFollowers); err != nil {
 			return s.refuseDungeonSelectEntryValidation(session, request, err)
@@ -1133,6 +1188,56 @@ func (s *Service) logDungeonEntryStepFailure(
 		"error", err)
 }
 
+func partyDungeonEntryPreflightTimeout(memberCount int) time.Duration {
+	if memberCount <= 1 {
+		return createWriteTimeout
+	}
+	timeout := createWriteTimeout + time.Duration(memberCount)*time.Second
+	if timeout > 8*time.Second {
+		return 8 * time.Second
+	}
+	return timeout
+}
+
+func partyDungeonPreflightErrorKind(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	_, class := currentSelectDungeonEntryFailureReason(err)
+	if class != "" && class != "entry_unavailable" {
+		return class
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "preflight_deadline"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "preflight_cancelled"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not present in the leader town channel/area"):
+		return "member_area_mismatch"
+	case strings.Contains(msg, "no resident game session"):
+		return "member_offline"
+	case strings.Contains(msg, "stale party state"), strings.Contains(msg, "membership changed"):
+		return "member_stale_party"
+	case strings.Contains(msg, currentTownEnterSelectReasonCompletedReturnTailPending):
+		return "member_town_return_unsettled"
+	case strings.Contains(msg, "selector is not ready"):
+		return "member_selector_not_ready"
+	case strings.Contains(msg, "prepare party member") && strings.Contains(msg, "selector"):
+		return "member_selector_sync_failed"
+	case strings.Contains(msg, "topology mismatch"), strings.Contains(msg, "room count mismatch"), strings.Contains(msg, "map mismatch"):
+		return "topology_mismatch"
+	case strings.Contains(msg, "town return origin"):
+		return "member_town_origin_missing"
+	case strings.Contains(msg, "anton hatchery"):
+		return "anton_transfer_mismatch"
+	default:
+		return "other"
+	}
+}
+
 func (s *Service) prepareRuntimePartyDungeonEntry(
 	ctx context.Context,
 	leader *gameSession,
@@ -1261,12 +1366,27 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			}
 		}
 	}
+	return prepared, nil
+}
+
+// synchronizePreparedPartyFollowersEnterSelect emits follower selector packets
+// (op15/op36/op27) only after every fallible entry preflight and native-proof
+// check has passed, so a late refusal never leaves followers with half-entered
+// selector state.
+func (s *Service) synchronizePreparedPartyFollowersEnterSelect(
+	ctx context.Context,
+	leader *gameSession,
+	state alignedcmd.PartyState,
+	prepared []*runtimePartyPreparedDungeonEntry,
+	inRunTransfer bool,
+) error {
+	if leader == nil || inRunTransfer {
+		return nil
+	}
 	for _, member := range prepared {
-		if inRunTransfer {
-			continue
-		}
 		ready := false
-		err := s.callGameSession(ctx, member.session, "runtime-party-dungeon-selector-preflight", func() error {
+		memberCtx, memberCancel := context.WithTimeout(ctx, createWriteTimeout)
+		err := s.callGameSession(memberCtx, member.session, "runtime-party-dungeon-selector-preflight", func() error {
 			if !member.current() {
 				return errors.New("party selector preflight membership changed")
 			}
@@ -1279,14 +1399,15 @@ func (s *Service) prepareRuntimePartyDungeonEntry(
 			)
 			return prepareErr
 		})
+		memberCancel()
 		if err != nil {
-			return nil, fmt.Errorf("prepare party member %d selector: %w", member.session.selectedCharacterID, err)
+			return fmt.Errorf("prepare party member %d selector: %w", member.session.selectedCharacterID, err)
 		}
 		if !ready {
-			return nil, fmt.Errorf("party member %d selector is not ready", member.session.selectedCharacterID)
+			return fmt.Errorf("party member %d selector is not ready", member.session.selectedCharacterID)
 		}
 	}
-	return prepared, nil
+	return nil
 }
 
 func applyRuntimePartyDungeonEntryPlan(
@@ -1720,6 +1841,11 @@ func (s *Service) refuseDungeonSelectEntry(
 	fields = append(fields, "error", err)
 	if suppressed {
 		fields = append(fields, "reply_suppressed_reason", suppressedReason)
+	}
+	if siteReason != "" {
+		setLauncherDiagnosticReasonCode(session, siteReason)
+	} else if class != "" {
+		setLauncherDiagnosticReasonCode(session, class)
 	}
 	s.logGameEvent(session, "game-dungeon-select-blocked", fields...)
 	if suppressed {

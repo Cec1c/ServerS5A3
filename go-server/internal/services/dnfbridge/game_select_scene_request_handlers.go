@@ -90,6 +90,9 @@ func (s *Service) sendFinishLoadingStatus(session *gameSession, request []byte) 
 			// next current-client confirmation or reconnect.
 			return err
 		}
+		if !sessionHasActiveDungeonRuntime(session) {
+			markCurrentCompletedTownReturnSettled(session)
+		}
 		s.logGameEvent(session, "game-upper-finish-loading-return-town-ack-only",
 			"request_body_len", len(request),
 			"reason", "completed_dungeon_town_state_already_published")

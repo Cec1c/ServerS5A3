@@ -1046,8 +1046,12 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 	}
 	session.dungeon.mu.Lock()
 	petClockCommitted := false
+	runtimeCommitted := false
 	defer func() {
 		session.dungeon.mu.Unlock()
+		if runtimeCommitted {
+			setLauncherDiagnosticReasonCode(session, "")
+		}
 		if petClockCommitted {
 			s.flushCurrentPetGrowthClockTransitions(session, "dungeon_runtime_committed")
 		}
@@ -1057,6 +1061,7 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 			return err
 		}
 		runtime.petGrowthEntryPending = !startPetClock
+		runtimeCommitted = true
 		if startPetClock {
 			s.queueCurrentPetGrowthDungeonEntryClock(session, runtime)
 			petClockCommitted = true
@@ -1111,6 +1116,7 @@ func (s *Service) commitDungeonRuntimeWithPetClock(session *gameSession, runtime
 		s.adoptPartyDungeonInstance(session, runtime, scene)
 		attachCurrentSemesterPartyMember(session, runtime)
 	}
+	runtimeCommitted = true
 	runtime.petGrowthEntryPending = !startPetClock
 	if startPetClock {
 		s.queueCurrentPetGrowthDungeonEntryClock(session, runtime)

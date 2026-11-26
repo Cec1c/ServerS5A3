@@ -151,6 +151,21 @@ func (s *Service) handleCurrentDungeonTownExitRequest(session *gameSession, body
 		session.dungeon.mu.Unlock()
 		return nil
 	}
+	if requestMsgID == uint16(dnfenum.CmdPacketGiveupGame) && isPartyDungeonInitialEntryLoadingPendingLocked(session, runtime) {
+		partyID := runtime.partyInstance.key.PartyID
+		instanceID := runtime.partyInstance.id
+		dungeonID := runtime.Dungeon.ID
+		session.dungeon.mu.Unlock()
+		setLauncherDiagnosticReasonCode(session, "stale_giveup_during_initial_party_loading")
+		s.logGameEvent(session, "game-dungeon-giveup-game-blocked",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", dungeonID,
+			"party_id", partyID,
+			"instance_id", instanceID,
+			"request_msg_id", requestMsgID,
+			"reason", "stale_giveup_during_initial_party_loading")
+		return nil
+	}
 	snapshot := runtime.Session.Snapshot()
 	if runtime.guildPractice != nil || currentFriendlyGuildPractice(runtime) {
 		if requestMsgID != uint16(dnfenum.CmdPacketGiveupGame) || !s.currentGuildPracticeSessionOwnsRoom(session, runtime, snapshot.Scene) {

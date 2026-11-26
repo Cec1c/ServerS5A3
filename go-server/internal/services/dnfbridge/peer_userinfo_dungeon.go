@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
 	"strings"
 )
@@ -69,11 +70,11 @@ func (s *Service) currentDungeonPeerUserInfoAllowed(
 	if !ok || repositories.Character == nil {
 		return false
 	}
-	sourceCharacter, sourceFound, sourceErr := repositories.Character.Load(ctx, strconv.Itoa(int(sourceID)))
+	sourceCharacter, sourceFound, sourceErr := dnfrepo.LoadCharacterIdentity(ctx, repositories.Character, strconv.Itoa(int(sourceID)))
 	if sourceErr != nil || !sourceFound || strings.TrimSpace(sourceCharacter.AccountID) != sourceAccount {
 		return false
 	}
-	targetCharacter, targetFound, targetErr := repositories.Character.Load(ctx, strconv.Itoa(int(targetID)))
+	targetCharacter, targetFound, targetErr := dnfrepo.LoadCharacterIdentity(ctx, repositories.Character, strconv.Itoa(int(targetID)))
 	if targetErr != nil || !targetFound || strings.TrimSpace(targetCharacter.AccountID) != targetAccount {
 		return false
 	}

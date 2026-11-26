@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "recipe": "selected-public-20261127/weapon-skin",
+  "feature": "Linus fifth-shop tab and the two magical weapon-skin molds",
+  "shop": {
+    "path": "itemshop/equipmentshop1.shp",
+    "tab_name": "幻化",
+    "job_order": [
+      0,
+      11,
+      7,
+      1,
+      5,
+      2,
+      8,
+      3,
+      4,
+      14,
+      6,
+      9,
+      10,
+      12,
+      13,
+      15
+    ],
+    "item_ids": [
+      490704411,
+      490704427
+    ],
+    "insert_before": "[/sell info]"
+  },
+  "mold_prices": [
+    {
+      "id": 490704411,
+      "path": "stackable/cash/chn_490704411.stk",
+      "price": 1000000,
+      "label": "林纳斯的神奇模具"
+    },
+    {
+      "id": 490704427,
+      "path": "stackable/cash/chn_490704427.stk",
+      "price": 2000000,
+      "label": "林纳斯的秘传模具"
+    }
+  ],
+  "application": "weapon-catalog-pvf appends missing rows and price sections; it never replaces equipment.lst or stackable.lst wholesale."
+}

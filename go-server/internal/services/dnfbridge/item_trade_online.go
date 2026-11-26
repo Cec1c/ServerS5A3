@@ -16,6 +16,7 @@ import (
 	dnfplacement "longheng.io/server/internal/modules/dnf/itemplacement"
 	"longheng.io/server/internal/modules/dnf/itemtrade"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/weaponskin"
 )
 
 const (
@@ -281,7 +282,8 @@ func (s *Service) addOnlineItemTradeOffer(session *gameSession, request inventor
 	storageRequest := request
 	storageRequest.SourceListType = sourceList
 	stack, found, err := s.loadOnlineItemTradeOfferStack(ctx, repositories, session, storageRequest)
-	if !found || stack.ItemID <= 0 || stack.Count < int64(request.MoveCount) || stack.Bind ||
+	_, weaponSkinProduct := weaponskin.ProductRecipe(stack.ItemID)
+	if !found || stack.ItemID <= 0 || stack.Count < int64(request.MoveCount) || stack.Bind || weaponSkinProduct ||
 		err != nil || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(time.Now())) {
 		return s.sendGameUpperFailure(session, currentItemTradeMoveMsg, 1)
 	}

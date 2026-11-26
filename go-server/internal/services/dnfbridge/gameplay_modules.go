@@ -59,6 +59,7 @@ var currentGameplayModules = mustGameplayModuleRegistry(
 	adventureGameplayModule(),
 	titleBookGameplayModule(),
 	cloneTitleGameplayModule(),
+	weaponSkinDemoGameplayModule(),
 	achievementGameplayModule(),
 	emotionGameplayModule(),
 	joustGameplayModule(),

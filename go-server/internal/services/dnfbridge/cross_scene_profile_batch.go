@@ -101,12 +101,14 @@ func (b *currentCrossSceneProfileBatch) peer(session *gameSession) (*currentCros
 	if strings.TrimSpace(account) == "" || channel == 0 {
 		return nil, nil
 	}
-	repos, ok := s.repositoryGroupFor(b.ctx)
+	loadCtx, cancelLoad := context.WithTimeout(b.ctx, createWriteTimeout)
+	defer cancelLoad()
+	repos, ok := s.repositoryGroupFor(loadCtx)
 	if !ok || repos.Character == nil {
 		return nil, nil
 	}
 	key := strconv.Itoa(int(bound.character))
-	character, found, err := repos.Character.Load(b.ctx, key)
+	character, found, err := repos.Character.Load(loadCtx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -162,19 +164,22 @@ func (b *currentCrossSceneProfileBatch) sendTracked(viewer, actor *gameSession, 
 		if a.character.Name == "" {
 			return false, nil
 		}
-		mode0, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(b.ctx, actor, actorID, a.character.Name, a.character, true, owner)
+		buildCtx, cancelBuild := context.WithTimeout(b.ctx, createWriteTimeout)
+		mode0, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(buildCtx, actor, actorID, a.character.Name, a.character, true, owner)
 		if err != nil {
+			cancelBuild()
 			return false, err
 		}
 		var legacyRepo dnfrepo.LegacyUserInfoRepository
-		if repos, ok := s.repositoryGroupFor(b.ctx); ok {
+		if repos, ok := s.repositoryGroupFor(buildCtx); ok {
 			legacyRepo = repos.LegacyUserInfo
 		}
-		detailCtx := context.WithValue(b.ctx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(actorID)))
+		detailCtx := context.WithValue(buildCtx, nativePeerProfileSkillsKey{}, strconv.Itoa(int(actorID)))
 		if s.buffSwapReapplyEnabled() {
 			detailCtx = context.WithValue(detailCtx, nativePeerBuffInspectKey{}, strconv.Itoa(int(actorID)))
 		}
 		mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(detailCtx, actor, legacyRepo, a.character, true, actorID, owner)
+		cancelBuild()
 		body.data, err = buildCurrentCrossSceneUserInfoBody(mode0, mode3)
 		if err != nil {
 			return false, err

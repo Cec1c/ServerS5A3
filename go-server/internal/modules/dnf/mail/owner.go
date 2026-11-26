@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/raidcurrency"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/weaponskin"
 )
 
 var (
@@ -217,6 +219,38 @@ func (o Owner) Open(ctx context.Context, characterID string) (OpenResult, error)
 	return result, nil
 }
 
+func findSendRecipient(ctx context.Context, characters dnfrepo.CharacterRepository, name string, checkAccount bool) (string, string, error) {
+	if directory, ok := characters.(dnfrepo.CharacterIdentityByNameReader); checkAccount && ok {
+		id, accountID, found, err := directory.FindIdentityByName(ctx, name)
+		if err != nil {
+			return "", "", err
+		}
+		if !found || id == "" || accountID == "" {
+			return "", "", ErrMailboxRecipientMissing
+		}
+		return id, accountID, nil
+	}
+	id, found, err := characters.FindIDByName(ctx, name)
+	if err != nil {
+		return "", "", err
+	}
+	if !found {
+		return "", "", ErrMailboxRecipientMissing
+	}
+	if !checkAccount {
+		return id, "", nil
+	}
+	// Keep compatibility with repositories that only expose FindIDByName.
+	record, found, err := characters.Load(ctx, id)
+	if err != nil {
+		return "", "", err
+	}
+	if !found || record.CharacterID != id || record.AccountID == "" {
+		return "", "", ErrMailboxRecipientMissing
+	}
+	return id, record.AccountID, nil
+}
+
 func (o Owner) Send(ctx context.Context, senderCharacterID string, req SendRequest) (SendResult, error) {
 	senderCharacterID = strings.TrimSpace(senderCharacterID)
 	if senderCharacterID == "" {
@@ -241,12 +275,13 @@ func (o Owner) Send(ctx context.Context, senderCharacterID string, req SendReque
 		return SendResult{}, ErrMailboxAssetsUOW
 	}
 
-	recipientID, found, err := o.repos.Character.FindIDByName(ctx, req.RecipientName)
+	checkRecipientAccount := slices.ContainsFunc(req.Attachments, func(attachment SendAttachment) bool {
+		recipe, product := weaponskin.ProductRecipe(int64(attachment.ItemID))
+		return product && recipe == weaponskin.SecretRecipe
+	})
+	recipientID, recipientAccount, err := findSendRecipient(ctx, o.repos.Character, req.RecipientName, checkRecipientAccount)
 	if err != nil {
 		return SendResult{}, err
-	}
-	if !found {
-		return SendResult{}, ErrMailboxRecipientMissing
 	}
 	if recipientID == senderCharacterID {
 		return SendResult{}, ErrMailboxSelfRecipient
@@ -294,6 +329,10 @@ func (o Owner) Send(ctx context.Context, senderCharacterID string, req SendReque
 				stack, ok := inventory.Slots[key]
 				if !ok || stack.ItemID != int64(requested.ItemID) || stack.Count < int64(requested.Count) {
 					return fmt.Errorf("%w: attachment=%d list=%d slot=%d", ErrMailboxAssetMismatch, idx, requested.ListType, requested.SlotIndex)
+				}
+				if recipe, product := weaponskin.ProductRecipe(stack.ItemID); product &&
+					(recipe != weaponskin.SecretRecipe || sender.AccountID != recipientAccount || recipientAccount == "") {
+					return fmt.Errorf("%w: 武器外观成品绑定规则禁止邮寄", ErrMailboxAssetMismatch)
 				}
 				if o.itemResolver == nil {
 					return ErrMailboxItemResolverMissing

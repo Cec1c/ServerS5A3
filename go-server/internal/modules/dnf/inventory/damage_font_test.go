@@ -13,6 +13,7 @@ import (
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	dnfrepomemory "longheng.io/server/internal/modules/dnf/repository/memory"
+	"longheng.io/server/internal/modules/dnf/skinwarehouse"
 )
 
 func TestDamageFontRejectsGuildHongbaoActionWithoutMutation(t *testing.T) {
@@ -130,6 +131,47 @@ func TestDamageFontUnlockAndSelectionAreRepositoryBacked(t *testing.T) {
 	character, _, _ = repos.Character.Load(ctx, "77")
 	if got := character.Stats[DamageFontSelectedStatKey]; got != 5000 {
 		t.Fatalf("selected stat = %d", got)
+	}
+}
+
+func TestDamageFontAcquisitionTracksNewOwnership(t *testing.T) {
+	ctx := context.Background()
+	repos := dnfrepomemory.NewMemoryGroup()
+	saveTestCharacter(t, ctx, repos, dnfrepo.CharacterRecord{CharacterID: "77"})
+	saveTestInventory(t, ctx, repos, dnfrepo.InventoryRecord{CharacterID: "77", Slots: map[string]dnfrepo.ItemStack{
+		slotKey(listTypeMain, 76): {ItemID: 10160911, Count: 3},
+	}})
+	owner, err := NewOwner(repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := Command{ActionIndex: damageFontActionIndex, SelectedCharacterID: 77, SourceSlotIndex: 76}
+	resolver := func(int64) (alignedcmd.DamageFontResolution, error) {
+		return alignedcmd.DamageFontResolution{
+			Valid: true, ActionType: "[add damage font skin]", FontIndex: 32,
+			ExpirationMode: alignedcmd.DamageFontExpirationPeriod, PeriodDays: 1,
+		}, nil
+	}
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		unlockAt, acquiredAt time.Time
+	}{
+		{now, now},
+		{now.Add(time.Hour), now},
+		{now.Add(72 * time.Hour), now.Add(72 * time.Hour)},
+	} {
+		if _, err := owner.UnlockDamageFont(ctx, command, resolver, tc.unlockAt); err != nil {
+			t.Fatal(err)
+		}
+		character, _, err := repos.Character.Load(ctx, "77")
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries := skinwarehouse.Acquisitions(character.Stats)
+		want := skinwarehouse.Acquisition{Kind: skinwarehouse.DamageFont, ID: 32, Millis: tc.acquiredAt.UnixMilli()}
+		if len(entries) != 1 || entries[0] != want {
+			t.Fatalf("recorded font acquisition = %+v, want %+v", entries, want)
+		}
 	}
 }
 

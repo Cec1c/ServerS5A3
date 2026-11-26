@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
 	"strings"
 )
@@ -33,11 +34,11 @@ func (s *Service) currentCrossSceneProfileAllowed(ctx context.Context, source, t
 		return false
 	}
 	sourceKey, targetKey := strconv.Itoa(int(sourceID)), strconv.Itoa(int(targetID))
-	sourceCharacter, found, err := repositories.Character.Load(ctx, sourceKey)
+	sourceCharacter, found, err := dnfrepo.LoadCharacterIdentity(ctx, repositories.Character, sourceKey)
 	if err != nil || !found || sourceCharacter.CharacterID != sourceKey || sourceCharacter.AccountID != sourceAccount {
 		return false
 	}
-	targetCharacter, found, err := repositories.Character.Load(ctx, targetKey)
+	targetCharacter, found, err := dnfrepo.LoadCharacterIdentity(ctx, repositories.Character, targetKey)
 	if err != nil || !found || targetCharacter.CharacterID != targetKey || targetCharacter.AccountID != targetAccount {
 		return false
 	}
