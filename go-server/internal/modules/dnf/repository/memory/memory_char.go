@@ -218,19 +218,24 @@ func (s *memoryCharStore) swapCharacterSlots(ctx context.Context, accountID stri
 // FindIDByName 从内存快照中按角色名查找角色 ID。
 // 这里只提供测试后端的查询能力，生产路径由 MySQL 索引和 Redis 名字缓存承担。
 func (s *memoryCharStore) FindIDByName(ctx context.Context, name string) (string, bool, error) {
+	id, _, found, err := s.FindIdentityByName(ctx, name)
+	return id, found, err
+}
+
+func (s *memoryCharStore) FindIdentityByName(ctx context.Context, name string) (string, string, bool, error) {
 	if err := ctxErr(ctx); err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	for _, record := range s.Snapshot(nil) {
 		if record.Name == name && characterDeleteFlag(record) == 0 {
-			return record.CharacterID, true, nil
+			return record.CharacterID, record.AccountID, true, nil
 		}
 	}
-	return "", false, nil
+	return "", "", false, nil
 }
 
 func characterDeleteFlag(record repository.CharacterRecord) int64 {

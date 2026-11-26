@@ -2,6 +2,7 @@ package dnfbridge
 
 import (
 	"context"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"strconv"
 
 	"longheng.io/server/internal/modules/dnf/party"
@@ -41,7 +42,7 @@ func (s *Service) notifyRuntimePartySelectionDeparture(leaving *gameSession, res
 			ctx, cancel := context.WithTimeout(identity.session.gameTransportContext(), createWriteTimeout)
 			defer cancel()
 			if repositories, ok := s.repositoryGroup(); ok && repositories.Character != nil {
-				if c, found, err := repositories.Character.Load(ctx, strconv.Itoa(int(departed))); err == nil && found && c.Name != "" {
+				if c, found, err := dnfrepo.LoadCharacterMirrorStats(ctx, repositories.Character, strconv.Itoa(int(departed))); err == nil && found && c.Name != "" {
 					name = c.Name
 				}
 			}

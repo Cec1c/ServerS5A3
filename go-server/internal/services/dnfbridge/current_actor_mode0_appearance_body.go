@@ -58,6 +58,11 @@ func (s *Service) loadCurrentSelectedActorMode0AppearanceSummary(
 				})
 			}
 		}
+		if s.options.currentClientVersion == "official-24.9" {
+			if weaponSkinCharacter, weaponSkinFound, weaponSkinErr := dnfrepo.LoadCharacterWeaponSkinState(ctx, repos.Character, characterID); weaponSkinErr == nil && weaponSkinFound {
+				s.applyWeaponSkinDemoSceneAppearance(rows, weaponSkinCharacter)
+			}
+		}
 	}
 
 	if session.selectedCharacterID != charID {

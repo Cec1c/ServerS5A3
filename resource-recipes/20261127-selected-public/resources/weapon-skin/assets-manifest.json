@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "recipe": "selected-public-20261127/weapon-skin",
+  "install_directory": "client/ImagePacks2",
+  "note": "Five NPK runtime assets are distributed in the planned Release ZIP; the recipe records their names, sizes and SHA256.",
+  "files": [
+    {
+      "name": "sprite_interface2_itemtoolwindow_itemreplication.NPK",
+      "bytes": 682077,
+      "sha256": "4811ddfc2c1804bf0c4f411a38650794066c2d4bfe808cce3174355d184ded81"
+    },
+    {
+      "name": "sprite_interface2_itemtoolwindow_itemreplication_fireeffect.NPK",
+      "bytes": 581222,
+      "sha256": "dbef462931c1883669ba37c3c3efbfe36a09b9470b0ffb73bc8b652fb256a9ec"
+    },
+    {
+      "name": "sprite_interface2_itemtoolwindow_itemreplication_fireeffect_onefire.NPK",
+      "bytes": 728939,
+      "sha256": "b8587be087e8b17661cdb74952d08ed90693964ce47a885fcbb93b3e50942d82"
+    },
+    {
+      "name": "sprite_interface2_skinstorage90.NPK",
+      "bytes": 1673898,
+      "sha256": "1af8c45cdb92c6419385acf5a2589d5d68f7db2f6f5998289ed5cb91ef21d30d"
+    },
+    {
+      "name": "sprite_item_weaponskinforge.NPK",
+      "bytes": 3546933,
+      "sha256": "18c1b38a5b3b4eb29f9a65f118e393cac3ed5aefe786cea6addd60f7a5eb88b1"
+    }
+  ],
+  "release": {
+    "tag": "selected-resources-20261127",
+    "asset": "weapon-skin-npk.zip",
+    "sha256": "0c65cefd06ca855247ed908c59f6f80aa0202f39414261372bc65ef2c88cd27b",
+    "bytes": 6965428,
+    "url": "https://github.com/Cec1c/ServerS5A3/releases/tag/selected-resources-20261127"
+  }
+}

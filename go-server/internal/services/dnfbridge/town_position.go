@@ -110,6 +110,7 @@ func (s *Service) handleTownSetUserPosition(session *gameSession, body []byte) e
 		snapshot.OpaqueScaledU16 = request.OpaqueScaledU16
 		snapshot.PositionValid = true
 		session.townPositionSnapshot = snapshot
+		markCurrentCompletedTownReturnSettledLocked(session)
 	}
 	session.townMu.Unlock()
 

@@ -145,8 +145,10 @@ type pendingPostStartMapPlacement struct {
 // partyDungeonLoadingCycle 是一次"全队读条"的组队状态（每个队伍一条）。
 type partyDungeonLoadingCycle struct {
 	started             time.Time
+	prepareStarted      time.Time
 	expiring            bool
 	warned              bool
+	prepareWarned       bool
 	snapshots           *partyLoadingSnapshots
 	snapshotFinished    map[uint16]bool
 	preparing           map[uint16]*partyLoadingPreparation
@@ -629,7 +631,10 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 				expected.preparing[id] = &partyLoadingPreparation{owner: owner, wantTail: releaseTail[id]}
 			}
 		}
-		expected.Timer = time.AfterFunc(partyLoadingWatchdogDelay(expected), func() { s.checkPartyLoadingPreparation(partyID, expected, "prepare_watchdog") })
+		if expected.Timer != nil {
+			expected.Timer.Stop()
+			expected.Timer = nil
+		}
 	}
 	for id := range releaseTail {
 		if p := expected.preparing[id]; p != nil {
@@ -640,6 +645,15 @@ func (s *Service) releasePartyDungeonLoadingCycle(
 	s.partyDungeonLoadingMu.Unlock()
 	if preload {
 		s.preloadPartyLoadingSnapshots(cache, owners)
+		s.partyDungeonLoadingMu.Lock()
+		if s.partyDungeonLoadingCycles[partyID] == expected && !expected.activationScheduled && !expected.expiring {
+			expected.prepareStarted = time.Now()
+			if expected.Timer != nil {
+				expected.Timer.Stop()
+			}
+			expected.Timer = time.AfterFunc(partyLoadingPreparationWatchdogDelay(expected), func() { s.checkPartyLoadingPreparation(partyID, expected, "prepare_watchdog") })
+		}
+		s.partyDungeonLoadingMu.Unlock()
 	}
 	// Each member keeps its own session loop, bounded dispatch wait and the existing
 	// cycle/owner guard. Only the wait for the previous member is removed: the
@@ -726,6 +740,7 @@ func (s *Service) releasePartyDungeonLoadingMemberPhase(partyID uint16, expected
 			session.partyLoadingPrepared = nil
 			if err != nil {
 				s.logGameEvent(session, "game-party-loading-prepare-failed", "char_id", charID, "error", err)
+				s.schedulePartyLoadingPreparationRetry(partyID, expected)
 				return err
 			}
 			s.markPartyLoadingPrepared(partyID, expected, charID, plan, trigger)

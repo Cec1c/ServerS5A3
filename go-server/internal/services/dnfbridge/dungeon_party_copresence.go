@@ -599,22 +599,28 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 		ctx, receiver, actor, character, hasCharacter, charID, charName, mode0Body,
 	)
 	s.logCurrentPeerActorAppearanceEvent(receiver, actor, source, mode0Body, mode1Body, subtype0Body)
-	delivered := false
-	if err := s.withGameWire(receiver, func() error {
+	projectionCurrent := func() (bool, error) {
 		if !s.boundGameSessionCharacterCurrent(receiverIdentity) || !s.boundGameSessionCharacterCurrent(actorIdentity) || !membershipCurrent() {
-			return nil
+			return false, nil
 		}
 		currentReceiverRun, currentReceiverHasRun := s.currentDungeonPartyRunKey(receiver)
 		currentActorRun, currentActorHasRun := s.currentDungeonPartyRunKey(actor)
 		if expectedRun != nil && (!currentReceiverHasRun || !currentActorHasRun || currentReceiverRun != *expectedRun || currentActorRun != *expectedRun) {
-			return nil
+			return false, nil
 		}
 		if initialRoomCurrent != nil {
 			if !initialRoomCurrent() {
-				return fmt.Errorf("initial peer actor shared room changed")
+				return false, fmt.Errorf("initial peer actor shared room changed")
 			}
 		} else if receiverHasRun != currentReceiverHasRun || actorHasRun != currentActorHasRun || receiverRun != currentReceiverRun || actorRun != currentActorRun {
-			return nil
+			return false, nil
+		}
+		return true, nil
+	}
+	delivered := false
+	if err := s.withGameWire(receiver, func() error {
+		if current, err := projectionCurrent(); err != nil || !current {
+			return err
 		}
 		// Keep creation and binding adjacent on the receiver's stream. A leave
 		// removal must not split them and then be undone by the old binding.
@@ -663,6 +669,21 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 	}
 	if !frameSent {
 		return false, nil
+	}
+	// A late leave must not be undone by replaying an old mode0 frame.
+	if appearance := s.weaponSkinAppearanceAfterEquipment(character, mode0Body); appearance != 0 {
+		replayBody := append([]byte(nil), mode0Body...)
+		if len(replayBody) > 4 {
+			preserveActiveDungeonSceneObjectUserState(actor, charID, replayBody[4], replayBody)
+		}
+		if err := s.withGameWire(receiver, func() error {
+			if current, err := projectionCurrent(); err != nil || !current {
+				return err
+			}
+			return s.writeWeaponSkinAppearanceAfterEquipment(receiver, charID, replayBody, source, appearance)
+		}); err != nil {
+			return false, fmt.Errorf("补发副本队友武器外观: %w", err)
+		}
 	}
 	s.logGameEvent(receiver, "game-dungeon-party-peer-actor-delivered",
 		"source", source, "receiver_char_id", receiver.selectedCharacterID,

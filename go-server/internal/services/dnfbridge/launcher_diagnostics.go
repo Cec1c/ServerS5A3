@@ -72,7 +72,16 @@ type launcherDiagnosticBinding struct {
 	generation uint64
 }
 
-var launcherContextKeys = []string{"character_id", "character_name", "character_generation", "connection_id", "channel_id", "party_id", "party_generation", "dungeon_id", "map_id", "room", "instance_id", "settlement_phase", "boss_dead", "business_state", "reason_code"}
+var launcherContextKeys = []string{"character_id", "character_name", "character_generation", "connection_id", "channel_id", "party_id", "party_generation", "dungeon_id", "map_id", "room", "instance_id", "settlement_phase", "boss_dead", "town_return_pending", "town_return_req_msg_id", "town_scene_tail_deferred", "business_state", "reason_code"}
+
+func setLauncherDiagnosticReasonCode(session *gameSession, code string) {
+	if session == nil {
+		return
+	}
+	session.townMu.Lock()
+	session.launcherLastReasonCode = code
+	session.townMu.Unlock()
+}
 
 func launcherField(value string) launcherContextField {
 	return launcherContextField{&value, "current", ""}
@@ -179,7 +188,12 @@ func (s *Service) captureLauncherContext(session *gameSession, disconnected bool
 	}
 	f["connection_id"] = launcherField(session.connID)
 	f["business_state"] = launcherField("connected")
-	f["reason_code"] = launcherField("unknown")
+	f["town_scene_tail_deferred"] = launcherField(strconv.FormatBool(session.sceneBootstrapTailDeferred))
+	if session.launcherLastReasonCode != "" {
+		f["reason_code"] = launcherField(session.launcherLastReasonCode)
+	} else {
+		f["reason_code"] = launcherField("unknown")
+	}
 	f["party_generation"] = launcherUnavailable("not_exposed")
 	party := runtimePartyStateSnapshot(session)
 	if id != 0 && party.PartyID > 0 {
@@ -190,6 +204,10 @@ func (s *Service) captureLauncherContext(session *gameSession, disconnected bool
 		f["dungeon_id"] = launcherField(strconv.FormatInt(r.Dungeon.ID, 10))
 		f["settlement_phase"] = launcherField(r.settlementPhase.String())
 		f["boss_dead"] = launcherField(strconv.FormatBool(r.bossDieCheckAccepted))
+		f["town_return_pending"] = launcherField(strconv.FormatBool(r.townReturnPending))
+		if r.townReturnPending && r.townReturnRequestMsgID != 0 {
+			f["town_return_req_msg_id"] = launcherField(strconv.FormatUint(uint64(r.townReturnRequestMsgID), 10))
+		}
 		if r.Session != nil {
 			coordinate, mapID := r.Session.Location()
 			f["map_id"] = launcherField(strconv.FormatInt(mapID, 10))

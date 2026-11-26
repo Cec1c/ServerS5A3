@@ -338,6 +338,21 @@ func (r memoCharacterRepository) LoadCharacterExtraStats(ctx context.Context, id
 	return dnfrepo.LoadCharacterExtraStats(ctx, r.inner, id, keys...)
 }
 
+func (r memoCharacterRepository) LoadCharacterWeaponSkinState(ctx context.Context, id string) (dnfrepo.CharacterRecord, bool, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return dnfrepo.CharacterRecord{}, false, err
+		}
+	}
+	r.memo.mu.Lock()
+	entry, ok := r.memo.character[id]
+	r.memo.mu.Unlock()
+	if ok {
+		return entry.record, entry.found, nil
+	}
+	return dnfrepo.LoadCharacterWeaponSkinState(ctx, r.inner, id)
+}
+
 type memoAccountRepository struct {
 	memo  *repositoryMemo
 	inner dnfrepo.AccountRepository

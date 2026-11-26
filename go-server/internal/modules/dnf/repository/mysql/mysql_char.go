@@ -704,27 +704,38 @@ func mysqlSwapCharacterSlotUpdate(ctx context.Context, db SQLDB, table, characte
 
 // FindIDByName 按角色名查找现有角色 ID，用于创建前去重。
 func (s *mysqlCharStore) FindIDByName(ctx context.Context, name string) (string, bool, error) {
+	var id string
+	found, err := s.findCharacterByName(ctx, name, "character_id", &id)
+	return id, found, err
+}
+
+func (s *mysqlCharStore) FindIdentityByName(ctx context.Context, name string) (string, string, bool, error) {
+	var id, accountID string
+	found, err := s.findCharacterByName(ctx, name, "character_id, account_id", &id, &accountID)
+	return id, accountID, found, err
+}
+
+func (s *mysqlCharStore) findCharacterByName(ctx context.Context, name, columns string, dest ...any) (bool, error) {
 	if err := ctxErr(ctx); err != nil {
-		return "", false, err
+		return false, err
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", false, nil
+		return false, nil
 	}
 	for _, database := range s.router.readDBs {
 		table := mysqlTable(database, s.router.tablePrefix, mysqlCharTable)
-		query := s.router.selectQuery("SELECT character_id FROM " + table + " WHERE name = ? AND delete_flag = 0 LIMIT 1")
-		var id string
-		err := s.router.db.QueryRowContext(ctx, query, name).Scan(&id)
+		query := s.router.selectQuery("SELECT " + columns + " FROM " + table + " WHERE name = ? AND delete_flag = 0 LIMIT 1")
+		err := s.router.db.QueryRowContext(ctx, query, name).Scan(dest...)
 		if err == nil {
-			return id, true, nil
+			return true, nil
 		}
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
-		return "", false, err
+		return false, err
 	}
-	return "", false, nil
+	return false, nil
 }
 
 // NextNumericID 分配 latest upper 创建角色需要回传的 u16 数字 ID。

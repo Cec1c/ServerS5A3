@@ -149,19 +149,23 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 	// 频道隔离（彻底隔离口径）：目标在别的频道时**必须明确失败**——不回包会让客户端
 	// "点了没反应"，静默丢弃更是无法复测；这里回通用失败包并记明 reason。
 	// 只对"目标在线且频道不同"生效；目标离线/异区域仍走下面的既有静默路径。
-	if targetSession, online := s.onlineGameSession(parsed.TargetID); online {
-		if s.partyChannelMismatch(session, targetSession) {
+	targetOnlineSession, targetOnline := s.onlineGameSession(parsed.TargetID)
+	if targetOnline {
+		if s.partyChannelMismatch(session, targetOnlineSession) {
 			return s.answerPartyCommandRejection(session, typ, "request_peer", partyCommandFailureGeneric,
 				"source_char_id", sourceID,
 				"target_id", parsed.TargetID,
 				"mode", parsed.Mode,
 				"source_channel", currentTownPresenceChannelID(session),
-				"target_channel", currentTownPresenceChannelID(targetSession),
+				"target_channel", currentTownPresenceChannelID(targetOnlineSession),
 				"reason", partyMemberChannelMismatchReason)
 		}
 	}
+	sameArea := s.onlinePlayers != nil && s.onlinePlayers.PeerInSameArea(sourceID, parsed.TargetID)
+	crossAreaPartyAllowed := !sameArea && targetOnline &&
+		s.canCurrentCrossAreaPartyPeerRequest(session, targetOnlineSession, sourceID, parsed.TargetID, parsed.Mode)
 	if sourceID == 0 || parsed.TargetID == 0 || parsed.TargetID == sourceID ||
-		s.onlinePlayers == nil || !s.onlinePlayers.PeerInSameArea(sourceID, parsed.TargetID) {
+		s.onlinePlayers == nil || (!sameArea && !crossAreaPartyAllowed) {
 		// 这条**静默丢弃**是"邀请没反应"的另一半：被邀请方的客户端场景里没有邀请者的
 		// actor（不同频道 / 不同城镇区域 / 被邀请方还在"每角色一份"的私有落点房里），
 		// 原生 op7 处理器拿不到目标就画不出框。判据与代发路径
@@ -269,7 +273,8 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 		if targetInParty && (!sourceInParty || len(sourceParty.Members) == 1) && targetParty.Leader != targetIdentity.character {
 			leader, online := s.onlineGameSessionCharacterSnapshot(targetParty.Leader)
 			if !online || leader.session == nil || s.partyChannelMismatch(session, leader.session) ||
-				!s.onlinePlayers.PeerInSameArea(sourceID, leader.character) {
+				(!s.onlinePlayers.PeerInSameArea(sourceID, leader.character) &&
+					!s.canCurrentCrossAreaPartyPeerRequest(session, leader.session, sourceID, leader.character, parsed.Mode)) {
 				return s.sendCurrentTownPVPFailure(session, typ, partyCommandFailureGeneric, parsed.Mode)
 			}
 			s.logGameEvent(session, "game-party-join-request-routed-to-leader",
@@ -308,6 +313,9 @@ func (s *Service) handleOnlineRequestPeer(session *gameSession, typ uint16, body
 		"char_id", sourceID, "target_char_id", parsed.TargetID, "mode", parsed.Mode,
 		"party_id", recordedRequest.PartyID, "joiner_char_id", recordedRequest.JoinerID,
 		"leader_char_id", recordedRequest.AnchorID)
+	if !s.onlinePlayers.PeerInSameArea(sourceID, targetIdentity.character) {
+		s.primeCurrentCrossAreaPartyInviteActor(targetIdentity.session, session, sourceID)
+	}
 	noticeBody := party.BuildRequestPeerNotice(sourceID, parsed)
 	s.logGameEvent(session, "game-peer-request-notice-forward",
 		"type", 0x0007,
@@ -1264,7 +1272,7 @@ func (s *Service) handleOnlineResponsePeer(session *gameSession, typ uint16, bod
 				"slot_zero_char_id", slotZeroCharID)
 		}
 	}
-	s.refreshTownPartyActorsAfterJoin(state, "party_invite_accept")
+	s.refreshDungeonPartyActorsAfterJoin(state, "party_invite_accept")
 	return nil
 }
 
@@ -1357,7 +1365,7 @@ func (s *Service) handleOnlineEntryIntoParty(session *gameSession, typ uint16, b
 		"slot_zero_char_id", slotZeroCharID,
 		"member_count", len(state.Members),
 		"wire_contract", "op705_entry_into_party_packet_sender_is_the_anchor_unproven_direction")
-	s.refreshTownPartyActorsAfterJoin(state, "party_entry_into_party")
+	s.refreshDungeonPartyActorsAfterJoin(state, "party_entry_into_party")
 	return nil
 }
 
@@ -1489,6 +1497,19 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 	sendPeerEndpoints bool,
 	peerEndpointsAfterRoster partyPeerEndpointsAfterRosterMode,
 ) error {
+	_, err := s.sendRuntimePartySnapshotLocalTracked(session, state, sendPeerEndpoints, peerEndpointsAfterRoster)
+	return err
+}
+
+// sendRuntimePartySnapshotLocalTracked reports whether the local op9 roster
+// write actually reached the wire. A nil error alone is insufficient because
+// the membership guard intentionally retires a stale projection without error.
+func (s *Service) sendRuntimePartySnapshotLocalTracked(
+	session *gameSession,
+	state alignedcmd.PartyState,
+	sendPeerEndpoints bool,
+	peerEndpointsAfterRoster partyPeerEndpointsAfterRosterMode,
+) (bool, error) {
 	partyActive := state.PartyID > 0 && len(runtimePartyMembers(state)) > 0
 	order := s.partyFormationOrder()
 	// bootstrapPeerEndpoints 是 roster **之前**那份 op11 body：M1 的 repeat 档要在 op9
@@ -1531,27 +1552,29 @@ func (s *Service) sendRuntimePartySnapshotLocal(
 		beforeFrame,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !frameSent {
-		return nil
+		return false, nil
 	}
 	if !partyActive {
-		_, err := s.sendRetiredPartyPacket(session, 0x0099, party.BuildEmptyRealtimeInfo(), &state, nil, false)
-		return err
+		return s.sendRetiredPartyPacket(session, 0x0099, party.BuildEmptyRealtimeInfo(), &state, nil, false)
 	}
 	// vendor_wire：厂商日志里 op153 实际落在 op9 之后（备用档，默认不启用）。
 	if !order.realtimeBeforeRoster() {
 		if err := s.sendFormationRealtimeInfo(session, state, order, order.phase2Source()); err != nil {
-			return err
+			return false, err
 		}
 	}
 	// M1（默认 off = 一个字节都不多发）：A21 在 roster 之后再补发一次同一份端点信息，
 	// 让绑定落在**最终**成员对象上而不是 roster 之前的临时对象上（D6）。
 	if !sendPeerEndpoints {
-		return nil
+		return true, nil
 	}
-	return s.sendRuntimePartyPeerEndpointsAfterRoster(session, state, bootstrapPeerEndpoints, peerEndpointsAfterRoster)
+	if err := s.sendRuntimePartyPeerEndpointsAfterRoster(session, state, bootstrapPeerEndpoints, peerEndpointsAfterRoster); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // sendRuntimePartyRosterLocal refreshes the current client's scene-owned
@@ -1642,10 +1665,11 @@ func (s *Service) buildRuntimePartyPeerEndpointInfoForReceiver(receiver *gameSes
 	}
 	// 默认档把收包者自己从行集合里去掉（厂商形状）；队伍里只有自己时给出 count=0 的 body，
 	// 并留一条可判读的事件（厂商日志里没有单人样本，这一条是唯一的现场判据）。
+	includeSelf := s.partyPeerEndpointIncludeSelf()
 	rowsMembers, selfOnly := partyPeerEndpointRowsExcludeReceiver(
 		members,
 		receiver.selectedCharacterID,
-		s.partyPeerEndpointIncludeSelf(),
+		includeSelf,
 	)
 	if selfOnly {
 		s.logGameEvent(receiver, "game-runtime-party-peer-endpoints-self-only",

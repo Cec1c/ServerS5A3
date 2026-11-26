@@ -20,6 +20,14 @@ const (
 // The TCP session's observed IPv4 is deliberately authoritative. A client may
 // report an arbitrary inner/outer endpoint in CS op2, whereas the relay must
 // never learn an endpoint from an unrelated Internet host.
+// sameCurrentPartyUDPRelayBindingIdentity compares the security and routing
+// identity of a relay leg (character, session generation, TCP-observed IPv4).
+// advertisedPort is advisory metadata from CS op2 and must not tear down a
+// live learned relay leg mid-party when a client re-reports its local port.
+func sameCurrentPartyUDPRelayBindingIdentity(a, b currentPartyUDPRelayBinding) bool {
+	return a.characterID == b.characterID && a.generation == b.generation && a.address == b.address
+}
+
 type currentPartyUDPRelayBinding struct {
 	characterID uint16
 	generation  uint64
@@ -61,7 +69,9 @@ type currentPartyUDPRelayLeg struct {
 	retired       atomic.Bool
 	learnedPort   atomic.Uint32 // IP is the immutable authenticated binding address
 	traffic       relayTraffic
-	initial       [4]relayInitialDatagram
+	// Owned by the single reportTraffic loop; packet readers only update atomics.
+	lastReportedDiagnostics [6]uint64
+	initial                 [4]relayInitialDatagram
 
 	key         currentPartyUDPRelayLegKey
 	binding     currentPartyUDPRelayBinding
@@ -420,7 +430,13 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 	})
 	for _, key := range orderedLegKeys {
 		binding := wanted[key]
-		if existing := r.legs[key]; existing != nil && existing.binding == binding && existing.peerBinding == byID[key.peerID] {
+		if existing := r.legs[key]; existing != nil &&
+			sameCurrentPartyUDPRelayBindingIdentity(existing.binding, binding) &&
+			sameCurrentPartyUDPRelayBindingIdentity(existing.peerBinding, byID[key.peerID]) {
+			existing.mu.Lock()
+			existing.binding.advertisedPort = binding.advertisedPort
+			existing.peerBinding.advertisedPort = byID[key.peerID].advertisedPort
+			existing.mu.Unlock()
 			continue
 		}
 		leg, err := r.newLegLocked(key, binding)
@@ -464,7 +480,9 @@ func (r *currentPartyUDPRelay) syncGroup(pvp bool, partyID uint16, bindings []cu
 		if key.partyID != partyID || key.pvp != pvp {
 			continue
 		}
-		if binding, wanted := wanted[key]; !wanted || existing.binding != binding || existing.peerBinding != byID[key.peerID] {
+		if binding, wanted := wanted[key]; !wanted ||
+			!sameCurrentPartyUDPRelayBindingIdentity(existing.binding, binding) ||
+			!sameCurrentPartyUDPRelayBindingIdentity(existing.peerBinding, byID[key.peerID]) {
 			existing.retired.Store(true)
 			toClose = append(toClose, existing)
 			delete(r.legs, key)
@@ -728,7 +746,7 @@ func (r *currentPartyUDPRelay) forwardDatagram(from, to *currentPartyUDPRelayLeg
 	}
 	if _, err := to.conn.WriteToUDPAddrPort(payload, netip.AddrPortFrom(netip.AddrFrom4(to.binding.address), uint16(port))); err != nil {
 		to.writeDeadline.Store(0)
-		if !from.retired.Load() && !to.retired.Load() && from.opposite.Load() == to {
+		if !from.retired.Load() && !to.retired.Load() && from.opposite.Load() == to && !errors.Is(err, net.ErrClosed) {
 			from.traffic.failed.Add(1)
 		}
 		return
@@ -759,27 +777,94 @@ func (leg *currentPartyUDPRelayLeg) ensureWriteDeadline(now time.Time) error {
 	return nil
 }
 
+type relayTrafficCounts struct {
+	empty, rejected, missing, unlearned, limited, failed uint64
+}
+
 // Diagnostics run off the packet path, at most once per ten seconds per leg.
+// Only legs whose drop/error counters increased since the previous tick emit a
+// summary line, so healthy legs stop warning once initial handshake completes.
 func (r *currentPartyUDPRelay) reportTraffic(done <-chan struct{}) {
 	defer r.wg.Done()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+	last := make(map[*currentPartyUDPRelayLeg]relayTrafficCounts)
 	for {
 		select {
 		case <-done:
 			return
 		case <-ticker.C:
-			r.mu.Lock()
-			legs := sortedCurrentPartyUDPRelayLegs(r.legs)
-			r.mu.Unlock()
-			for _, leg := range legs {
-				t := &leg.traffic
-				if t.empty.Load()+t.rejected.Load()+t.missing.Load()+t.unlearned.Load()+t.limited.Load()+t.failed.Load() == 0 {
-					continue
-				}
-				r.log("party UDP relay traffic summary", "party_id", leg.key.partyID, "owner_id", leg.key.ownerID, "peer_id", leg.key.peerID,
-					"empty_payload", t.empty.Load(), "source_mismatch", t.rejected.Load(), "unlearned", t.unlearned.Load(), "rate_limited", t.limited.Load(), "write_failed", t.failed.Load())
-			}
+			r.reportTrafficTick(last)
+		}
+	}
+}
+
+// reportTrafficSnapshot is called by snapshot-based diagnostics tests and helpers.
+func (r *currentPartyUDPRelay) reportTrafficSnapshot() {
+	r.mu.Lock()
+	legs := sortedCurrentPartyUDPRelayLegs(r.legs)
+	r.mu.Unlock()
+	for _, leg := range legs {
+		t := &leg.traffic
+		current := [6]uint64{t.empty.Load(), t.rejected.Load(), t.missing.Load(), t.unlearned.Load(), t.limited.Load(), t.failed.Load()}
+		if current == leg.lastReportedDiagnostics {
+			continue
+		}
+		leg.lastReportedDiagnostics = current
+		// Retain cumulative field meanings; suppress only unchanged snapshots.
+		// Concurrent increments after sampling are reported on the next tick.
+		r.log("party UDP relay traffic summary", "party_id", leg.key.partyID, "owner_id", leg.key.ownerID, "peer_id", leg.key.peerID,
+			"empty_payload", current[0], "source_mismatch", current[1], "missing_opposite", current[2], "unlearned", current[3], "rate_limited", current[4], "write_failed", current[5])
+	}
+}
+
+func (r *currentPartyUDPRelay) reportTrafficTick(last map[*currentPartyUDPRelayLeg]relayTrafficCounts) {
+	r.mu.Lock()
+	legs := sortedCurrentPartyUDPRelayLegs(r.legs)
+	r.mu.Unlock()
+	active := make(map[*currentPartyUDPRelayLeg]struct{}, len(legs))
+	for _, leg := range legs {
+		active[leg] = struct{}{}
+		t := &leg.traffic
+		cur := relayTrafficCounts{
+			empty:     t.empty.Load(),
+			rejected:  t.rejected.Load(),
+			missing:   t.missing.Load(),
+			unlearned: t.unlearned.Load(),
+			limited:   t.limited.Load(),
+			failed:    t.failed.Load(),
+		}
+		prev := last[leg]
+		last[leg] = cur
+		dEmpty := cur.empty - prev.empty
+		dRejected := cur.rejected - prev.rejected
+		dMissing := cur.missing - prev.missing
+		dUnlearned := cur.unlearned - prev.unlearned
+		dLimited := cur.limited - prev.limited
+		dFailed := cur.failed - prev.failed
+		if dEmpty+dRejected+dMissing+dUnlearned+dLimited+dFailed == 0 {
+			continue
+		}
+		peerLearned := false
+		if opp := leg.opposite.Load(); opp != nil && opp.learnedPort.Load() != 0 {
+			peerLearned = true
+		}
+		r.log("party UDP relay traffic summary",
+			"party_id", leg.key.partyID,
+			"owner_id", leg.key.ownerID,
+			"peer_id", leg.key.peerID,
+			"empty_payload", cur.empty,
+			"source_mismatch", cur.rejected,
+			"missing_opposite", cur.missing,
+			"unlearned", cur.unlearned,
+			"delta_unlearned", dUnlearned,
+			"peer_learned", peerLearned,
+			"rate_limited", cur.limited,
+			"write_failed", cur.failed)
+	}
+	for leg := range last {
+		if _, ok := active[leg]; !ok {
+			delete(last, leg)
 		}
 	}
 }

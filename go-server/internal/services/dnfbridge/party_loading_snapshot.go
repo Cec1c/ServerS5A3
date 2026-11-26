@@ -165,3 +165,41 @@ func (s *Service) finishPartyLoadingSnapshot(partyID uint16, cycle *partyDungeon
 	}
 	cycle.snapshots = nil
 }
+
+func (r partyLoadingCharacterRepository) LoadCharacterMirrorStats(ctx context.Context, id string, keys ...string) (dnfrepo.CharacterMirrorStats, bool, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return dnfrepo.CharacterMirrorStats{}, false, err
+		}
+	}
+	r.cache.mu.Lock()
+	entry := r.cache.characters[id]
+	r.cache.mu.Unlock()
+	if entry != nil {
+		select {
+		case <-entry.done:
+			return dnfrepo.SelectCharacterMirrorStats(entry.record, keys...), entry.found, entry.err
+		default:
+		}
+	}
+	return dnfrepo.LoadCharacterMirrorStats(ctx, r.CharacterRepository, id, keys...)
+}
+
+func (r partyLoadingCharacterRepository) LoadCharacterExtraStats(ctx context.Context, id string, keys ...string) (dnfrepo.CharacterMirrorStats, bool, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return dnfrepo.CharacterMirrorStats{}, false, err
+		}
+	}
+	r.cache.mu.Lock()
+	entry := r.cache.characters[id]
+	r.cache.mu.Unlock()
+	if entry != nil {
+		select {
+		case <-entry.done:
+			return dnfrepo.SelectCharacterMirrorStats(entry.record, keys...), entry.found, entry.err
+		default:
+		}
+	}
+	return dnfrepo.LoadCharacterExtraStats(ctx, r.CharacterRepository, id, keys...)
+}

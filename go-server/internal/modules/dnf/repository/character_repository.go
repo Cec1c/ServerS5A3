@@ -32,6 +32,12 @@ type CharacterRepository interface {
 	NextNumericID(context.Context) (int, error)
 }
 
+// CharacterIdentityByNameReader looks up a character ID and owning account
+// without hydrating the character record.
+type CharacterIdentityByNameReader interface {
+	FindIdentityByName(context.Context, string) (characterID string, accountID string, found bool, err error)
+}
+
 // CharacterCreator 提供新建角色的 insert-only 写入语义。
 type CharacterCreator interface {
 	CreateCharacter(context.Context, CharacterRecord) error

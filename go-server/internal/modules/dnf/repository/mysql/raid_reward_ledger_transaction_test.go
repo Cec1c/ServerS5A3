@@ -167,6 +167,11 @@ func raidLedgerRowsFor(query, characterAccount string, args []driver.NamedValue)
 
 	switch raidLedgerQueryTable(query) {
 	case mysqlAccountTable:
+		if strings.HasPrefix(query, "SELECT account_id FROM ") {
+			values[0] = "a"
+			rows.rows = [][]driver.Value{values}
+			break
+		}
 		values[0], values[1], values[3] = "a", "active", nil
 		values[4], values[5] = nil, nil
 		rows.rows = [][]driver.Value{values}

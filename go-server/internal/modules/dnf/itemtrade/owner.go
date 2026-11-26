@@ -15,6 +15,7 @@ import (
 	"time"
 
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
+	"longheng.io/server/internal/modules/dnf/weaponskin"
 )
 
 var (
@@ -353,7 +354,8 @@ func validateOffersWithCrystals(record dnfrepo.InventoryRecord, offers []Offer, 
 				return nil, ErrItemNotTradeable
 			}
 		}
-		if stack.Bind || (!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(now)) {
+		if _, product := weaponskin.ProductRecipe(stack.ItemID); product || stack.Bind ||
+			(!stack.ExpireAt.IsZero() && !stack.ExpireAt.After(now)) {
 			return nil, ErrItemNotTradeable
 		}
 		if offer.Count > stack.Count-sourceCounts[key] {

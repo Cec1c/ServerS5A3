@@ -1020,7 +1020,7 @@ func (s *Service) sendTownRemoteActorStateAttempt(target *gameSession, actor onl
 		return nil
 	}
 	if err := s.sendCurrentTownPartyHPAfterActor(target, actor.Session); err != nil {
-		return fmt.Errorf("send remote town actor party HP: %w", err)
+		return fmt.Errorf("refresh remote town actor party HP: %w", err)
 	}
 	if s.shouldSkipTownCopresencePartyFrame(target, actor.Session) {
 		s.logPacketEvent("game-town-copresence-party-frame-skipped",
@@ -1300,6 +1300,10 @@ func (s *Service) broadcastTownPlayerEnter(newPlayer *onlinePlayerInfo, others [
 // 本地区域的一员；mode0/mode1 还会在本地创建他的 actor。他在队伍框里的条目由
 // op9 名单的跨频道身份块负责，不需要城镇 actor。
 func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state alignedcmd.PartyState) error {
+	return s.sendTownRemotePartyActorsWithPartyFrame(receiver, state, true)
+}
+
+func (s *Service) sendTownRemotePartyActorsWithPartyFrame(receiver *gameSession, state alignedcmd.PartyState, partyFrame bool) error {
 	if s == nil || s.onlinePlayers == nil || receiver == nil || receiver.selectedCharacterID == 0 || state.PartyID <= 0 {
 		return nil
 	}
@@ -1333,7 +1337,7 @@ func (s *Service) sendTownRemotePartyActors(receiver *gameSession, state aligned
 		if s.onlinePlayers.PeerInSameArea(receiver.selectedCharacterID, member.UserID) {
 			continue
 		}
-		if err := s.sendTownRemoteActorState(receiver, actor, "town_remote_party_actor_after_set_user_area"); err != nil {
+		if err := s.sendTownRemoteActorStateWithPartyFrame(receiver, actor, "town_remote_party_actor_after_set_user_area", partyFrame); err != nil {
 			return err
 		}
 		areaBody := buildCurrentTownUserAreaNotificationBody(
@@ -1379,32 +1383,44 @@ func (s *Service) townPrivateRoomPeerProjectionBlocked(receiver *gameSession, ac
 // directions after a party membership change. sendTownRemotePartyActors keeps
 // the existing same-area, channel, raid-scope and guild-hall guards; a same-area
 // peer is already present and is deliberately not duplicated.
-func (s *Service) refreshTownPartyActorsAfterJoin(state alignedcmd.PartyState, source string) {
+// prepareTownPartyActorsBeforeSnapshot creates cross-area town CUser actors
+// for all non-dungeon party members BEFORE op11/op9 are emitted. DNF.exe
+// silently discards op11 endpoints and skips UDP_mgr::Connect in NOTI9 when
+// CUserManager::Find(peerID) returns NULL. partyFrame=false ensures no
+// premature op9 party frame precedes op11 endpoint seeding. A per-receiver
+// failure remains best-effort: the authoritative roster publication proceeds so
+// a transient cosmetic rebuild cannot block party availability. A missing
+// CUser for that receiver remains a residual model-restoration risk.
+func (s *Service) prepareTownPartyActorsBeforeSnapshot(state alignedcmd.PartyState, source string) {
+	if s == nil || s.onlinePlayers == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
+		return
+	}
+	for _, member := range runtimePartyMembers(state) {
+		receiver, ok := s.onlineGameSession(member.UserID)
+		if !ok || receiver == nil || s.sessionHasActiveDungeonRuntime(receiver) {
+			continue
+		}
+		if err := s.sendTownRemotePartyActorsWithPartyFrame(receiver, state, false); err != nil {
+			s.logGameEvent(receiver, "game-town-party-actor-before-snapshot-failed",
+				"source", source,
+				"party_id", state.PartyID,
+				"char_id", receiver.selectedCharacterID,
+				"error", err)
+		}
+	}
+}
+
+func (s *Service) refreshDungeonPartyActorsAfterJoin(state alignedcmd.PartyState, source string) {
 	if s == nil || s.onlinePlayers == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
 		return
 	}
 	dungeonReceivers := make([]*gameSession, 0, len(runtimePartyMembers(state)))
 	for _, member := range runtimePartyMembers(state) {
 		receiver, ok := s.onlineGameSession(member.UserID)
-		if !ok || receiver == nil {
+		if !ok || receiver == nil || !s.sessionHasActiveDungeonRuntime(receiver) {
 			continue
 		}
-		// A party can be accepted after both members already entered the same
-		// dungeon. The roster snapshot makes skills visible, but without the
-		// existing peer projection the client has no mode0/mode1 actor to pair
-		// with that roster. Reuse the same run-key and idempotency gates used by
-		// dungeon landing; town actor projection remains the non-dungeon branch.
-		if s.sessionHasActiveDungeonRuntime(receiver) {
-			dungeonReceivers = append(dungeonReceivers, receiver)
-			continue
-		}
-		if err := s.sendTownRemotePartyActors(receiver, state); err != nil {
-			s.logGameEvent(receiver, "game-town-party-actor-after-join-failed",
-				"source", source,
-				"party_id", state.PartyID,
-				"char_id", receiver.selectedCharacterID,
-				"error", err)
-		}
+		dungeonReceivers = append(dungeonReceivers, receiver)
 	}
 	// Materialize every participating active-dungeon key before the first
 	// directional projection. Otherwise the first receiver can observe peers
@@ -1428,6 +1444,26 @@ func (s *Service) refreshTownPartyActorsAfterJoin(state alignedcmd.PartyState, s
 				"error", err)
 		}
 	}
+}
+
+func (s *Service) refreshTownPartyActorsAfterJoin(state alignedcmd.PartyState, source string) {
+	if s == nil || s.onlinePlayers == nil || state.PartyID <= 0 || len(runtimePartyMembers(state)) < 2 {
+		return
+	}
+	for _, member := range runtimePartyMembers(state) {
+		receiver, ok := s.onlineGameSession(member.UserID)
+		if !ok || receiver == nil || s.sessionHasActiveDungeonRuntime(receiver) {
+			continue
+		}
+		if err := s.sendTownRemotePartyActors(receiver, state); err != nil {
+			s.logGameEvent(receiver, "game-town-party-actor-after-join-failed",
+				"source", source,
+				"party_id", state.PartyID,
+				"char_id", receiver.selectedCharacterID,
+				"error", err)
+		}
+	}
+	s.refreshDungeonPartyActorsAfterJoin(state, source)
 }
 
 // broadcastTownPlayerLeave sends NOTI 0x0006 (u16 userId) to remaining

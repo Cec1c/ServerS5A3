@@ -137,6 +137,7 @@ func (s *Service) currentTownEnterSelectReady(session *gameSession) (bool, strin
 	session.townMu.Lock()
 	readyCharacterID := session.townSceneReadyCharacterID
 	positionSnapshot := session.townPositionSnapshot
+	completedReturnUnsettled := currentCompletedTownReturnPendingSettlementLocked(session)
 	session.townMu.Unlock()
 	if readyCharacterID == 0 || readyCharacterID != session.selectedCharacterID {
 		return false, "town_scene_player_state_not_finalized"
@@ -149,6 +150,9 @@ func (s *Service) currentTownEnterSelectReady(session *gameSession) (bool, strin
 	session.dungeon.mu.Unlock()
 	if hasDungeonRuntime {
 		return false, "active_dungeon_runtime"
+	}
+	if completedReturnUnsettled {
+		return false, currentTownEnterSelectReasonCompletedReturnTailPending
 	}
 	// A retained runtime also fences the selector when its Session has not
 	// been attached yet. Do not classify that boundary as a missing position

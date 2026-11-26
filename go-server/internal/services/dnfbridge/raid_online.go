@@ -380,7 +380,7 @@ func (s *Service) handleOnlineRequestRaidInfo(session *gameSession, body []byte)
 			return err
 		}
 		s.logGameEvent(session, "game-raid-info-sent", "raid_key", key, "mode", "current_ack1359", "selector", selector)
-		profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
+		profileCtx, cancelProfiles := context.WithTimeout(context.Background(), crossSceneProfileBatchTimeout(len(state.Members)))
 		defer cancelProfiles()
 		profiles := newCurrentRaidProfileBatch(s, profileCtx)
 		if err := s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session, state, profiles, nil); err != nil {
@@ -545,10 +545,8 @@ func (s *Service) finishOnlineRaidDeparture(session *gameSession, typ uint16, st
 			}
 		}
 	}
-	// During recruiting the profile cache is unchanged by removing one identity:
-	// one leader metadata refresh and one roster update suffice. Keep the
-	// established complete post-start refresh so battle rules remain unchanged.
-	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout && !state.Started {
+	// Removing one identity leaves the surviving profile rows unchanged.
+	if s.options.currentClientVersion == "official-24.9" && state.CurrentLayout {
 		if err := s.broadcastRuntimeRaidRoster(state); err != nil {
 			errs = append(errs, err)
 		}
@@ -676,7 +674,18 @@ func (s *Service) handleOnlineRejoinRaid(session *gameSession, typ uint16, body 
 	if err := s.sendGameUpperRawClassCodec(session, typ, []byte{1}, dnfproto.DefaultChannelClassification, true); err != nil {
 		return err
 	}
-	if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
+	if s.options.currentClientVersion == "official-24.9" {
+		// A reconnect may reuse an ID and appearance revision on a new socket.
+		session.raidProfileView.clear()
+		for _, member := range state.Members {
+			if peer, ok := s.onlineGameSession(member.CharID); ok && peer != session {
+				peer.raidProfileView.forget(state, sourceID)
+			}
+		}
+		if err := s.broadcastRuntimeRaidProjectionForJoin(state, true, sourceID); err != nil {
+			return err
+		}
+	} else if err := s.broadcastRuntimeRaidRefresh(state); err != nil {
 		return err
 	}
 	if s.options.currentClientVersion == "official-24.9" && state.Started && state.Battle != nil {
@@ -1163,12 +1172,16 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(
 	includeAppearance bool,
 	refreshLeaderMetadata bool,
 ) error {
+	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), crossSceneProfileBatchTimeout(len(state.Members)))
+	defer cancelProfiles()
+	return s.broadcastRuntimeRaidProjectionInContext(profileCtx, state, includeProfiles, joined, includeAppearance, refreshLeaderMetadata)
+}
+
+func (s *Service) broadcastRuntimeRaidProjectionInContext(profileCtx context.Context, state runtimeRaidState, includeProfiles bool, joined uint16, includeAppearance, refreshLeaderMetadata bool) error {
 	body, err := s.buildRuntimeRaidRosterBody(state)
 	if err != nil {
 		return err
 	}
-	profileCtx, cancelProfiles := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancelProfiles()
 	profiles := newCurrentRaidProfileBatch(s, profileCtx)
 	// Profile identity uses its bounded admitted-member memo. Inventory remains
 	// a fresh committed read scoped to this broadcast.
@@ -1188,7 +1201,7 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(
 				continue
 			}
 		}
-		if includeProfiles {
+		if includeProfiles && profiles.ctx.Err() == nil {
 			var actors map[uint16]bool
 			if !includeAppearance {
 				actors = map[uint16]bool{}
@@ -1201,7 +1214,10 @@ func (s *Service) broadcastRuntimeRaidProjectionWithAppearance(
 			}
 			if err := sendProfiles(session, state, profiles, actors); err != nil {
 				s.failRuntimeRaidRecipient(session, "profiles", err)
-				continue
+				if !errors.Is(err, errRaidProfilePreparation) || profiles.ctx.Err() == nil {
+					continue
+				}
+				// The preparation budget expired. The committed roster still goes out.
 			}
 		}
 		if err := s.sendGameUpperRawClassCodec(session, raid.RaidMemberRefreshMsgID, body, 0, true); err != nil {

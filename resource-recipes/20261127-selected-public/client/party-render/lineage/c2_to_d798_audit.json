@@ -1,0 +1,134 @@
+{
+  "schema": "dnf90-client-lineage-audit-v1",
+  "inputs": {
+    "c2": {
+      "path": "DNF.exe",
+      "sha256": "C2DDF1006EF710BA7D379924C59A3F1D1C2FC98E619F5900A09A0FFA9E7BE2FF",
+      "size": 114032640
+    },
+    "retained_47e": {
+      "path": "DNF.exe",
+      "sha256": "47E557D5F6249F3FE526D7BAACB95EC05306EC43AF6CBCF86AFA0708F452CDCD",
+      "size": 113037312
+    },
+    "weapon_045ff": {
+      "path": "DNF.exe",
+      "sha256": "045FF05FC947062F417A4068F086509852C8FC3CCE85048D9D04A4D7AFFDBEB7",
+      "size": 114032640
+    },
+    "d798": {
+      "path": "DNF.exe.test-client.D798B522.bak",
+      "sha256": "D798B52293F8994926B2574DB3DEE075F07136A2C5096636D42F2844F8B82F1B",
+      "size": 114032640
+    }
+  },
+  "pairs": [
+    {
+      "label": "swordghost_2111_to_retained_47e",
+      "before_sha256": "2111A6EA61395A51ED96EF5B3701F78E1B61B638D56C23F9168493CCB2DF935D",
+      "after_sha256": "47E557D5F6249F3FE526D7BAACB95EC05306EC43AF6CBCF86AFA0708F452CDCD",
+      "size_bytes": 113037312,
+      "changed_bytes": 144609,
+      "changed_runs": 3675,
+      "sections": {
+        "headers": {
+          "runs": 4,
+          "changed_bytes": 8
+        },
+        ".tp3": {
+          "runs": 16,
+          "changed_bytes": 42
+        },
+        ".xscene": {
+          "runs": 1,
+          "changed_bytes": 73
+        },
+        ".sgtext": {
+          "runs": 3611,
+          "changed_bytes": 144429
+        },
+        ".sgdata": {
+          "runs": 43,
+          "changed_bytes": 57
+        }
+      }
+    },
+    {
+      "label": "production_c2_to_retained_47e",
+      "before_sha256": "C2DDF1006EF710BA7D379924C59A3F1D1C2FC98E619F5900A09A0FFA9E7BE2FF",
+      "after_sha256": "47E557D5F6249F3FE526D7BAACB95EC05306EC43AF6CBCF86AFA0708F452CDCD",
+      "before_size_bytes": 114032640,
+      "after_size_bytes": 113037312,
+      "length_delta": -995328,
+      "range_analysis": "not byte-aligned because the approved layer appends PE sections"
+    },
+    {
+      "label": "retained_47e_to_weapon_045ff",
+      "before_sha256": "47E557D5F6249F3FE526D7BAACB95EC05306EC43AF6CBCF86AFA0708F452CDCD",
+      "after_sha256": "045FF05FC947062F417A4068F086509852C8FC3CCE85048D9D04A4D7AFFDBEB7",
+      "before_size_bytes": 113037312,
+      "after_size_bytes": 114032640,
+      "length_delta": 995328,
+      "range_analysis": "not byte-aligned because the approved layer appends PE sections"
+    },
+    {
+      "label": "weapon_045ff_to_d798_owner0",
+      "before_sha256": "045FF05FC947062F417A4068F086509852C8FC3CCE85048D9D04A4D7AFFDBEB7",
+      "after_sha256": "D798B52293F8994926B2574DB3DEE075F07136A2C5096636D42F2844F8B82F1B",
+      "size_bytes": 114032640,
+      "changed_bytes": 22,
+      "changed_runs": 2,
+      "sections": {
+        ".rebuild": {
+          "runs": 2,
+          "changed_bytes": 22
+        }
+      }
+    },
+    {
+      "label": "production_c2_to_d798",
+      "before_sha256": "C2DDF1006EF710BA7D379924C59A3F1D1C2FC98E619F5900A09A0FFA9E7BE2FF",
+      "after_sha256": "D798B52293F8994926B2574DB3DEE075F07136A2C5096636D42F2844F8B82F1B",
+      "size_bytes": 114032640,
+      "changed_bytes": 151532,
+      "changed_runs": 3872,
+      "sections": {
+        "headers": {
+          "runs": 4,
+          "changed_bytes": 8
+        },
+        ".tp3": {
+          "runs": 48,
+          "changed_bytes": 106
+        },
+        ".rebuild": {
+          "runs": 2,
+          "changed_bytes": 22
+        },
+        ".xscene": {
+          "runs": 1,
+          "changed_bytes": 73
+        },
+        ".sgtext": {
+          "runs": 3611,
+          "changed_bytes": 144429
+        },
+        ".sgdata": {
+          "runs": 43,
+          "changed_bytes": 57
+        },
+        ".wstext": {
+          "runs": 163,
+          "changed_bytes": 6837
+        }
+      }
+    }
+  ],
+  "notes": [
+    "c2 and D798 have different intermediate bases; no full published build chain joins them.",
+    "retained_47e is the exact retained pre-weapon-skin Slot 1 EXE captured by the approved weapon-skin task.",
+    "weapon_045ff is the approved 58-edit weapon-skin build from retained_47e.",
+    "D798 is weapon_045ff plus the approved 22-byte four-issues owner0 patch.",
+    "The c2-to-D798 raw-range apply mode is deterministic only when the accepted D798 file is supplied as the range source."
+  ]
+}
