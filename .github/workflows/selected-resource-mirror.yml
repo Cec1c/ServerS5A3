@@ -1,0 +1,83 @@
+name: Selected resource mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Inspect only when false; create the missing GitGud tag, packages and Release when true"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selected-resource-mirror-20261127
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'Cec1c/ServerS5A3' && github.ref == 'refs/heads/master' && vars.GITGUD_CLIENT_RELEASE_PROJECT == '51684'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate fixed mirror helper and workflow
+        run: |
+          python3 -m pip install -r scripts/ci/requirements-release-sync.txt
+          python3 -m unittest discover -s scripts/ci -p 'test_mirror_selected_resource_release.py' -v
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          yaml.safe_load(Path(".github/workflows/selected-resource-mirror.yml").read_text(encoding="utf-8"))
+          PY
+
+      - name: Verify exact public source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: selected-resources-20261127
+          SOURCE_COMMIT: 94026b515a60ef13feea35c0193c6649d4c8651b
+          SOURCE_RELEASE_ID: 459806188
+        run: |
+          set -eu
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq .object.sha)"
+          test "$actual" = "$SOURCE_COMMIT"
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .id)"
+          test "$release_id" = "$SOURCE_RELEASE_ID"
+
+      - name: Download exact public Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: selected-resources-20261127
+          ASSET_DIR: ${{ runner.temp }}/selected-resource-assets
+        run: |
+          set -eu
+          mkdir -p "$ASSET_DIR"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$ASSET_DIR" --pattern SHA256SUMS --pattern weapon-skin-npk.manifest.json --pattern weapon-skin-npk.zip
+
+      - name: Mirror selected resource Release to GitGud
+        env:
+          RELEASE_PROJECT: ${{ vars.GITGUD_CLIENT_RELEASE_PROJECT }}
+          GITGUD_RELEASE_TOKEN: ${{ secrets.GITGUD_CLIENT_RELEASE_TOKEN }}
+          ASSET_DIR: ${{ runner.temp }}/selected-resource-assets
+          RECEIPT: ${{ runner.temp }}/selected-resource-mirror.json
+          APPLY: ${{ inputs.apply }}
+        run: |
+          set -eu
+          test -n "$RELEASE_PROJECT"
+          test -n "$GITGUD_RELEASE_TOKEN"
+          set --
+          if [ "$APPLY" = "true" ]; then set -- --apply; fi
+          python3 scripts/ci/mirror_selected_resource_release.py --asset-dir "$ASSET_DIR" --receipt "$RECEIPT" "$@"
+
+      - name: Keep mirror receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: selected-resource-mirror
+          path: ${{ runner.temp }}/selected-resource-mirror.json
+          if-no-files-found: ignore
