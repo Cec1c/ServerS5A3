@@ -321,15 +321,17 @@ func TestP5CharacterExtraStatsMariaDBEquivalenceAndRowReduction(t *testing.T) {
 
 	obs := &SQLObservation{}
 	observed := &ObservedSQLDB{SQLDB: SQLDBAdapter{DB: db}, Observation: obs}
-	obsGroup, err := NewMySQLGroupFromSQLDB(observed, MySQLGroupOptions{DatabasePlan: plan})
+	obsGroup, err := NewMySQLGroup(observed, MySQLGroupOptions{DatabasePlan: plan})
 	if err != nil {
 		t.Fatal(err)
 	}
 	counts := func() (calls, rows int64) {
-		for _, pathSeries := range obs.series {
-			for _, op := range []sqlObserveOp{sqlObserveQuery, sqlObserveRow} {
-				calls += pathSeries[op].calls.Load()
-				rows += pathSeries[op].rows.Load()
+		for path := range obs.series {
+			for _, op := range []int{sqlObserveQuery, sqlObserveRow} {
+				for j := range obs.series[path][op].buckets {
+					calls += obs.series[path][op].buckets[j].Load()
+				}
+				rows += obs.series[path][op].rows.Load()
 			}
 		}
 		return calls, rows
