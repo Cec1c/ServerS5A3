@@ -41,6 +41,7 @@ type gameSession struct {
 	partyDeaths               partyDungeonDeathQueue     // bounded, separately locked delivery mailbox
 	launcherCharacterID       uint16                     // serial event owner; verified selection only
 	launcherCharacterName     string                     // never updated by peer profile reads
+	launcherLastReasonCode    string                     // guarded by townMu
 	// Only the active Aiken instance may project the private support title's
 	// combat definition. Equipment in durable storage always keeps its neutral ID.
 	aikenSupportTitleActive atomic.Bool
@@ -320,6 +321,10 @@ type gameSession struct {
 	selectPreviewActorOwnerChannel       byte
 	selectPreviewActorRemoved            bool
 	preDungeonContextPlayerStateSent     bool
+	weaponSkinDemoLastRequest            time.Time
+	weaponSkinForgeLastRequest           time.Time
+	skinWarehouseSummaryLastRequest      time.Time
+	weaponSkinForgeSelection             weaponSkinForgeSelection
 	snakeDungeonSkillInfo                *currentSnakeDungeonSkillInfo
 	postStartMapPlayerStateSent          bool
 	// 成功写出主背包容器的角色。场景门重置不销毁客户端的全局主背包；

@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "recipe": "selected-public-20261127/sky-cubes",
+  "feature": "A20 outer-box update, A21 cleanup and A22 tools; the five excluded cube definitions must already exist",
+  "outer_box": {
+    "id": 990032001,
+    "items": [
+      10007847,
+      10007848,
+      990032002,
+      10007849,
+      10007850,
+      10008906,
+      10008907,
+      10008908,
+      10008909,
+      990032003,
+      10007246,
+      990032004,
+      990032005,
+      990032006
+    ],
+    "count": 14,
+    "expected_count": 14
+  },
+  "new_cubes": [],
+  "box_990032001_items": [
+    10007847,
+    10007848,
+    990032002,
+    10007849,
+    10007850,
+    10008906,
+    10008907,
+    10008908,
+    10008909,
+    990032003,
+    10007246,
+    990032004,
+    990032005,
+    990032006
+  ],
+  "avatar_part_order": [
+    "hair",
+    "hat",
+    "face",
+    "neck",
+    "coat",
+    "belt",
+    "pants",
+    "shoes"
+  ],
+  "expected": {
+    "new_cubes": 0,
+    "new_job_blocks": 0,
+    "valid_mapped_job_blocks": 161,
+    "pre_cleanup_mapped_job_blocks": 182,
+    "removed_gated_job_blocks": 21,
+    "outer_box_items": 14,
+    "allowed_absolute_cube_keys": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ]
+  }
+}

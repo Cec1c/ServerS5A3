@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "recipe": "selected-public-20261127/sky-cubes",
+  "scope": [
+    "A20",
+    "A21",
+    "A22"
+  ],
+  "excluded_scope": [
+    "A15",
+    "A16",
+    "A17",
+    "A18",
+    "A19"
+  ],
+  "spec": {
+    "path": "sky-cubes.schema1.json",
+    "sha256": "94b1e555b980d036d06e07509618ecf2ea90b2b0d6f0fefd7840b2e162718315",
+    "bytes": 1277
+  },
+  "generation_tool": "go-server/cmd/tools/sky-cubes-pvf",
+  "audit_tool": "go-server/cmd/tools/sky-job-audit-pvf",
+  "expected": {
+    "outer_box": 990032001,
+    "outer_box_items": 14,
+    "new_cubes": 0,
+    "new_job_blocks": 0,
+    "valid_mapped_job_blocks": 161,
+    "pre_cleanup_mapped_job_blocks": 182,
+    "removed_gated_job_blocks": 21
+  },
+  "a21_cleanup": {
+    "required": true,
+    "tool": "go-server/cmd/tools/sky-job-audit-pvf",
+    "mode": "-patch-out / -patch-report",
+    "sha256_required": true,
+    "expected_removed_job_blocks": 21
+  },
+  "verification": {
+    "hell_drop_edits": false,
+    "unrelated_features": false,
+    "five_cube_definitions_in_published_spec": false,
+    "private_pvf_included": false,
+    "binaries_in_git": false
+  }
+}

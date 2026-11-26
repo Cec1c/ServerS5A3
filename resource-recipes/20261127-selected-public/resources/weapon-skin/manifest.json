@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "recipe": "selected-public-20261127/weapon-skin",
+  "scope": [
+    "C14",
+    "C15",
+    "C16",
+    "C17"
+  ],
+  "input": {
+    "description": "reviewed weapon-skin baseline; override only with an explicitly accepted SHA256",
+    "sha256": "81ccba6613a442a856ecc66ea6344ba62cb16cfd8783173adbd85e43ac9ad781",
+    "bytes": 133750639,
+    "file_count": 1169937
+  },
+  "native_catalog": {
+    "path": "native-catalog.schema1.json.gz",
+    "sha256": "85bda81dd772ee06dda1ccc913108dfc488f7d5e9234cd9225cd952dddb9fb3f",
+    "bytes": 239997,
+    "source_sha256": "b2e47d8bb7166491aea1a507a1e574e24ebd1bdbc86d9a8e775bb415f3b2396e",
+    "source_bytes": 713600,
+    "rows": 13329
+  },
+  "plan": {
+    "path": "weapon-catalog.pvf-plan.json.gz",
+    "sha256": "1c033938ef35fff8e2bae6c26f5c206b31a6313452134e629358ebf1bfca7360",
+    "bytes": 2667301,
+    "content_paths": 40032,
+    "equipment_rows": 13329,
+    "stackable_rows": 26660
+  },
+  "assets": {
+    "path": "assets-manifest.json",
+    "files": 5,
+    "install_directory": "client/ImagePacks2",
+    "release": {
+      "tag": "selected-resources-20261127",
+      "asset": "weapon-skin-npk.zip",
+      "sha256": "0c65cefd06ca855247ed908c59f6f80aa0202f39414261372bc65ef2c88cd27b",
+      "bytes": 6965428,
+      "url": "https://github.com/Cec1c/ServerS5A3/releases/tag/selected-resources-20261127"
+    }
+  },
+  "linus_shop": {
+    "path": "linus-shop.schema1.json",
+    "mold_ids": [
+      490704411,
+      490704427
+    ],
+    "prices": [
+      1000000,
+      2000000
+    ]
+  },
+  "generation_tool": "go-server/cmd/tools/weapon-catalog-pvf",
+  "verification": {
+    "strict_allowed_diff": true,
+    "content_token_sha256": true,
+    "index_rows_append_only": true,
+    "private_pvf_included": false,
+    "binaries_in_git": false
+  },
+  "c14_c17": {
+    "C14": {
+      "file": "linus-shop.schema1.json",
+      "field": "shop.tab_name",
+      "value": "幻化"
+    },
+    "C15": {
+      "file": "linus-shop.schema1.json",
+      "item_id": 490704411,
+      "price": 1000000
+    },
+    "C16": {
+      "file": "linus-shop.schema1.json",
+      "item_id": 490704427,
+      "price": 2000000
+    },
+    "C17": {
+      "files": [
+        "weapon-catalog.pvf-plan.json.gz",
+        "native-catalog.schema1.json.gz",
+        "assets-manifest.json"
+      ],
+      "native_catalog_rows": 13329,
+      "content_paths": 40032,
+      "npk_files": 5
+    }
+  }
+}

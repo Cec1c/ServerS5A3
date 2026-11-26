@@ -47,7 +47,7 @@ func townSelectorRoutineSuccess(kind string) bool {
 // or credentials even when passed under an otherwise allowed field name.
 func townSelectorDiagnosticFieldAllowed(key string, value any) bool {
 	switch key {
-	case "conn_id", "source", "reason", "response", "failure_class", "reply_suppressed_reason", "town_context_ready_reason", "source_area", "member_area":
+	case "conn_id", "source", "reason", "response", "failure_class", "error_kind", "reply_suppressed_reason", "town_context_ready_reason", "source_area", "member_area":
 		text, ok := value.(string)
 		if !ok || len(text) > 256 {
 			return false
@@ -66,7 +66,8 @@ func townSelectorDiagnosticFieldAllowed(key string, value any) bool {
 			return true
 		}
 	case "request_driven", "transport", "town_context_ready", "position_valid", "origin_bound", "prepared", "reply_planned", "is_leader", "fanout", "leader_driven",
-		"session_is_character_directory_owner", "enter_select_sent", "enter_select_ack_sent", "enter_select_context_sent":
+		"session_is_character_directory_owner", "enter_select_sent", "enter_select_ack_sent", "enter_select_context_sent",
+		"member_in_dungeon", "member_town_ready":
 		_, ok := value.(bool)
 		return ok
 	}

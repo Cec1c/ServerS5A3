@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "scope": [
+    "C01-C18",
+    "D01-D06"
+  ],
+  "distribution": "source and hash-bound recipes only; no cumulative EXE/PVF",
+  "nativePartyAlreadyPublic": true,
+  "gameExecutedForThisPublication": false,
+  "files": {
+    "party-render/build_blackscreen.py": {
+      "sha256": "1b919a3b54705c35b7a70b4fb5f47184478069ce223902d1d35f8bfd3f3f7b01",
+      "bytes": 24277
+    },
+    "party-render/build_formal_release.py": {
+      "sha256": "ec29ffbe1b88005e8fdb6b5000d721c84a399901930a56394a654dd535d850a8",
+      "bytes": 6856
+    },
+    "party-render/build_party_v4.py": {
+      "sha256": "40f59faa68e7ea7c0b2e9c9db8d3d3b720f19d737b7b9026f75dcf029c466d5a",
+      "bytes": 27463
+    },
+    "party-render/lineage/apply_c2_to_d798_ranges.py": {
+      "sha256": "d5b582a6df9589cd5f5c344cb965682ef91b594426a0800cfbca62e428eacd04",
+      "bytes": 6197
+    },
+    "party-render/lineage/c2_to_d798_audit.json": {
+      "sha256": "9d6d4ceb545a6e4f99fc95ccfb37a3ca4e759771eb3ba675ea3fb06aaea692c4",
+      "bytes": 4282
+    },
+    "party-render/lineage/c2_to_d798_ranges.json": {
+      "sha256": "cda6cd24d5f5d4c4cfe3e2b0cc050868e5cbb3064887ebc5a3cdb56c70ffc2c9",
+      "bytes": 218086
+    },
+    "party-render/lineage/lineage_audit.py": {
+      "sha256": "80a39227aaf0e4747642cd13705fbfff4564c8742f5d8796c5735ea81b4552b5",
+      "bytes": 5777
+    },
+    "party-render/verify_blackscreen.py": {
+      "sha256": "1653c40a9c5de2320690d3a92f4ec9f95dc61ea1971ddce454172b8b2345d600",
+      "bytes": 26722
+    },
+    "party-render/verify_party_v4.py": {
+      "sha256": "818ced4ce668aba8e6c004c355409420b39107d38975dc3c1e64d87af1a9a557",
+      "bytes": 22516
+    },
+    "README.md": {
+      "sha256": "f2acdb081fe0b5db551ba5ce26baa1886cca7a3c9c3df10bd59cb741edfb9acf",
+      "bytes": 4576
+    },
+    "requirements.txt": {
+      "sha256": "2cdd423566bf52c8e63b6cd16db9663b678c26a0550a81afcd8987fb9be4eb7d",
+      "bytes": 48
+    },
+    "weapon-skin/apply_client_patch.py": {
+      "sha256": "1bbf4a59e4892f260223157e9f9d7442d645e96f79ef28a50cfad977976e95e3",
+      "bytes": 2059
+    },
+    "weapon-skin/build_port.py": {
+      "sha256": "d34275c9d118ac7a1def4dae0cfe7ca096cdad604a8bc4e08dfb43f8202e2d3e",
+      "bytes": 27896
+    },
+    "weapon-skin/client-source/同窗候选源码/人物武器预览.h": {
+      "sha256": "2b15f0d33ca539b01dde08fadc2cf2b1acea58ef233873aae11946af9cf422da",
+      "bytes": 7401
+    },
+    "weapon-skin/client-source/同窗候选源码/仓库入口悬停.h": {
+      "sha256": "df7a324331726e4feb99ad2dc105107fb6b46c03846286a3625267fbe0d7ddc2",
+      "bytes": 5335
+    },
+    "weapon-skin/client-source/同窗候选源码/原生字体预览.h": {
+      "sha256": "c6ca06e5926c2ebf5836e96b9b98e106afbd5966d179a9b4e021480921e39079",
+      "bytes": 3538
+    },
+    "weapon-skin/client-source/同窗候选源码/同窗仓库接线.cpp": {
+      "sha256": "47a959937fbf2de86fe1c22216c5546ac93b4068d23feab550531483530182d9",
+      "bytes": 42219
+    },
+    "weapon-skin/client-source/同窗候选源码/同窗布局.h": {
+      "sha256": "c20061fb3a5871af680f9fefa546f275bfd0d7526e0d2b7aee8e44bbb15b8b00",
+      "bytes": 1049598
+    },
+    "weapon-skin/client-source/同窗候选源码/字体页接线.h": {
+      "sha256": "53a2899a3248c7e2f2f2b3dd09954bc4f8c2555fa0a6c16c272190031d406c75",
+      "bytes": 7706
+    },
+    "weapon-skin/client-source/同窗候选源码/左栏伤害数字.h": {
+      "sha256": "6959adfceeb071253bbacf364d5d223232a034b9f3257659f8ceb84b16ac9572",
+      "bytes": 3924
+    },
+    "weapon-skin/client-source/同窗候选源码/总览页接线.h": {
+      "sha256": "7db9496c2f73c7896daeceb82dd4f102c8cbc66f08ec830de99f0288a023976d",
+      "bytes": 11584
+    },
+    "weapon-skin/client-source/同窗候选源码/林纳斯制作窗.h": {
+      "sha256": "1af8d6ab4012d76bc8066a198175ac6f77a268c90198529451beac9731387947",
+      "bytes": 37849
+    },
+    "weapon-skin/client-source/同窗候选源码/林纳斯布局.h": {
+      "sha256": "6a6cc07c49656c811351f4572088374c6cdb871d4695e7952b24855870665923",
+      "bytes": 82291
+    },
+    "weapon-skin/client-source/同窗候选源码/武器仓库页.h": {
+      "sha256": "c541fc48b6daa7b52dacce698925ecbbf7d11eb4d1831d14af4aa1c96f7568cd",
+      "bytes": 4593
+    },
+    "weapon-skin/client-source/同窗候选源码/武器入库确认.h": {
+      "sha256": "64ee8309957c2f974c7f33e93ad356ddf217444a570130f87875c70ec473cae9",
+      "bytes": 7246
+    },
+    "weapon-skin/client-source/同窗候选源码/武器外观目录.h": {
+      "sha256": "e4df931333525c107913cb200ca9dbc52019b2f8f9554250e651879f18432e9f",
+      "bytes": 770
+    },
+    "weapon-skin/client-source/场景绘制/场景入口.h": {
+      "sha256": "a9f1c0fded81bd548416e237004a342d22389ace02c0a5edfce988b436a5ca81",
+      "bytes": 102
+    },
+    "weapon-skin/client-source/场景绘制/武器仓库绘制.cpp": {
+      "sha256": "451a70210da22d69ff2e523029eca7dbcfc052a5aceb989aab823cb44436a033",
+      "bytes": 16146
+    },
+    "weapon-skin/client-source/场景绘制/武器外观目录.h": {
+      "sha256": "e4df931333525c107913cb200ca9dbc52019b2f8f9554250e651879f18432e9f",
+      "bytes": 770
+    },
+    "weapon-skin/client-source/场景绘制/角色原生表.h": {
+      "sha256": "df30263f4d759ba2ed1af8137cbd38999a69277dd91cb6398babd755ffde60af",
+      "bytes": 1100
+    },
+    "weapon-skin/client-source/场景绘制/队友武器图层.cpp": {
+      "sha256": "965c1205300ae0640b12eab23a8b191a8d617d7e3e93046e0d312c36147cf7cc",
+      "bytes": 10152
+    },
+    "weapon-skin/exe-delta.json": {
+      "sha256": "bbf3ce5cbb344dc3d03a91e46139b446cfbbf8c19d8a43580929fae56557f593",
+      "bytes": 567
+    },
+    "weapon-skin/weapon-skin-95.exe-delta.gz": {
+      "sha256": "702a23d53cb7395f8c6cabd6e4fcf858d7aac95a148a4f06476ace592f78865c",
+      "bytes": 287134
+    }
+  }
+}

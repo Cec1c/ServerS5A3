@@ -365,6 +365,23 @@ func TestMySQLCharacterFindIDByNameIgnoresSoftDeletedRows(t *testing.T) {
 	assertContains(t, call.Query, "WHERE name = ? AND delete_flag = 0")
 }
 
+func TestMySQLCharacterFindIdentityByNameUsesOneQuery(t *testing.T) {
+	sqlDB := &fakeSQLDB{rows: []fakeSQLRow{{values: []any{"88", "account-1"}}}}
+	repos := newTestMySQLGroup(t, sqlDB)
+	directory := repos.Character.(repository.CharacterIdentityByNameReader)
+	before := len(sqlDB.execs)
+	id, account, found, err := directory.FindIdentityByName(context.Background(), " receiver ")
+	if err != nil || !found || id != "88" || account != "account-1" {
+		t.Fatalf("recipient identity = %q, %q, %t, %v", id, account, found, err)
+	}
+	calls := sqlDB.execs[before:]
+	if len(calls) != 1 || len(calls[0].Args) != 1 || calls[0].Args[0] != "receiver" {
+		t.Fatalf("expected one name query: %+v", calls)
+	}
+	assertContains(t, calls[0].Query, "SELECT character_id, account_id FROM ")
+	assertContains(t, calls[0].Query, "WHERE name = ? AND delete_flag = 0")
+}
+
 func TestMySQLCharacterSaveFieldsOnlyUpdatesDirtyColumns(t *testing.T) {
 	sqlDB := &fakeSQLDB{}
 	repos := newTestMySQLGroup(t, sqlDB)

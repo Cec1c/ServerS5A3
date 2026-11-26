@@ -29,6 +29,10 @@ const (
 
 	currentCeraShopPaymentModeCera         byte = 0
 	currentCeraShopPaymentModeAvatarCoupon byte = 1
+	// The operator-approved black diamond gift keeps the PVF's fixed package
+	// contents, but checkout accepts either wallet. The wrapper itself is item
+	// 490709931; its delivered voucher is item 490709930.
+	currentBlackDiamondGiftPackageItemID uint32 = 490709931
 
 	// Current NoPack sub_232A9F0 groups list 7 as pet bodies 0..139,
 	// pet equipment 140..188, and pet consumables 189..238 (inclusive).
@@ -58,6 +62,21 @@ type currentCeraShopPurchaseRequest struct {
 	FestivalAccount   string
 	PaymentMode       byte
 	Items             []currentCeraShopPurchaseRequestItem
+}
+
+// currentCeraShopRestrictedWalletCosts turns item-level PVF purchase markers
+// into checkout reservations. Black diamond's gift package is the deliberate
+// operator exception to its [buy only cera point] marker: token Cera and Cera
+// may jointly fund it. Every other token-only item keeps the PVF restriction.
+func currentCeraShopRestrictedWalletCosts(itemID uint32, definition dungeonDropItemDefinition, price uint32) (ceraOnlyCost, tokenOnlyCost int64) {
+	switch {
+	case definition.CeraOnly:
+		return int64(price), 0
+	case definition.TokenCeraOnly && itemID != currentBlackDiamondGiftPackageItemID:
+		return 0, int64(price)
+	default:
+		return 0, 0
+	}
 }
 
 type currentCeraShopPurchaseRequestItem struct {
@@ -652,11 +671,13 @@ func (s *Service) commitCurrentCeraShopPurchase(
 			ceraOnlyCost += int64(purchase.Product.CeraPrice)
 			continue
 		}
-		if definition.CeraOnly {
-			ceraOnlyCost += int64(purchase.Product.CeraPrice)
-		} else if definition.TokenCeraOnly {
-			tokenOnlyCost += int64(purchase.Product.CeraPrice)
-		}
+		restrictedCera, restrictedToken := currentCeraShopRestrictedWalletCosts(
+			purchase.Product.ItemID,
+			definition,
+			purchase.Product.CeraPrice,
+		)
+		ceraOnlyCost += restrictedCera
+		tokenOnlyCost += restrictedToken
 	}
 	accountCargoUpgrades := 0
 	for _, purchase := range purchases {

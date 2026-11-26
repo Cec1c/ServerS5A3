@@ -6,9 +6,30 @@ import (
 	"io"
 	"net"
 	"sort"
+	"time"
 
 	"longheng.io/server/internal/modules/dnf/party"
 )
+
+const (
+	crossSceneProfileBatchPerMemberBudget = 500 * time.Millisecond
+	crossSceneProfileBatchMaxTimeout      = 15 * time.Second
+)
+
+// Scale multi-member cross-scene refresh budgets with roster size while keeping
+// per-actor repository loads and per-viewer socket writes bounded by
+// createWriteTimeout. A 16-20 member raid must not starve later recipients
+// under one shared 3-second deadline.
+func crossSceneProfileBatchTimeout(memberCount int) time.Duration {
+	if memberCount <= 1 {
+		return createWriteTimeout
+	}
+	timeout := createWriteTimeout + time.Duration(memberCount)*crossSceneProfileBatchPerMemberBudget
+	if timeout > crossSceneProfileBatchMaxTimeout {
+		return crossSceneProfileBatchMaxTimeout
+	}
+	return timeout
+}
 
 // Profile priming supplements the established roster/transport sequence. A
 // failed cosmetic projection must not undo committed membership or disconnect
@@ -47,7 +68,7 @@ func (s *Service) sendCurrentPartyCrossSceneProfilesForReceiver(snapshot party.R
 	if s.options.currentClientVersion != "official-24.9" || len(snapshot.Members) < 2 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), crossSceneProfileBatchTimeout(len(snapshot.Members)))
 	defer cancel()
 	batch := newCurrentCrossSceneProfileBatch(s, ctx)
 	for _, member := range snapshot.Members {
@@ -89,8 +110,14 @@ func (s *Service) sendCurrentRaidCrossSceneProfiles(batch *currentCrossSceneProf
 }
 
 func (s *Service) sendCurrentRaidCrossSceneProfilesForActors(batch *currentCrossSceneProfileBatch, viewer *gameSession, state runtimeRaidState, actors map[uint16]bool) map[uint16]bool {
+	if actors != nil && len(actors) == 0 {
+		return nil
+	}
 	sent := make(map[uint16]bool)
 	for _, member := range state.Members {
+		if batch.ctx.Err() != nil {
+			break
+		}
 		if actors != nil && !actors[member.CharID] {
 			continue
 		}
@@ -130,7 +157,7 @@ func (s *Service) broadcastCurrentCrossSceneAppearance(actor *gameSession) {
 		ordered = append(ordered, int(id))
 	}
 	sort.Ints(ordered)
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), crossSceneProfileBatchTimeout(len(ordered)+1))
 	defer cancel()
 	defer s.broadcastCurrentInspectedProfile(ctx, actor)
 	batch := newCurrentCrossSceneProfileBatch(s, ctx)

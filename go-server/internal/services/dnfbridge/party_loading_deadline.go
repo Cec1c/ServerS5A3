@@ -24,6 +24,26 @@ func partyLoadingWatchdogDelay(cycle *partyDungeonLoadingCycle) time.Duration {
 	return min(partyDungeonLoadingBarrierTimeout, max(time.Second, target-age))
 }
 
+// partyLoadingPreparationWatchdogDelay wakes the preparation watchdog based on
+// actual preparation age (instead of firing immediately when op37 loading took
+// ~9-10s), while still honoring the shared 25-second cycle deadline.
+func partyLoadingPreparationWatchdogDelay(cycle *partyDungeonLoadingCycle) time.Duration {
+	if cycle == nil {
+		return partyDungeonLoadingBarrierTimeout
+	}
+	if !cycle.prepareStarted.IsZero() {
+		delay := partyDungeonLoadingBarrierTimeout
+		if !cycle.prepareWarned {
+			delay = min(delay, max(time.Second, partyLoadingPreparationSlowThreshold-time.Since(cycle.prepareStarted)))
+		}
+		if !cycle.started.IsZero() {
+			delay = min(delay, max(time.Second, partyLoadingDeadline-time.Since(cycle.started)))
+		}
+		return delay
+	}
+	return partyLoadingWatchdogDelay(cycle)
+}
+
 // Called outside loadingMu. Readiness is frozen only while choosing the
 // timeout action; normal member retirement remains the authority for removal.
 func (s *Service) expirePartyLoadingCycle(partyID uint16, cycle *partyDungeonLoadingCycle, preparing bool) bool {
@@ -97,6 +117,11 @@ func (s *Service) expirePartyLoadingCycle(partyID uint16, cycle *partyDungeonLoa
 				if !removed {
 					return err
 				}
+				p.pendingPostStartMapMu.Lock()
+				if p.pendingPostStartMapPlacement != nil && p.pendingPostStartMapPlacement.Runtime == owner.runtime {
+					p.pendingPostStartMapPlacement = nil
+				}
+				p.pendingPostStartMapMu.Unlock()
 				return errors.Join(err, s.handleDungeonBackToVillage(p, nil))
 			})
 			if err != nil {

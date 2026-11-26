@@ -108,6 +108,7 @@ func (s *Service) buildCurrentRosterBody(characters []dnfrepo.CharacterRecord) [
 		defer cancel()
 		permissions := s.currentRosterSpecialChannelPermissions(ctx, characters)
 		return buildNoPackRosterBodyWithEntry(characters, func(w *packetWriter, index int, character dnfrepo.CharacterRecord) {
+			character.Roster.Entry.EquipSummary = s.weaponSkinDemoRosterAppearance(character)
 			writeOfficial249RosterEntryWithPermission(w, index, character, permissions[character.CharacterID])
 		})
 	}

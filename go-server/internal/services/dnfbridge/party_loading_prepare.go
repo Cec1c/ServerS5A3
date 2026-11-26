@@ -2,6 +2,11 @@ package dnfbridge
 
 import "time"
 
+const (
+	partyLoadingPreparationSlowThreshold  = 5 * time.Second
+	partyLoadingPreparationRetryOnFailure = 250 * time.Millisecond
+)
+
 // Mutated only on the bound session event loop. The cycle coordinator only
 // reads ready under loadingMu after preparation publishes its immutable data.
 type partyLoadingPreparation struct {
@@ -70,6 +75,26 @@ func (s *Service) markPartyLoadingPrepared(partyID uint16, cycle *partyDungeonLo
 	}
 }
 
+// schedulePartyLoadingPreparationRetry speeds up recovery after a transient
+// phase-0 preparation error instead of leaving the party parked until the
+// multi-second watchdog fires.
+func (s *Service) schedulePartyLoadingPreparationRetry(partyID uint16, cycle *partyDungeonLoadingCycle) {
+	if s == nil || partyID == 0 || cycle == nil {
+		return
+	}
+	s.partyDungeonLoadingMu.Lock()
+	defer s.partyDungeonLoadingMu.Unlock()
+	if s.partyDungeonLoadingCycles[partyID] != cycle || cycle.activationScheduled || cycle.expiring || len(cycle.preparing) == 0 {
+		return
+	}
+	if cycle.Timer != nil {
+		cycle.Timer.Stop()
+	}
+	cycle.Timer = time.AfterFunc(partyLoadingPreparationRetryOnFailure, func() {
+		s.checkPartyLoadingPreparation(partyID, cycle, "prepare_error_retry")
+	})
+}
+
 // Preparation shares the loading cycle deadline. Queue retries and member
 // retirement retain the original scene and character binding guards.
 func (s *Service) checkPartyLoadingPreparation(partyID uint16, cycle *partyDungeonLoadingCycle, trigger string) {
@@ -136,16 +161,32 @@ func (s *Service) checkPartyLoadingPreparation(partyID uint16, cycle *partyDunge
 		return
 	}
 	var missing []uint16
-	if !cycle.started.IsZero() && time.Since(cycle.started) >= 10*time.Second && !cycle.warned {
-		cycle.warned = true
+	var prepareElapsed, totalElapsed time.Duration
+	slowPrepare := false
+	if !cycle.prepareStarted.IsZero() {
+		prepareElapsed = time.Since(cycle.prepareStarted)
+		slowPrepare = prepareElapsed >= partyLoadingPreparationSlowThreshold
+	} else if !cycle.started.IsZero() {
+		slowPrepare = time.Since(cycle.started) >= 10*time.Second
+	}
+	if !cycle.started.IsZero() {
+		totalElapsed = time.Since(cycle.started)
+	}
+	if slowPrepare && !cycle.prepareWarned {
+		cycle.prepareWarned = true
 		for id := range retry {
 			missing = append(missing, id)
 		}
 	}
-	cycle.Timer = time.AfterFunc(partyLoadingWatchdogDelay(cycle), func() { s.checkPartyLoadingPreparation(partyID, cycle, "prepare_watchdog") })
+	cycle.Timer = time.AfterFunc(partyLoadingPreparationWatchdogDelay(cycle), func() { s.checkPartyLoadingPreparation(partyID, cycle, "prepare_watchdog") })
 	s.partyDungeonLoadingMu.Unlock()
 	if len(missing) > 0 {
-		s.logWarn("party loading preparation slow", "party_id", partyID, "cycle", cycle.Cycle, "missing_members", missing)
+		s.logWarn("party loading preparation slow",
+			"party_id", partyID,
+			"cycle", cycle.Cycle,
+			"missing_members", missing,
+			"prepare_elapsed", prepareElapsed,
+			"total_elapsed", totalElapsed)
 	}
 	if readyPlan != nil {
 		s.markPartyLoadingPrepared(partyID, cycle, readyID, readyPlan, trigger)

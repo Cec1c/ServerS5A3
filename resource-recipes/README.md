@@ -9,5 +9,6 @@
 | amp13-icon | 六种 +13 增幅券独立 28×28 素材、NPK 与图标引用计划 | 离线小资源生成 |
 | dimensional-radiance | 魔界及两种裂缝的次元光辉材料掉落规则 | 离线 PVF 配方，依赖服务端扩展读取器 |
 | release-contracts | EXE-only 过渡、发布 profile 来源证明、共享权威检出与资源缓存增量 | 集成参考及独立缓存工具 |
+| 20261127-selected-public/resources | 武器皮肤 13,329 行原生目录、林纳斯第五页与两种模具、天空 A20 外圈、A21 清理与 A22 审计 | 离线 PVF 配方；五个 NPK 由 Release `selected-resources-20261127/weapon-skin-npk.zip` 交付 |
 
 公开配方不自动启用某个服务器的商品策略，也不执行部署。既有商品 ID、资源路径和 private_ 命名保留，以避免改变资源引用；该命名不代表本目录仍未公开。每次实际发布仍须从自己的权威累计输入生成，并通过相应服务的签名、配对、备份和维护流程。

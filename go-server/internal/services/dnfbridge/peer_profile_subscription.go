@@ -115,7 +115,7 @@ func (s *Service) sendCurrentInspectedProfile(ctx context.Context, sub currentPe
 	var legacy dnfrepo.LegacyUserInfoRepository
 	if repos, ok := s.repositoryGroupFor(ctx); ok && repos.Character != nil {
 		legacy = repos.LegacyUserInfo
-		viewerRecord, found, err := repos.Character.Load(ctx, strconv.Itoa(int(v.character)))
+		viewerRecord, found, err := dnfrepo.LoadCharacterIdentity(ctx, repos.Character, strconv.Itoa(int(v.character)))
 		if err != nil {
 			return err
 		}

@@ -35,9 +35,12 @@ func currentRaidProfileMemberSignature(state runtimeRaidState, member runtimeRai
 		state.RaidKey, member.CharID, member.Level, member.Job, member.GrowType, member.Name)
 }
 
-func (s *Service) currentRaidProfileAppearanceSignatures(state runtimeRaidState) map[uint16]string {
+func (s *Service) currentRaidProfileAppearanceSignatures(state runtimeRaidState, actors map[uint16]bool) map[uint16]string {
 	signatures := make(map[uint16]string, len(state.Members))
 	for _, member := range state.Members {
+		if actors != nil && !actors[member.CharID] {
+			continue
+		}
 		signature := currentRaidProfileMemberSignature(state, member) + "|offline"
 		if actor, ok := s.onlineGameSession(member.CharID); ok {
 			signature = fmt.Sprintf("%s|%d", currentRaidProfileMemberSignature(state, member), currentCrossSceneAppearanceRevision(actor))
@@ -180,7 +183,7 @@ func (v *currentRaidProfileSendView) clear() {
 // manager. Supply that cache before any roster lookup, using real repository
 // properties and the authorized directory object's advertised namespace.
 func (s *Service) sendCurrentRuntimeRaidProfiles(session *gameSession, state runtimeRaidState) error {
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), crossSceneProfileBatchTimeout(len(state.Members)))
 	defer cancel()
 	return s.sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(session, state, newCurrentRaidProfileBatch(s, ctx), nil)
 }
@@ -210,7 +213,7 @@ func (s *Service) sendCurrentRuntimeRaidProfilesWithBatchForActors(session *game
 	if !s.currentRaidInfoContextVisible(session, state) {
 		return nil
 	}
-	appearanceSignatures := s.currentRaidProfileAppearanceSignatures(state)
+	appearanceSignatures := s.currentRaidProfileAppearanceSignatures(state, actors)
 	// Full delivery is also the first observation for a newly bound connection.
 	// Initialize the same per-connection view used by incremental delivery before
 	// marking successful rows, otherwise the first reopen payload cannot be
@@ -255,7 +258,7 @@ func (s *Service) sendCurrentRuntimeRaidProfilesIncrementalWithBatchForActors(se
 	if !visible() {
 		return nil
 	}
-	appearanceSignatures := s.currentRaidProfileAppearanceSignatures(state)
+	appearanceSignatures := s.currentRaidProfileAppearanceSignatures(state, actors)
 	profileMembers, appearanceMembers := session.raidProfileView.plan(
 		state, session.selectedCharacterID, session.characterGeneration, s.accountIDForSession(session),
 		session.sceneBootstrapActorGeneration, appearanceSignatures, actors,

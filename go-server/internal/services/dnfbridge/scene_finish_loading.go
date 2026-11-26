@@ -29,6 +29,9 @@ func (s *Service) sendCurrentFinishLoadingCharacterState(session *gameSession, s
 	if session == nil {
 		return nil
 	}
+	if !sessionHasActiveDungeonRuntime(session) {
+		markCurrentCompletedTownReturnSettled(session)
+	}
 	gates := session.finishLoadingGateSnapshot()
 	if err := s.restoreCurrentRaidSessionProjection(session, source+"_raid_session_restore"); err != nil {
 		return s.currentRaidProfileRequestError(session, err)
@@ -266,7 +269,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	ctx = s.withPartyLoadingSnapshot(ctx, session)
-	charID, _, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
+	charID, charName, character, hasCharacter := s.selectedCharacterForEnter(ctx, session)
 	if charID == 0 || !hasCharacter {
 		s.logGameEvent(session, "game-main-post-finish-loading-player-state-deferred",
 			"source", source,
@@ -318,6 +321,9 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		}
 		session.dungeonUserStateActive.Store(true)
 		session.deferredDungeonUserStateObjectKey = 0
+	}
+	if err := s.restoreDungeonWeaponSkinDemoAppearance(ctx, session, charID, charName, character, source); err != nil {
+		s.logGameEvent(session, "副本武器外观补发失败", "source", source, "char_id", charID, "error", err)
 	}
 	session.setFinishLoadingGatePostFinish(true)
 	s.logCurrentFiendWarFinishLoadingStage(session, "finish_loading_placement")

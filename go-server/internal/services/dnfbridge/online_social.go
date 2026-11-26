@@ -162,8 +162,16 @@ func (s *Service) handleCurrentPeerChat(session *gameSession, typ uint16, body [
 		// Typed-name 201BFD8/201C05D uses the local character group. This
 		// repository only resolves its own group; never alias foreign names.
 		sourceGroup, targetGroup := source.Stats["server_group_id"], target.Stats["server_group_id"]
+		// Native main-input whisper (0x2A03916) treats target group 0 as unset
+		// and falls back to [0x5678A90]->vtable+0xA8() (the advertised directory
+		// server index). Accept that exact fallback only for MessageType=1 when
+		// both authoritative characters belong to group 0.
+		groupMatches := int64(request.TrailingValue) == targetGroup ||
+			(mainWhisper && sourceGroup == 0 && targetGroup == 0 &&
+				s.options.channelAdvertiseID > 0 && s.options.channelAdvertiseID < 250 &&
+				int64(request.TrailingValue) == int64(s.options.channelAdvertiseID))
 		if !privateWhisper || !request.HasTrailingValue || sourceGroup < 0 || sourceGroup >= 250 ||
-			targetGroup != sourceGroup || int64(request.TrailingValue) != targetGroup {
+			targetGroup != sourceGroup || !groupMatches {
 			s.logGameEvent(session, "game-peer-chat-request-rejected", "message_type", request.MessageType,
 				"reason", "whisper_character_group_mismatch")
 			return s.sendGameUpperFailure(session, typ, 1)

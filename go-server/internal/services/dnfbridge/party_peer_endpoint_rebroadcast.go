@@ -1,6 +1,10 @@
 package dnfbridge
 
-import "strings"
+import (
+	"strings"
+
+	"longheng.io/server/internal/modules/dnf/alignedcmd"
+)
 
 // 本文件实现 M2：**客户端一上报 CS op2（`msg_id=2` / 31B SET_UDP_IP_PORT），端口真的
 // 变了就把整份队伍信息重播一遍**。
@@ -112,24 +116,46 @@ func (s *Service) rebroadcastRuntimePartySnapshotAfterPeerEndpointChange(session
 	targets := 0
 	manager := s.runtimePartyManagerForService()
 	if snapshot, found := manager.SnapshotByID(uint16(state.PartyID)); found {
+		type rebroadcastTarget struct {
+			userID  uint16
+			session *gameSession
+			state   alignedcmd.PartyState
+		}
+		rebroadcastTargets := make([]rebroadcastTarget, 0, len(snapshot.Members))
 		for _, member := range snapshot.Members {
 			identity, online := s.onlineGameSessionCharacterSnapshot(member.UserID)
 			if !online || identity.session == nil || identity.generation != member.SessionGeneration {
 				continue
 			}
-			if err := s.sendRuntimePartySnapshotWithoutPeerEndpointRepeat(
-				identity.session,
-				snapshot.StateFor(member.UserID),
-			); err != nil {
+			rebroadcastTargets = append(rebroadcastTargets, rebroadcastTarget{
+				userID:  member.UserID,
+				session: identity.session,
+				state:   snapshot.StateFor(member.UserID),
+			})
+		}
+		for _, target := range rebroadcastTargets {
+			if err := s.sendRuntimePartySnapshotLocal(target.session, target.state, true, partyPeerEndpointsAfterRosterOff); err != nil {
 				s.logGameEvent(session, "game-party-peer-endpoint-rebroadcast-failed",
 					"char_id", session.selectedCharacterID,
 					"party_id", state.PartyID,
-					"member_id", member.UserID,
+					"member_id", target.userID,
 					"udp_port", registration.Port,
 					"error", err)
 				return
 			}
 			targets++
+		}
+		areaPeerSource := s.partyFormationOrder().areaPeerSource()
+		for _, target := range rebroadcastTargets {
+			if err := s.broadcastCurrentPartyActorProjection(target.session, target.state, areaPeerSource); err != nil {
+				s.logGameEvent(session, "game-party-peer-endpoint-rebroadcast-failed",
+					"char_id", session.selectedCharacterID,
+					"party_id", state.PartyID,
+					"member_id", target.userID,
+					"udp_port", registration.Port,
+					"error", err)
+				return
+			}
 		}
 	}
 	if targets == 0 {

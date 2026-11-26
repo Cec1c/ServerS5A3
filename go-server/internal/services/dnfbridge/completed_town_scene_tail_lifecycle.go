@@ -1,9 +1,9 @@
 package dnfbridge
 
-const currentTownEnterSelectReasonCompletedReturnTailPending = "completed_dungeon_return_town_scene_tail_pending"
-
 // Server-tail retirement only; never callback, actor or reward authorization.
 // Access holds townMu. Pointer identity separates consecutive return routes.
+const currentTownEnterSelectReasonCompletedReturnTailPending = "completed_dungeon_return_town_scene_tail_pending"
+
 type currentCompletedTownSceneTailOwner struct {
 	characterID   uint16
 	channelID     int
@@ -51,8 +51,9 @@ func finishCurrentCompletedTownSceneTailAfterAreaCommitLocked(s *gameSession, o 
 }
 
 // currentCompletedTownReturnPendingSettlementLocked reports whether a
-// completed-dungeon return has emitted its town route but the client has not
-// yet acknowledged town landing. Caller holds townMu.
+// completed-dungeon return has emitted op24 + town actor rebuild, but the
+// client has not yet proven town landing via op35, town op37, SET_USER_AREA,
+// or deferred select-scene tail completion. Caller holds townMu.
 func currentCompletedTownReturnPendingSettlementLocked(s *gameSession) bool {
 	if s == nil {
 		return false

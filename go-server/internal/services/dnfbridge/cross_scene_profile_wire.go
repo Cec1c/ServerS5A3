@@ -186,7 +186,10 @@ func (s *Service) sendCurrentCrossSceneProfileFramesWithPolicy(ctx context.Conte
 			viewer.closeGameTransport()
 			// The writer captured the budget at failure. Teardown itself also
 			// cancels writeCtx and cannot establish the cause of this error.
-			if errors.Is(err, os.ErrDeadlineExceeded) {
+			if errors.Is(err, context.Canceled) {
+				return false, context.Canceled
+			}
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
 				return false, context.DeadlineExceeded
 			}
 			return false, err

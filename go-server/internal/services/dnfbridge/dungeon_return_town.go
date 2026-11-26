@@ -176,6 +176,21 @@ func (s *Service) handleDungeonBackToVillage(session *gameSession, body []byte) 
 		)
 		return nil
 	}
+	if isPartyDungeonInitialEntryLoadingPendingLocked(session, runtime) {
+		partyID := runtime.partyInstance.key.PartyID
+		instanceID := runtime.partyInstance.id
+		dungeonID := runtime.Dungeon.ID
+		session.dungeon.mu.Unlock()
+		setLauncherDiagnosticReasonCode(session, "stale_back_to_village_during_initial_party_loading")
+		s.logGameEvent(session, "game-dungeon-back-to-village-blocked",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", dungeonID,
+			"party_id", partyID,
+			"instance_id", instanceID,
+			"request_msg_id", uint16(dnfenum.CmdPacketBack2Village),
+			"reason", "stale_back_to_village_during_initial_party_loading")
+		return nil
+	}
 	defer session.dungeon.mu.Unlock()
 	if runtime.townReturnPending {
 		if b := session.tagTournamentBattle; b != nil && !b.returnRosterSent && runtime.townReturnOp24Sent {
@@ -761,6 +776,27 @@ func cloneCurrentDungeonTownTransition(transition currentDungeonTownTransition) 
 	return transition
 }
 
+// isPartyDungeonInitialEntryLoadingPendingLocked reports whether session is
+// still behind the initial shared party loading barrier for a freshly committed
+// active dungeon runtime (before any room transition or loading release).
+// Caller holds session.dungeon.mu.
+func isPartyDungeonInitialEntryLoadingPendingLocked(session *gameSession, runtime *runtimeDungeonState) bool {
+	if session == nil || runtime == nil || runtime.Session == nil || runtime.partyInstance == nil {
+		return false
+	}
+	if runtime.Session.Snapshot().Run.Status != worldmap.DungeonRunActive || runtime.loadingRoomVisit != 0 {
+		return false
+	}
+	gates := session.finishLoadingGateSnapshot()
+	if gates.State || gates.PostFinish {
+		return false
+	}
+	session.pendingPostStartMapMu.Lock()
+	pending := session.pendingPostStartMapPlacement
+	session.pendingPostStartMapMu.Unlock()
+	return pending != nil && pending.Runtime == runtime
+}
+
 func resetCurrentDungeonReturnAttempt(runtime *runtimeDungeonState) {
 	if runtime == nil {
 		return
@@ -855,6 +891,25 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 	}
 	snapshot := runtime.Session.Snapshot()
 	deadlineOwner := runtime.raidDeadlineReturn
+	if deadlineOwner == nil && runtime.townReturnRequestMsgID != uint16(dnfenum.CmdPacketLeaveParty) &&
+		isPartyDungeonInitialEntryLoadingPendingLocked(session, runtime) {
+		partyID := runtime.partyInstance.key.PartyID
+		instanceID := runtime.partyInstance.id
+		dungeonID := runtime.Dungeon.ID
+		reqMsgID := runtime.townReturnRequestMsgID
+		resetCurrentDungeonReturnAttempt(runtime)
+		session.dungeon.mu.Unlock()
+		setLauncherDiagnosticReasonCode(session, "stale_town_confirmation_during_initial_party_loading")
+		s.logGameEvent(session, "game-dungeon-back-to-village-blocked",
+			"char_id", session.selectedCharacterID,
+			"dungeon_id", dungeonID,
+			"party_id", partyID,
+			"instance_id", instanceID,
+			"request_msg_id", reqMsgID,
+			"source", source,
+			"reason", "stale_town_confirmation_during_initial_party_loading")
+		return nil
+	}
 	if deadlineOwner != nil {
 		if snapshot.Run.Status == worldmap.DungeonRunCompleted {
 			if !s.currentRaidCompletedMapTownReturnReady(session, runtime) {
@@ -989,6 +1044,7 @@ func (s *Service) commitPendingDungeonReturnForExpectedSceneRequest(session *gam
 			s.disbandRuntimePartyOnDungeonLeaderExit(session, leaderExitInstance, leaderExitCharacterID, "back_to_village_committed")
 		}
 		if committedStatus == worldmap.DungeonRunAbandoned {
+			setLauncherDiagnosticReasonCode(session, "dungeon_giveup_party_left")
 			if err := s.leaveRuntimePartyOnMemberGiveup(session, leaderExitInstance); err != nil {
 				s.logGameEvent(session, "game-party-member-giveup-projection-failed", "char_id", leaderExitCharacterID, "error", err)
 			}
