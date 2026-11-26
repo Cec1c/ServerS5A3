@@ -22,6 +22,8 @@ type accountAdventureGroupState struct {
 	Characters []dnfrepo.CharacterRecord
 	Summary    adventuregroup.Summary
 	Projection adventuregroup.Projection
+	Account    dnfrepo.AccountRecord
+	HasAccount bool
 }
 
 // preloadAdventureGroupTable makes the current runtime PVF authoritative for
@@ -150,7 +152,8 @@ func (s *Service) readAccountAdventureGroupState(ctx context.Context, selected d
 
 // currentAccountAdventureGroupInfoState adds durable account activity needed
 // only by the full 7,420-byte adventure-group payload. The process lock
-// serializes the metadata read/modify/write for this local account profile.
+// serializes the metadata read/modify/write only when today's daily login has
+// not yet been recorded.
 func (s *Service) currentAccountAdventureGroupInfoState(
 	ctx context.Context,
 	selected dnfrepo.CharacterRecord,
@@ -161,21 +164,42 @@ func (s *Service) currentAccountAdventureGroupInfoState(
 	if err != nil {
 		return accountAdventureGroupState{}, err
 	}
-	repositories, ok := s.repositoryGroup()
+	repositories, ok := s.repositoryGroupFor(ctx)
 	if !ok || repositories.Account == nil {
 		state.Projection = s.projectCurrentAdventureActivity(0, state.Characters)
 		return state, nil
+	}
+	accountID := strings.TrimSpace(s.accountIDForSession(sessions...))
+	if accountID == "" {
+		state.Projection = s.projectCurrentAdventureActivity(0, state.Characters)
+		return state, nil
+	}
+	observedAt := s.gameplayNow()
+	account, found, loadErr := repositories.Account.Load(ctx, accountID)
+	if loadErr != nil {
+		return accountAdventureGroupState{}, fmt.Errorf("load adventure-group account: %w", loadErr)
+	}
+	if !found || strings.TrimSpace(account.AccountID) != accountID {
+		state.Projection = s.projectCurrentAdventureActivity(0, state.Characters)
+		return state, nil
+	}
+	if days, recordedToday, parseErr := adventuregroup.DailyLoginRecordedForDate(account, observedAt); parseErr != nil {
+		return accountAdventureGroupState{}, parseErr
+	} else if recordedToday {
+		state.Projection = s.projectCurrentAdventureActivity(days, state.Characters)
+		state.Account = account
+		state.HasAccount = true
+		return s.projectCurrentAdventureAccountState(state, account)
 	}
 	owner, err := adventuregroup.NewOwner(repositories)
 	if err != nil {
 		state.Projection = s.projectCurrentAdventureActivity(0, state.Characters)
 		return state, nil
 	}
-	accountID := s.accountIDForSession(sessions...)
 	s.adventureGroupLoginMu.Lock()
 	login, err := owner.ObserveDailyLogin(ctx, adventuregroup.ObserveDailyLoginCommand{
 		AccountID:  accountID,
-		ObservedAt: s.gameplayNow(),
+		ObservedAt: observedAt,
 	})
 	s.adventureGroupLoginMu.Unlock()
 	if err != nil {
@@ -187,11 +211,13 @@ func (s *Service) currentAccountAdventureGroupInfoState(
 		return accountAdventureGroupState{}, err
 	}
 	state.Projection = s.projectCurrentAdventureActivity(login.ConsecutiveDays, state.Characters)
-	account, found, loadErr := repositories.Account.Load(ctx, accountID)
+	account, found, loadErr = repositories.Account.Load(ctx, accountID)
 	if loadErr != nil {
 		return accountAdventureGroupState{}, fmt.Errorf("load adventure-group runtime account: %w", loadErr)
 	}
 	if found {
+		state.Account = account
+		state.HasAccount = true
 		return s.projectCurrentAdventureAccountState(state, account)
 	}
 	return state, nil

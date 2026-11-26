@@ -552,7 +552,11 @@ func (s *Service) sendCurrentPostStartMapPlayerPlacement(
 			"user_state", currentDungeonPlayerUserState,
 			"body_source", "working_current_client_trace_op3_after_op120_room_object_manager_commit")
 		activate := func() error {
-			return s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyUserState), userStateBody, 0)
+			if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyUserState), userStateBody, 0); err != nil {
+				return err
+			}
+			session.dungeonUserStateActive.Store(true)
+			return nil
 		}
 		if plan := session.partyLoadingPrepared; plan != nil {
 			plan.activation = append(plan.activation, activate)

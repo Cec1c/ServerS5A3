@@ -13,7 +13,7 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailbox(ctx context.Context, 
 	if apply == nil {
 		return repository.ErrMailboxAssetTransactionUnavailable
 	}
-	return u.WithinAccountMailboxCharacter(ctx, accountID, characterID, func(a repository.AccountRepository, _ repository.CharacterRecord, m repository.MailboxRepository) error {
+	return u.withinAccountMailbox(ctx, accountID, characterID, false, func(a repository.AccountRepository, _ repository.CharacterRecord, m repository.MailboxRepository) error {
 		return apply(a, m)
 	})
 }
@@ -21,6 +21,15 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailbox(ctx context.Context, 
 var _ repository.AccountMailboxCharacterUnitOfWork = (*mysqlMailboxAssetUnitOfWork)(nil)
 
 func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailboxCharacter(ctx context.Context, accountID, characterID string, apply func(repository.AccountRepository, repository.CharacterRecord, repository.MailboxRepository) error) error {
+	return u.withinAccountMailbox(ctx, accountID, characterID, true, apply)
+}
+
+func (u *mysqlMailboxAssetUnitOfWork) withinAccountMailbox(
+	ctx context.Context,
+	accountID, characterID string,
+	loadFullCharacter bool,
+	apply func(repository.AccountRepository, repository.CharacterRecord, repository.MailboxRepository) error,
+) error {
 	accountID, characterID = strings.TrimSpace(accountID), strings.TrimSpace(characterID)
 	if accountID == "" || characterID == "" || apply == nil || u == nil {
 		return repository.ErrMailboxAssetTransactionUnavailable
@@ -46,26 +55,42 @@ func (u *mysqlMailboxAssetUnitOfWork) WithinAccountMailboxCharacter(ctx context.
 	r.writeDBs = append([]string(nil), u.router.writeDBs...)
 	r.lockReads = true
 	base := newMySQLGroupFromRouter(r, false)
+	base.Account.(*mysqlAccountStore).trackMetadataChanges = true
 	// Account-first matches the Fate ledger, durability, trade mailbox and
 	// settlement writers. Loading the character first creates an account/
 	// character deadlock cycle with those account-first transactions.
 	accounts := &rentalScopedAccountRepository{accountID: accountID, base: base.Account}
-	account, found, err := accounts.Load(ctx, accountID)
+	found, err := r.lockAccountRow(ctx, accountID)
 	if err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
-	if !found || account.AccountID != accountID {
+	if !found {
 		return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
 	}
-	character, found, err := base.Character.Load(ctx, characterID)
-	if err != nil {
-		return errors.Join(err, tx.Rollback())
-	}
-	if !found || character.CharacterID != characterID || character.AccountID != accountID {
-		return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
+	var character repository.CharacterRecord
+	if loadFullCharacter {
+		character, found, err = base.Character.Load(ctx, characterID)
+		if err != nil {
+			return errors.Join(err, tx.Rollback())
+		}
+		if !found || character.CharacterID != characterID || character.AccountID != accountID {
+			return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
+		}
+		character = repository.CloneCharacter(character)
+	} else {
+		// WithinAccountMailbox discards the CharacterRecord; locking only the
+		// character row preserves the exact Account -> Character FOR UPDATE
+		// order without scanning 400+ stats and roster tables.
+		identity, found, err := repository.LoadCharacterIdentity(ctx, base.Character, characterID)
+		if err != nil {
+			return errors.Join(err, tx.Rollback())
+		}
+		if !found || identity.CharacterID != characterID || identity.AccountID != accountID {
+			return errors.Join(repository.ErrMailboxAssetTransactionUnavailable, tx.Rollback())
+		}
 	}
 	mailboxes := &mailboxAssetScopedMailboxRepository{characterID: characterID, base: base.Mailbox}
-	if err := apply(accounts, repository.CloneCharacter(character), mailboxes); err != nil {
+	if err := apply(accounts, character, mailboxes); err != nil {
 		return errors.Join(err, tx.Rollback())
 	}
 	if err := ctx.Err(); err != nil {

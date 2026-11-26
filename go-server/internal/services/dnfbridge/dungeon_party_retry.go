@@ -54,7 +54,14 @@ func (s *Service) retireCompletedPartyForAction(leader *gameSession, runtime *ru
 		peerState := runtimePartyStateSnapshot(peer)
 		peer.dungeon.mu.Lock()
 		old := peer.dungeon.runtime
-		valid := peerState.PartyID == state.PartyID && peerState.UserID == state.UserID &&
+		sameParty := peerState.PartyID == state.PartyID && peerState.UserID == state.UserID
+		// Town members have already retired their completed run. Keep them in
+		// the party and let the normal selector/entry preflight admit them.
+		if sameParty && old == nil && runtime.raidEntry == nil {
+			peer.dungeon.mu.Unlock()
+			continue
+		}
+		valid := sameParty &&
 			old != nil && old.partyInstance == runtime.partyInstance &&
 			s.currentCompletedDungeonTownActionReady(peer, old, requireOpenRaidMap) && (!requireOpenRaidMap || old.raidEntry == nil || s.currentRaidDungeonSelectionAllowed(peer, uint32(old.Dungeon.ID)))
 		if owner := currentRaidRetryOwnerForSession(owners, peer); len(owners) > 0 && (owner == nil || owner.runtime != old) {

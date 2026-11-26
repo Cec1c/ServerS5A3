@@ -60,8 +60,9 @@ func (batch *partyFrameCharacterBatch) seedProjectionCharacter(identity boundGam
 
 // The op9 table serializes only character identity, name, job, level and grow
 // state. Loading an enter aggregate also reads equipment and probes/repairs
-// unrelated initialization for every member. Keep the authoritative full
-// character read, but leave that initialization to the actual enter path.
+// unrelated initialization for every member. Use the narrow mirror projection
+// (character base row + grow_type mirror column) to avoid scanning 400+ stats
+// and roster tables while keeping the authoritative database read.
 // Results belong only to this synchronous batch and exact live binding.
 func (batch *partyFrameCharacterBatch) loadCharacter(
 	ctx context.Context,
@@ -80,11 +81,28 @@ func (batch *partyFrameCharacterBatch) loadCharacter(
 	var hasCharacter bool
 	ctx = batch.service.withPartyLoadingSnapshot(ctx, identity.session)
 	if repos, ok := batch.service.repositoryGroupFor(ctx); ok && repos.Character != nil && characterID != 0 {
-		var err error
-		character, hasCharacter, err = repos.Character.Load(ctx, strconv.Itoa(int(characterID)))
+		mirror, found, err := dnfrepo.LoadCharacterMirrorStats(
+			ctx,
+			repos.Character,
+			strconv.Itoa(int(characterID)),
+			dnfrepo.CharacterGrowTypeStatKey,
+		)
 		if err != nil {
 			batch.service.logGameEvent(identity.session, "game-party-frame-character-load-failed", "character_id", characterID, "error", err)
 			hasCharacter = false
+		} else if found {
+			character = dnfrepo.CharacterRecord{
+				CharacterID: mirror.CharacterID,
+				AccountID:   mirror.AccountID,
+				Slot:        mirror.Slot,
+				Name:        mirror.Name,
+				Job:         mirror.Job,
+				Level:       mirror.Level,
+				Stats:       mirror.Stats,
+				CreatedAt:   mirror.CreatedAt,
+				UpdatedAt:   mirror.UpdatedAt,
+			}
+			hasCharacter = true
 		}
 		if hasCharacter && character.Name != "" {
 			name = character.Name

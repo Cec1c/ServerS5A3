@@ -144,18 +144,26 @@ func (s *Service) recordCurrentActivityAbyss(session *gameSession, r *runtimeDun
 			if tx.Activity == nil {
 				return repo.ErrActivityTransaction
 			}
+			// A peer may have changed account binding before the encounter was
+			// frozen. Validate its owner in the physical settlement transaction;
+			// an invalid peer must not block the remaining valid participants.
+			// Keep the reporting owner fail-closed and propagate storage errors.
+			ch, found, err := tx.Character.Load(ctx, e.CharacterID)
+			if err != nil {
+				return err
+			}
+			if !found || ch.AccountID != e.AccountID {
+				if e.CharacterID == event.CharacterID {
+					return repo.ErrActivityTransaction
+				}
+				s.logGameEvent(session, "account-activity-stale-peer-excluded", "char_id", member.CharacterID, "event_id", e.ID)
+				return nil
+			}
 			added, err := tx.Activity.Record(ctx, e)
 			if err != nil {
 				return err
 			}
 			if added && e.Source == "hell_party" {
-				ch, found, err := tx.Character.Load(ctx, e.CharacterID)
-				if err != nil {
-					return err
-				}
-				if !found {
-					return repo.ErrActivityTransaction
-				}
 				ch = repo.CloneCharacter(ch)
 				repo.AddBattlePassCounter(&ch, 23, -1, 1, e.OccurredAt)
 				return repo.SaveCharacterFields(ctx, tx.Character, ch, repo.CharacterFieldStats)

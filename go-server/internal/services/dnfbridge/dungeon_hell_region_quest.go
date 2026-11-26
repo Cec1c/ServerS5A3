@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 	"strconv"
 )
@@ -21,7 +22,7 @@ func (s *Service) persistCurrentHellRegionQuestCompletionLocked(session *gameSes
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	if _, found, err := repositories.Quest.Load(ctx, characterID); err != nil {
+	if _, found, err := dnfrepo.LoadQuestStatesByIDs(ctx, repositories.Quest, characterID); err != nil {
 		return err
 	} else if !found {
 		runtime.hellQuestCompletionPersisted = true
@@ -62,20 +63,29 @@ func (s *Service) persistCurrentHellRegionQuestCompletionLocked(session *gameSes
 		runtime.hellQuestCompletionSnapshotSent = true
 		return nil
 	}
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	ids := make([]int64, 0, len(result.Completions))
+	for _, completion := range result.Completions {
+		ids = append(ids, completion.QuestID)
+	}
+	verified, verifiedFound, err := dnfrepo.LoadQuestIDs(ctx, repositories.Quest, characterID, ids)
+	if err != nil {
+		return err
+	}
+	if !verifiedFound {
+		return dnfquest.ErrQuestPersistVerify
+	}
+	for _, completion := range result.Completions {
+		state, exists := currentDungeonClearMapQuestState(verified, completion.QuestID)
+		if !exists || state.ProgressValue != 0 {
+			return dnfquest.ErrQuestPersistVerify
+		}
+	}
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return dnfquest.ErrQuestPersistVerify
-	}
-	ids := make([]int64, 0, len(result.Completions))
-	for _, completion := range result.Completions {
-		state, exists := currentDungeonClearMapQuestState(record, completion.QuestID)
-		if !exists || state.ProgressValue != 0 {
-			return dnfquest.ErrQuestPersistVerify
-		}
-		ids = append(ids, completion.QuestID)
 	}
 	if err := s.sendGameUpperRawClass(session, currentActiveQuestSnapshotMsgID, buildCurrentActiveQuestSnapshotBody(record, true), 0); err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	dnfquest "longheng.io/server/internal/modules/dnf/quest"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/worldmap"
 )
 
@@ -51,7 +52,7 @@ func (s *Service) currentDungeonQuestObjectRoomClearTarget(
 		return dnfquest.ActiveHuntEnemyTarget{}, "", errDungeonHuntEnemyCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return dnfquest.ActiveHuntEnemyTarget{}, "", err
 	}

@@ -79,7 +79,7 @@ func (s *Service) persistCurrentDungeonClearMapCompletionPhaseA(
 	}
 	// An absent quest row means there is no persisted active quest to mutate.
 	// Avoid loading PVF or creating a synthetic row in that case.
-	activeRecord, found, err := repositories.Quest.Load(ctx, characterID)
+	headers, found, err := dnfrepo.LoadQuestStatesByIDs(ctx, repositories.Quest, characterID, 20737)
 	if err != nil {
 		return err
 	} else if !found {
@@ -108,6 +108,7 @@ func (s *Service) persistCurrentDungeonClearMapCompletionPhaseA(
 	if err != nil {
 		return fmt.Errorf("create clear-map quest owner: %w", err)
 	}
+	activeRecord := dnfrepo.QuestRecord{CharacterID: headers.CharacterID, States: headers.States, Progress: headers.Progress}
 	weddingState, hasWeddingState := currentDungeonClearMapQuestState(activeRecord, 20737)
 	activeWedding := hasWeddingState && currentDungeonQuestStatusActive(weddingState.Status)
 	proof := s.currentWeddingClearPartnerProof(session, runtime)
@@ -142,7 +143,7 @@ func (s *Service) persistCurrentDungeonClearMapCompletionPhaseA(
 	}
 	pendingQuestIDs := make([]int64, 0, len(result.Completions))
 	if len(result.Completions) != 0 {
-		if persisted, found, loadErr := repositories.Quest.Load(ctx, characterID); loadErr != nil {
+		if persisted, found, loadErr := dnfrepo.LoadQuestIDs(ctx, repositories.Quest, characterID, questIDs); loadErr != nil {
 			return loadErr
 		} else if found {
 			pendingQuestIDs = currentDungeonClearMapPendingRewardQuestIDs(persisted, result.Completions)
@@ -283,7 +284,7 @@ func (s *Service) sendCurrentDungeonClearMapCompletionNotificationLocked(
 		return errDungeonClearMapCompletionUnavailable
 	}
 	characterID := strconv.FormatUint(uint64(session.selectedCharacterID), 10)
-	record, found, err := repositories.Quest.Load(ctx, characterID)
+	record, found, err := dnfrepo.LoadQuestActivePlanning(ctx, repositories.Quest, characterID)
 	if err != nil {
 		return err
 	}

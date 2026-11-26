@@ -16,6 +16,7 @@ func (r *csharpLegacyUserInfoReader) currentUserInfoNameTagState(character dnfre
 		if repos, ok := r.service.repositoryGroupFor(r.ctx); ok && repos.Equipment != nil {
 			record, found, err := repos.Equipment.Load(r.ctx, r.characterID)
 			if err != nil {
+				r.noteDegraded(err)
 				if r.session != nil {
 					r.service.logGameEvent(r.session, "game-userinfo-name-tag-load-failed", "character_id", r.characterID, "error", err)
 				}

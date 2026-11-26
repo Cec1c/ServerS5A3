@@ -33,8 +33,17 @@ func (o *Owner) ApplyRoomClearMapCompletion(
 	if characterID == "" {
 		return RoomClearMapCommitResult{}, ErrCharacterRequired
 	}
+	if err := validateRoomClearMapInput(input); err != nil {
+		return RoomClearMapCommitResult{}, err
+	}
 
 	result := RoomClearMapCommitResult{CharacterID: characterID}
+	linkedIDs, dependencyIDs := catalog.RoomClearMapPlanningIDs(input)
+	if len(linkedIDs) == 0 {
+		result.PostCommitQuest = dnfrepo.QuestRecord{CharacterID: characterID}
+		return result, nil
+	}
+
 	err := o.repositories.CharacterSettlement.WithinCharacterSettlement(
 		ctx,
 		characterID,
@@ -42,7 +51,17 @@ func (o *Owner) ApplyRoomClearMapCompletion(
 			if tx.Quest == nil {
 				return ErrOwnerUnavailable
 			}
-			record, found, err := tx.Quest.Load(ctx, characterID)
+			_, isDelta := tx.Quest.(dnfrepo.QuestDeltaWriter)
+			var (
+				record dnfrepo.QuestRecord
+				found  bool
+				err    error
+			)
+			if isDelta {
+				record, found, err = dnfrepo.LoadQuestIDs(ctx, tx.Quest, characterID, dependencyIDs)
+			} else {
+				record, found, err = tx.Quest.Load(ctx, characterID)
+			}
 			if err != nil {
 				return err
 			}
@@ -65,15 +84,30 @@ func (o *Owner) ApplyRoomClearMapCompletion(
 			result.Completions = append([]ClearMapCompletion(nil), plan.Completions...)
 			result.ParentProgress = append([]RoomClearMapParentProgress(nil), plan.ParentProgress...)
 			result.ChangedFields = append([]dnfrepo.QuestField(nil), plan.ChangedFields...)
-			result.PostCommitQuest = dnfrepo.CloneQuest(plan.Record)
-			if len(plan.ChangedFields) == 0 {
+			if len(plan.ChangedFields) > 0 {
+				if err := dnfrepo.SaveQuestChanges(ctx, tx.Quest, record, plan.Record, plan.ChangedFields...); err != nil {
+					return err
+				}
+				result.Applied = true
+			} else {
 				result.Idempotent = len(plan.Completions) > 0
-				return nil
 			}
-			if err := dnfrepo.SaveQuestFields(ctx, tx.Quest, plan.Record, plan.ChangedFields...); err != nil {
-				return err
+			if len(plan.Completions) > 0 && record.PlanningPartial {
+				// Linked-objective notification sends full op574 + op356 snapshots.
+				// Reload the committed full record only when a completion actually
+				// matched (rare), preserving exact wire fidelity without scanning
+				// all quests on non-matching rooms.
+				fullRecord, fullFound, loadErr := tx.Quest.Load(ctx, characterID)
+				if loadErr != nil {
+					return loadErr
+				}
+				if !fullFound || strings.TrimSpace(fullRecord.CharacterID) != characterID || fullRecord.PlanningPartial {
+					return ErrQuestPersistVerify
+				}
+				result.PostCommitQuest = dnfrepo.CloneQuest(fullRecord)
+			} else {
+				result.PostCommitQuest = dnfrepo.CloneQuest(plan.Record)
 			}
-			result.Applied = true
 			return nil
 		},
 	)

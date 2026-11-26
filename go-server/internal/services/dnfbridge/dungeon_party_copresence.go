@@ -640,7 +640,11 @@ func (s *Service) sendDungeonPartyPeerActorStateObserved(receiver, actor *gameSe
 	// Live mode1 loads can clear the peer display after mode0 while keeping
 	// clone links. Reapply the proved appearance after equipment/identity.
 	if len(subtype0Body) != 0 && currentSceneObjectAppearanceBodyHasCloneLink(mode0Body) {
-		if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketSetUDPIPPort), mode0Body, 0); err != nil {
+		replayBody := append([]byte(nil), mode0Body...)
+		if len(replayBody) > 4 {
+			preserveActiveDungeonSceneObjectUserState(actor, charID, replayBody[4], replayBody)
+		}
+		if err := s.sendGameUpperRawClass(receiver, uint16(dnfenum.CmdPacketSetUDPIPPort), replayBody, 0); err != nil {
 			return false, err
 		}
 		s.logGameEvent(receiver, "game-party-clone-appearance-after-equipment", "peer_char_id", charID, "source", source)

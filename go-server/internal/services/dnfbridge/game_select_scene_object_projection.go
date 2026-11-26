@@ -254,6 +254,8 @@ func (s *Service) currentSceneObjectAdventureOverheadName(
 	return name
 }
 
+const currentSceneObjectTailUserStateOffset = 5
+
 func currentSceneObjectLevelForLog(body []byte) (byte, int, bool) {
 	const nameLenOffset = 5 + 0x47 + 2
 	if len(body) < nameLenOffset+4 {
@@ -265,6 +267,23 @@ func currentSceneObjectLevelForLog(body []byte) (byte, int, bool) {
 		return 0, tailStart, false
 	}
 	return body[tailStart+2], tailStart, true
+}
+
+func setCurrentSceneObjectTailUserState(body []byte, state byte) bool {
+	_, tailStart, ok := currentSceneObjectLevelForLog(body)
+	if !ok || tailStart+currentSceneObjectTailUserStateOffset >= len(body) {
+		return false
+	}
+	body[tailStart+currentSceneObjectTailUserStateOffset] = state
+	return true
+}
+
+func preserveActiveDungeonSceneObjectUserState(session *gameSession, charID uint16, ownerChannel byte, body []byte) bool {
+	if session == nil || charID == 0 || charID != session.selectedCharacterID ||
+		ownerChannel != currentSceneObjectContext || !session.dungeonUserStateActive.Load() {
+		return false
+	}
+	return setCurrentSceneObjectTailUserState(body, currentDungeonPlayerUserState)
 }
 
 func currentSceneObjectRawStateForLog(body []byte) (string, string, uint16, uint16, uint32, uint32, byte, uint32, byte, uint32, bool) {

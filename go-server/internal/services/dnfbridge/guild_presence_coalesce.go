@@ -192,10 +192,21 @@ func resetCurrentGuildPresenceRefresh(session *gameSession, closed bool) {
 	session.guild.mu.Lock()
 	clearCurrentGuildPresenceRefreshLocked(session)
 	clearCurrentGuildMembershipRefreshLocked(session)
+	clearCurrentGuildEssenceRefreshLocked(session)
+	clearCurrentGuildDungeonRefreshLocked(session)
 	session.guild.presenceRefreshClosed = closed
 	session.guild.lastPresenceRefreshAt = time.Time{}
 	session.guild.lastMembershipRefreshAt = time.Time{}
+	session.guild.lastEssenceRefreshAt = time.Time{}
+	session.guild.lastDungeonRefreshAt = time.Time{}
 	session.guild.weddingPrimedPeers = nil
+	session.guild.sameChannelPrimeGuildID = 0
+	session.guild.sameChannelPrimeViewerChar = 0
+	session.guild.sameChannelPrimeViewerGen = 0
+	session.guild.sameChannelPrimeCursor = ""
+	session.guild.sameChannelPrimeIncomplete = false
+	session.guild.weddingPrimeIncomplete = false
+	session.guild.sameChannelPrimeRetryAfter = nil
 	session.guild.mu.Unlock()
 }
 
@@ -392,8 +403,8 @@ func (s *Service) runCurrentGuildPresenceRefresh(p *currentGuildPresenceRefresh)
 		var build, write time.Duration
 		err = s.sendCurrentGuildRosterDisplayShared(ctx, p.peer, g, uint16(dnfenum.CmdPacketGuildAllMemberList), true, true, "presence", false, shared, &build, &write)
 	} else {
-		online, sampledAt := shared.sharedOnlineChannels(s, g)
-		err = s.sendCurrentGuildManagementProjectionWithOnline(session, g, len(online), sampledAt, false)
+		onlineCount, sampledAt := shared.sharedOnlineCount(s, g)
+		err = s.sendCurrentGuildManagementProjectionWithOnline(session, g, onlineCount, sampledAt, false)
 	}
 	if err != nil {
 		s.guildRosterCounter(guildRefreshFailed, 1)

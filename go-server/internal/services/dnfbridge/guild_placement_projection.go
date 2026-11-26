@@ -20,6 +20,12 @@ type currentGuildPlacementProjection struct {
 // income and member refreshes send only changed rows, preserving the scene.
 // Caller serializes this projection with its adjacent 1297 snapshot.
 func (s *Service) writeCurrentGuildPlacementProjectionLocked(session *gameSession, g *guild.Guild, identity boundGameSessionCharacter) error {
+	return s.writeCurrentGuildPlacementProjectionWithSendLocked(session, g, identity, func(op uint16, body []byte) error {
+		return s.sendGameUpperRawClass(session, op, body, 0)
+	})
+}
+
+func (s *Service) writeCurrentGuildPlacementProjectionWithSendLocked(session *gameSession, g *guild.Guild, identity boundGameSessionCharacter, send func(uint16, []byte) error) error {
 	p := &session.guild.placement
 	if g == nil {
 		if len(p.rows) > 0 {
@@ -27,7 +33,7 @@ func (s *Service) writeCurrentGuildPlacementProjectionLocked(session *gameSessio
 			if err != nil {
 				return err
 			}
-			if err = s.sendGameUpperRawClass(session, 191, body, 0); err != nil {
+			if err = send(191, body); err != nil {
 				return err
 			}
 		}
@@ -52,7 +58,7 @@ func (s *Service) writeCurrentGuildPlacementProjectionLocked(session *gameSessio
 			if err != nil {
 				return err
 			}
-			if err = s.sendGameUpperRawClass(session, 191, body, 0); err != nil {
+			if err = send(191, body); err != nil {
 				return err
 			}
 		}
@@ -86,7 +92,7 @@ func (s *Service) writeCurrentGuildPlacementProjectionLocked(session *gameSessio
 			action = 2
 			row = old
 		}
-		if err := s.sendGameUpperRawClass(session, 777, buildCurrentGuildPlacementNotice(action, row, costs[row.Area]), 0); err != nil {
+		if err := send(777, buildCurrentGuildPlacementNotice(action, row, costs[row.Area])); err != nil {
 			return err
 		}
 		if has {

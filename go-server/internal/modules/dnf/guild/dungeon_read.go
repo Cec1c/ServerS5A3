@@ -22,16 +22,39 @@ func ReadDungeonView(ctx context.Context, settings r.SettingsRepository) (*Dunge
 }
 
 func (v *DungeonReadView) Counts(owner r.GuildOwner, now time.Time) (DungeonCycle, map[uint32]uint32, bool, error) {
+	return v.CountsForGuild(owner, 0, now)
+}
+
+func (v *DungeonReadView) CountsForGuild(owner r.GuildOwner, expectedGuildID uint32, now time.Time) (DungeonCycle, map[uint32]uint32, bool, error) {
+	if expectedGuildID == 0 {
+		return v.CountsForGuilds(owner, nil, now)
+	}
+	return v.CountsForGuilds(owner, []uint32{expectedGuildID}, now)
+}
+
+func (v *DungeonReadView) CountsForGuilds(owner r.GuildOwner, expectedGuildIDs []uint32, now time.Time) (DungeonCycle, map[uint32]uint32, bool, error) {
 	if v == nil || v.snapshot == nil {
 		return DungeonCycle{}, nil, false, ErrRepositoryUnavailable
+	}
+	g := v.snapshot.owned(owner)
+	if g == nil {
+		return DungeonCycle{}, nil, false, nil
+	}
+	if len(expectedGuildIDs) > 0 {
+		matched := false
+		for _, id := range expectedGuildIDs {
+			if id != 0 && g.ID == id {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return DungeonCycle{}, nil, false, nil
+		}
 	}
 	cycle, err := v.snapshot.registry.DungeonPolicy.Cycle(now)
 	if err != nil {
 		return DungeonCycle{}, nil, false, err
-	}
-	g := v.snapshot.owned(owner)
-	if g == nil {
-		return cycle, nil, false, nil
 	}
 	counts, err := DungeonCounts(g, cycle)
 	return cycle, counts, true, err

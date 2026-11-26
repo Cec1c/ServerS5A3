@@ -63,13 +63,24 @@ func (u *mysqlCeraShopAssetUnitOfWork) withinBuffOwnedSnapshot(
 	router.lockReads = !readOnly
 	router.consistentRead = readOnly
 	group := newMySQLGroupFromRouter(router, false)
+	if !readOnly {
+		enableInventoryDeltaTracking(group)
+		group.Character.(*mysqlCharStore).trackStatChanges = true
+		group.Settings.(*mysqlSettingsStore).cacheLockedReads = true
+	}
 	characters := &rentalScopedCharacterRepository{characterID: characterID, base: group.Character}
-	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: &mysqlBuffInventoryStore{mysqlBagStore{mysqlStoreBase: mysqlStoreBase{router: router}}}}
+	buffInventory := &mysqlBuffInventoryStore{
+		mysqlBagStore: mysqlBagStore{
+			mysqlStoreBase:   mysqlStoreBase{router: router},
+			trackSlotChanges: !readOnly,
+		},
+	}
+	inventories := &rentalScopedInventoryRepository{characterID: characterID, base: buffInventory}
 	equipment := &rentalScopedEquipmentRepository{characterID: characterID, base: group.Equipment}
 	settings := &ceraShopScopedSettingsRepository{scope: settingsScope, base: group.Settings}
 	petMetadata := &mysqlBuffPetMetadataStore{mysqlStoreBase: mysqlStoreBase{router: router}, characterID: characterID}
 	legacy := &mysqlBuffOwnedLegacyStore{mysqlStoreBase: mysqlStoreBase{router: router}, characterID: characterID}
-	character, found, err := characters.Load(ctx, characterID)
+	character, found, err := repository.LoadCharacterIdentity(ctx, characters, characterID)
 	if err != nil {
 		return errors.Join(err, tx.Rollback())
 	}

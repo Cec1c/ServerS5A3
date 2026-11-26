@@ -735,14 +735,14 @@ func (s *Service) commitCurrentDungeonSettlementWithPotion(
 	fatigueSpent := runtime.fatigueSpent
 	var capsule *wedding.CapsuleRules
 	if s.options.currentClientVersion == "official-24.9" && currentDungeonIsRecommendedClear(runtime) {
-		c, found, e := repositories.Character.Load(ctx, fmt.Sprint(session.selectedCharacterID))
+		snap, found, e := dnfrepo.LoadCharacterWedding(ctx, repositories.Character, fmt.Sprint(session.selectedCharacterID))
 		if e != nil {
 			return currentDungeonSettlementCommitResult{}, e
 		}
-		if !found || c.AccountID != s.accountIDForSession(session) {
+		if !found || snap.AccountID != s.accountIDForSession(session) {
 			return currentDungeonSettlementCommitResult{}, wedding.ErrOwnership
 		}
-		state, e := wedding.Read(c)
+		state, e := wedding.Read(dnfrepo.CharacterRecord{CharacterID: snap.CharacterID, AccountID: snap.AccountID, Stats: snap.Stats})
 		if e != nil {
 			return currentDungeonSettlementCommitResult{}, e
 		}

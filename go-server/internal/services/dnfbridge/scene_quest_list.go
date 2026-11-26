@@ -103,8 +103,16 @@ func buildCurrentAcceptableQuestListBody(level int, questIDs []int32) []byte {
 }
 
 func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Context, session *gameSession) ([]byte, bool) {
+	body, _, _, ok := s.buildCurrentAcceptableQuestListBodyAndRecordForSession(ctx, session)
+	return body, ok
+}
+
+func (s *Service) buildCurrentAcceptableQuestListBodyAndRecordForSession(
+	ctx context.Context,
+	session *gameSession,
+) ([]byte, dnfrepo.QuestRecord, bool, bool) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	catalog, err := s.loadQuestCatalog(ctx)
 	if err != nil {
@@ -112,21 +120,21 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 			"char_id", session.selectedCharacterID,
 			"reason", "quest_catalog_unavailable",
 			"error", err)
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	repos, ok := s.repositoryGroup()
 	if !ok || repos.Character == nil || repos.Quest == nil {
 		s.logGameEvent(session, "game-upper-current-acceptable-quest-list-skipped",
 			"char_id", session.selectedCharacterID,
 			"reason", "character_or_quest_repository_unavailable")
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	_, _, character, found := s.selectedCharacterForEnter(ctx, session)
 	if !found {
 		s.logGameEvent(session, "game-upper-current-acceptable-quest-list-skipped",
 			"char_id", session.selectedCharacterID,
 			"reason", "selected_character_not_found")
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	job, validJob := characterJobByte(character)
 	if !validJob || character.Level <= 0 {
@@ -135,7 +143,7 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 			"job", character.Job,
 			"level", character.Level,
 			"reason", "selected_character_job_or_level_invalid")
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	characterID := character.CharacterID
 	if characterID == "" {
@@ -147,7 +155,7 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 			"char_id", session.selectedCharacterID,
 			"reason", "quest_record_load_failed",
 			"error", err)
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	if !hasRecord {
 		record = dnfrepo.QuestRecord{CharacterID: characterID}
@@ -158,7 +166,7 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 			"char_id", session.selectedCharacterID,
 			"reason", "legacy_abandoned_expert_job_quest_repair_failed",
 			"error", repairErr)
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	// Repair historical sweeps before op21/op574 as well as op356. Otherwise
 	// the initial town would offer stale prerequisites before receiving the
@@ -169,7 +177,7 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 			s.logGameEvent(session, "game-upper-current-acceptable-quest-list-skipped",
 				"char_id", session.selectedCharacterID,
 				"reason", "previous_story_sweep_recovery_failed", "error", err)
-			return nil, false
+			return nil, dnfrepo.QuestRecord{}, false, false
 		}
 	}
 	eligibility := dnfquest.CharacterEligibility{
@@ -180,14 +188,14 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 	var policyErr error
 	eligibility, policyErr = dnfquest.WithWeddingEligibility(ctx, repos.Character, character, eligibility)
 	if policyErr != nil {
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	if character.CharacterID == strconv.Itoa(int(session.selectedCharacterID)) && strings.TrimSpace(character.AccountID) == s.accountIDForSession(session) && record.CharacterID == character.CharacterID {
 		eligibility, policyErr = catalog.WithEpicRoadEvent350Eligibility(eligibility, s.currentEpicRoadActivityAvailable())
 	}
 	if policyErr != nil {
 		s.logGameEvent(session, "game-upper-current-acceptable-quest-list-skipped", "reason", "epic350_prerequisite_resource_mismatch", "error", policyErr)
-		return nil, false
+		return nil, dnfrepo.QuestRecord{}, false, false
 	}
 	// 每日任务的跨日投影必须和本次会话的玩法时钟一致，不能另取墙上时钟。
 	result := catalog.QuestListAt(eligibility, record, s.gameplayNow())
@@ -221,7 +229,7 @@ func (s *Service) buildCurrentAcceptableQuestListBodyForSession(ctx context.Cont
 		"protobuf_enum", currentAcceptableQuestListEnum,
 		"body_len", len(body),
 		"body_source", "current_exe_sub_1D6FB50_pb_level_and_pvf_db_quest_ids_including_active_for_all_view")
-	return body, true
+	return body, record, hasRecord, true
 }
 
 // questActiveListMembership 把"进行中任务"（= op574 快照的行来源 currentSelectAckQuestRows）
@@ -338,10 +346,24 @@ func (s *Service) reconcileLegacyAbandonedExpertJobQuests(
 }
 
 func (s *Service) sendCurrentAcceptableQuestListForSession(session *gameSession, source string) error {
-	if err := s.sendCurrentAcceptableQuestListOnlyForSession(session, source); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	body, record, hasRecord, ok := s.buildCurrentAcceptableQuestListBodyAndRecordForSession(ctx, session)
+	cancel()
+	if !ok {
+		return s.sendCurrentActiveQuestSnapshotForSession(session, source+"_after_acceptable_op21")
+	}
+	s.logGameEvent(session, "game-upper-current-acceptable-quest-list-send",
+		"char_id", session.selectedCharacterID,
+		"msg_id", currentAcceptableQuestListMsgID,
+		"classification", 0,
+		"body_len", len(body),
+		"source", source,
+		"body_source", "current_exe_sub_1D6FB50_pb_level_and_pvf_db_quest_ids_including_active_for_all_view")
+	if err := s.sendGameUpperRawClass(session, currentAcceptableQuestListMsgID, body, 0); err != nil {
 		return err
 	}
-	return s.sendCurrentActiveQuestSnapshotForSession(session, source+"_after_acceptable_op21")
+	_, err := s.sendCurrentActiveQuestSnapshotWithLoadedRecord(session, record, hasRecord, source+"_after_acceptable_op21", false)
+	return err
 }
 
 // sendCurrentInitialTownQuestSnapshotsLocked publishes the task-manual
@@ -350,26 +372,40 @@ func (s *Service) sendCurrentAcceptableQuestListForSession(session *gameSession,
 // marks only that route's one-shot snapshot so later quest accept/finish
 // refreshes can still send op21/op574 normally.
 func (s *Service) sendCurrentInitialTownQuestSnapshotsLocked(session *gameSession, source string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	_, _, _, err := s.sendCurrentInitialTownQuestSnapshotsWithSnapshotLocked(ctx, session, source)
+	return err
+}
+
+func (s *Service) sendCurrentInitialTownQuestSnapshotsWithSnapshotLocked(
+	ctx context.Context,
+	session *gameSession,
+	source string,
+) (dnfrepo.QuestRecord, bool, bool, error) {
 	if s == nil || session == nil || session.selectedCharacterID == 0 {
-		return nil
+		return dnfrepo.QuestRecord{}, false, false, nil
 	}
 	if session.initialTownQuestSnapshotsSent {
 		s.logGameEvent(session, "game-initial-town-quest-snapshots-duplicate-skipped",
 			"char_id", session.selectedCharacterID,
 			"source", source,
 			"reason", "initial_town_op21_op574_already_sent_before_typed_op24")
-		return nil
+		return dnfrepo.QuestRecord{}, false, false, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	body, ok := s.buildCurrentAcceptableQuestListBodyForSession(ctx, session)
-	cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), createWriteTimeout)
+		defer cancel()
+	}
+	body, record, hasRecord, ok := s.buildCurrentAcceptableQuestListBodyAndRecordForSession(ctx, session)
 	if !ok {
-		return nil
+		return dnfrepo.QuestRecord{}, false, false, nil
 	}
 	// 厂商顺序：op19/op2 → **op411 PVP 任务表** → op19/op205/op105/op21/op574。
 	// 缺这张表时客户端进城会开出"决斗场任务书"占位窗（2026-09-26 现场弹窗）。
 	if err := s.sendCurrentPVPMissionCombo(session, source+"_before_initial_town_op21"); err != nil {
-		return err
+		return dnfrepo.QuestRecord{}, false, false, err
 	}
 	s.logGameEvent(session, "game-initial-town-current-acceptable-quest-list-send",
 		"char_id", session.selectedCharacterID,
@@ -380,13 +416,14 @@ func (s *Service) sendCurrentInitialTownQuestSnapshotsLocked(session *gameSessio
 		"body_source", "current_exe_sub_1D6FB50_pb_level_and_pvf_db_quest_ids_including_active_for_all_view",
 		"reason", "f1_all_task_manual_needs_definition_list_before_visible_scene_interaction")
 	if err := s.sendGameUpperRawClass(session, currentAcceptableQuestListMsgID, body, 0); err != nil {
-		return err
+		return dnfrepo.QuestRecord{}, false, false, err
 	}
-	if err := s.sendCurrentActiveQuestSnapshotForSession(session, source+"_after_initial_town_acceptable_op21"); err != nil {
-		return err
+	persistedRecord, err := s.sendCurrentActiveQuestSnapshotWithLoadedRecord(session, record, hasRecord, source+"_after_initial_town_acceptable_op21", false)
+	if err != nil {
+		return dnfrepo.QuestRecord{}, false, false, err
 	}
 	session.initialTownQuestSnapshotsSent = true
-	return nil
+	return persistedRecord, hasRecord, true, nil
 }
 
 func (s *Service) sendCurrentAcceptableQuestListOnlyForSession(session *gameSession, source string) error {

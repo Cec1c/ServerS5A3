@@ -44,6 +44,7 @@ func TestPartyDungeonSharedLoadingBarrierFourMembers(t *testing.T) {
 				storeRuntimePartyState(p, state)
 			}
 			runPartyDungeonSyncEntry(t, s, a)
+			assertPartyEntryActorBatch(t, trace, members)
 			cycle := s.currentPartyDungeonLoadingCycle(99)
 			if cycle == nil {
 				t.Fatal("barrier missing")

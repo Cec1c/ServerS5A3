@@ -321,6 +321,7 @@ func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSe
 	if charID == 0 || charID != session.selectedCharacterID || !hasCharacter {
 		return false, fmt.Errorf("selected actor mode0 appearance refresh could not load selected actor")
 	}
+	ownerChannel := currentSelectedActorAppearanceOwnerContext(session)
 	mode0Body, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(
 		ctx,
 		session,
@@ -328,11 +329,12 @@ func (s *Service) sendSelectedActorMode0AppearanceWithBuffPolicy(session *gameSe
 		charName,
 		character,
 		hasCharacter,
-		currentSelectedActorAppearanceOwnerContext(session),
+		ownerChannel,
 	)
 	if err != nil {
 		return false, err
 	}
+	preserveActiveDungeonSceneObjectUserState(session, charID, ownerChannel, mode0Body)
 	if current != nil && !current() {
 		return false, nil
 	}
@@ -382,6 +384,7 @@ func (s *Service) sendSelectedActorAppearanceRefresh(session *gameSession, opera
 	if err != nil {
 		return err
 	}
+	preserveActiveDungeonSceneObjectUserState(session, charID, ownerChannel, mode0Body)
 	var legacyRepo dnfrepo.LegacyUserInfoRepository
 	if repositories, ok := s.repositoryGroup(); ok {
 		legacyRepo = repositories.LegacyUserInfo

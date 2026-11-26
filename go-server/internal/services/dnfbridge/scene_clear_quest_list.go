@@ -119,6 +119,27 @@ func (s *Service) buildCurrentClearQuestListTransportBodyForSession(
 	return s.buildCurrentClearQuestListTransportBodyForRecord(session, record, found, source)
 }
 
+// buildCurrentClearQuestListTransportBodyForLoadedRecord projects op356 from a
+// request-local quest snapshot already loaded and sweep-recovered during the
+// same town-entry sequence (op21/op574), avoiding a redundant full Quest.Load.
+func (s *Service) buildCurrentClearQuestListTransportBodyForLoadedRecord(
+	ctx context.Context,
+	session *gameSession,
+	record dnfrepo.QuestRecord,
+	found bool,
+	source string,
+) ([]byte, error) {
+	if session == nil || session.selectedCharacterID == 0 {
+		return nil, fmt.Errorf("build current clear quest list: selected character is unavailable")
+	}
+	characterID := strconv.Itoa(int(session.selectedCharacterID))
+	if found && strings.TrimSpace(record.CharacterID) != characterID {
+		return nil, fmt.Errorf("clear quest list owner mismatch: selected=%s record=%q", characterID, record.CharacterID)
+	}
+	record = s.projectCurrentDailyQuestRollover(ctx, record)
+	return s.buildCurrentClearQuestListTransportBodyForRecord(session, record, found, source)
+}
+
 func (s *Service) buildCurrentClearQuestListTransportBodyForCommittedQuest(
 	session *gameSession,
 	record dnfrepo.QuestRecord,

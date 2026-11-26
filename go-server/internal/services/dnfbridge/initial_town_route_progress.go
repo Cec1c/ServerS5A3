@@ -206,8 +206,12 @@ func (s *Service) sendCurrentInitialTownRoute(
 		return err
 	}
 	ownerChannel := currentTownActorOwnerContext(session)
+	readCtx := ctx
+	if s.equipMode0RepositoryMemoEnabled() {
+		readCtx, _ = withEquipMode0RepositoryMemo(ctx)
+	}
 	objectBody := s.buildCurrentSceneObjectListBodyForSessionInContext(
-		ctx,
+		readCtx,
 		session,
 		characterID,
 		characterName,
@@ -215,10 +219,10 @@ func (s *Service) sendCurrentInitialTownRoute(
 		hasCharacter,
 		ownerChannel,
 	)
-	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, session, character, hasCharacter)
+	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(readCtx, session, character, hasCharacter)
 	adventureLevel := uint32(adventureSummary.ManageLevel)
 	mode1Body := s.buildCurrentActorBindingMode1BodyForSelectedInContext(
-		ctx,
+		readCtx,
 		session,
 		character,
 		hasCharacter,

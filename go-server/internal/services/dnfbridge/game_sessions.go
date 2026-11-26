@@ -24,6 +24,7 @@ func (s *Service) bindGameSessionCharacter(session *gameSession, charID uint16) 
 		resetCurrentTownEnterSelectSceneLocked(session)
 		session.townMu.Unlock()
 		session.darkKnightCombo.reset()
+		session.questMaterialInbox.markDirty()
 		session.initialTownGuardianShieldDeckSent = false
 		session.initialTownGuardianShieldAppearanceSent = false
 	}

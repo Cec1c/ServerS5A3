@@ -240,6 +240,15 @@ func (s *Service) sendEnterSelectDungeonState(
 			return err
 		}
 	}
+	// A completed dungeon return can still be waiting for its deferred scene
+	// tail when the player immediately opens the selector again. The bound
+	// session's request-driven upper op15 is the client's town-side intent;
+	// settlement still validates the current completed-return owner. Keep
+	// direct op16 fenced until that client-side evidence arrives.
+	if !transport && requestDriven && source == currentTownEnterSelectUpperRequestSource &&
+		!s.sessionHasActiveDungeonRuntime(session) {
+		markCurrentCompletedTownReturnSettled(session)
+	}
 
 	contextReady := false
 	contextReadyReason := "legacy_or_proactive_path"

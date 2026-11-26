@@ -316,6 +316,7 @@ func (s *Service) sendCurrentPostFinishLoadingPlayerState(session *gameSession, 
 		if err := s.sendGameUpperRawClass(session, uint16(dnfenum.CmdPacketNotifyUserState), userStateBody, 0); err != nil {
 			return err
 		}
+		session.dungeonUserStateActive.Store(true)
 		session.deferredDungeonUserStateObjectKey = 0
 	}
 	session.setFinishLoadingGatePostFinish(true)

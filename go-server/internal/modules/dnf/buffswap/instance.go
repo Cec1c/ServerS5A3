@@ -12,7 +12,7 @@ const instanceKey = "native_buff_instance"
 
 func itemInstances(ctx context.Context, repos repo.Group, characterID string) (map[location]string, error) {
 	out := map[location]string{}
-	inv, _, err := repos.Inventory.Load(ctx, characterID)
+	inv, _, err := repo.LoadInventorySlots(ctx, repos.Inventory, characterID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func registerInstance(ctx context.Context, repos repo.Group, characterID string,
 		}
 		entry.Extra[instanceKey] = instance
 		worn.Entries[key] = entry
-		if err := repos.Equipment.Save(ctx, worn); err != nil {
+		if err := repo.SaveEquipmentFields(ctx, repos.Equipment, worn, repo.EquipmentFieldEntries); err != nil {
 			return "", err
 		}
 	} else {
@@ -113,7 +113,7 @@ func registerInstance(ctx context.Context, repos repo.Group, characterID string,
 		}
 		stack.Extra[instanceKey] = instance
 		inv.Slots[key] = stack
-		if err := repos.Inventory.Save(ctx, inv); err != nil {
+		if err := repo.SaveInventoryFields(ctx, repos.Inventory, inv, repo.InventoryFieldSlots); err != nil {
 			return "", err
 		}
 	}

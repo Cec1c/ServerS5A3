@@ -85,6 +85,18 @@ type guildPresenceReadCache struct {
 	// rosterChunksBuilder is a test seam; production leaves it nil and uses
 	// buildCurrentGuildMemberListChunks directly.
 	rosterChunksBuilder func(*guild.Guild, uint16, bool, bool, map[string]byte, time.Time, byte) []currentGuildPacketChunk
+
+	// metaMu caches immutable unhydrated guild metadata and online counts for
+	// non-window town recipients (hydrateMembers=false). It is NEVER held across
+	// WithinGuildRead or repository IO so non-hydrated reads do not serialize.
+	metaMu            sync.Mutex
+	metaVersion       guild.GuildReadVersion
+	metaGuild         *guild.Guild
+	metaOnlineVersion guild.GuildReadVersion
+	metaOnlineGuildID uint32
+	metaOnlineCount   int
+	metaOnlineSampled int64
+	metaOnlineValid   bool
 }
 
 func (c *guildPresenceReadCache) sharedOnlineChannels(s *Service, g *guild.Guild) (map[string]byte, time.Time) {
@@ -120,6 +132,43 @@ func (c *guildPresenceReadCache) sharedOnlineChannels(s *Service, g *guild.Guild
 	}
 	c.mu.Unlock()
 	return online, now
+}
+
+func (c *guildPresenceReadCache) sharedOnlineCount(s *Service, g *guild.Guild) (int, time.Time) {
+	if c == nil || g == nil {
+		return len(s.currentGuildOnlineChannels(g, nil)), s.gameplayNow()
+	}
+	c.metaMu.Lock()
+	if c.metaGuild == g {
+		version := c.metaVersion
+		if c.metaOnlineValid && c.metaOnlineGuildID == g.ID && c.metaOnlineVersion == version {
+			count := c.metaOnlineCount
+			sampled := time.Unix(0, c.metaOnlineSampled).UTC()
+			c.metaMu.Unlock()
+			return count, sampled
+		}
+		c.metaMu.Unlock()
+		now := s.gameplayNow()
+		count := len(s.currentGuildOnlineChannels(g, nil))
+		c.metaMu.Lock()
+		if c.metaGuild == g && c.metaVersion == version {
+			if !c.metaOnlineValid || c.metaOnlineGuildID != g.ID || c.metaOnlineVersion != version {
+				c.metaOnlineVersion = version
+				c.metaOnlineGuildID = g.ID
+				c.metaOnlineCount = count
+				c.metaOnlineSampled = now.UnixNano()
+				c.metaOnlineValid = true
+			} else {
+				count = c.metaOnlineCount
+				now = time.Unix(0, c.metaOnlineSampled).UTC()
+			}
+		}
+		c.metaMu.Unlock()
+		return count, now
+	}
+	c.metaMu.Unlock()
+	online, sampled := c.sharedOnlineChannels(s, g)
+	return len(online), sampled
 }
 
 func (c *guildPresenceReadCache) sharedRosterChunks(s *Service, g *guild.Guild, opcode uint16, full, cursor bool, online map[string]byte, sampledAt time.Time, region byte) []currentGuildPacketChunk {
@@ -225,10 +274,27 @@ func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boun
 				}
 			}
 		}
-		g, err := membership.RosterProjection(owner)
-		s.performanceEnd(perfGuildRegistryRead, registryStart, err)
-		if err != nil {
-			return err
+		var g *guild.Guild
+		metaHit := false
+		if !hydrateMembers && !contribution && shared != nil && membership != nil {
+			ver := membership.Version()
+			shared.metaMu.Lock()
+			if shared.metaGuild != nil && shared.metaVersion == ver {
+				if m, member := shared.metaGuild.Members[owner.CharacterID]; member && m.AccountID == owner.AccountID {
+					g = shared.metaGuild
+					metaHit = true
+				}
+			}
+			shared.metaMu.Unlock()
+		}
+		if !metaHit {
+			g, err = membership.RosterProjection(owner)
+			s.performanceEnd(perfGuildRegistryRead, registryStart, err)
+			if err != nil {
+				return err
+			}
+		} else {
+			s.performanceEnd(perfGuildRegistryRead, registryStart, nil)
 		}
 		ids := []string{owner.CharacterID}
 		if g != nil && hydrateMembers {
@@ -258,6 +324,23 @@ func (s *Service) readCurrentGuildDisplayShared(ctx context.Context, source boun
 		// Continuation frames contain no member rows. Validate only the requester
 		// in the same snapshot and retain registry metadata without another batch.
 		if !hydrateMembers {
+			if !contribution && shared != nil && membership != nil && !metaHit {
+				ver := membership.Version()
+				shared.metaMu.Lock()
+				if shared.metaVersion != ver || shared.metaGuild == nil || shared.metaGuild.ID != g.ID {
+					shared.metaGuild = g
+					shared.metaVersion = ver
+					shared.metaOnlineGuildID = 0
+					shared.metaOnlineCount = 0
+					shared.metaOnlineSampled = 0
+					shared.metaOnlineValid = false
+				} else {
+					// Adopt the already-published immutable metadata pointer for the same
+					// (version, guildID) so concurrent cold-start readers share online counts.
+					g = shared.metaGuild
+				}
+				shared.metaMu.Unlock()
+			}
 			result = g
 			return nil
 		}

@@ -116,7 +116,7 @@ func (s *Service) sendUpperCSharpSelectInit(session *gameSession, request []byte
 				characterID = strconv.Itoa(int(charID))
 			}
 			var err error
-			selectedQuests, hasSelectedQuests, err = repos.Quest.Load(ctx, characterID)
+			selectedQuests, hasSelectedQuests, err = dnfrepo.LoadQuestActivePlanning(ctx, repos.Quest, characterID)
 			if err != nil {
 				hasSelectedQuests = false
 				s.logGameEvent(session, "game-upper-select-character-quest-load-failed",

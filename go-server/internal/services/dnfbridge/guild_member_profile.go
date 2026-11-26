@@ -76,30 +76,32 @@ func (s *Service) loadCurrentGuildMemberProfileAccess(ctx context.Context, viewe
 	return access, err
 }
 
-func (s *Service) validateCurrentGuildMemberProfileAccess(ctx context.Context, a currentGuildMemberProfileAccess) (dnfrepo.CharacterRecord, error) {
+func (s *Service) validateCurrentGuildMemberProfileAccess(ctx context.Context, a currentGuildMemberProfileAccess) (dnfrepo.CharacterMirrorStats, error) {
 	if err := ctx.Err(); err != nil {
-		return dnfrepo.CharacterRecord{}, err
+		return dnfrepo.CharacterMirrorStats{}, err
 	}
 	if !s.currentGuildMemberProfileIdentities(a) {
-		return dnfrepo.CharacterRecord{}, dnfguild.ErrNotMember
+		return dnfrepo.CharacterMirrorStats{}, dnfguild.ErrNotMember
 	}
 	repos, ok := s.repositoryGroupFor(ctx)
 	if !ok || repos.Character == nil {
-		return dnfrepo.CharacterRecord{}, dnfguild.ErrRepositoryUnavailable
+		return dnfrepo.CharacterMirrorStats{}, dnfguild.ErrRepositoryUnavailable
 	}
-	var actor dnfrepo.CharacterRecord
+	var actor dnfrepo.CharacterMirrorStats
 	for i, identity := range []boundGameSessionCharacter{a.viewer, a.actor} {
 		account := a.viewerAccount
 		if i == 1 {
 			account = a.actorAccount
 		}
 		id := strconv.Itoa(int(identity.character))
-		c, found, err := repos.Character.Load(ctx, id)
+		// Ownership checks need no skills, quests or inventory payload. Keep the
+		// fresh read at each existing fence, including after waiting for the wire.
+		c, found, err := dnfrepo.LoadCharacterMirrorStats(ctx, repos.Character, id, "delete_flag")
 		if err != nil {
-			return dnfrepo.CharacterRecord{}, err
+			return dnfrepo.CharacterMirrorStats{}, err
 		}
 		if !found || c.CharacterID != id || c.AccountID != account || c.Stats["delete_flag"] != 0 {
-			return dnfrepo.CharacterRecord{}, dnfguild.ErrCharacterNotFound
+			return dnfrepo.CharacterMirrorStats{}, dnfguild.ErrCharacterNotFound
 		}
 		if i == 1 {
 			actor = c
@@ -107,7 +109,7 @@ func (s *Service) validateCurrentGuildMemberProfileAccess(ctx context.Context, a
 	}
 	_, reg, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
-		return dnfrepo.CharacterRecord{}, err
+		return dnfrepo.CharacterMirrorStats{}, err
 	}
 	for i, identity := range []boundGameSessionCharacter{a.viewer, a.actor} {
 		account, joined := a.viewerAccount, a.viewerJoined
@@ -116,13 +118,60 @@ func (s *Service) validateCurrentGuildMemberProfileAccess(ctx context.Context, a
 		}
 		m, found := reg.OwnedMember(dnfrepo.GuildOwner{CharacterID: strconv.Itoa(int(identity.character)), AccountID: account})
 		if !found || m.GuildID != a.guildID || !m.JoinedAt.Equal(joined) {
-			return dnfrepo.CharacterRecord{}, dnfguild.ErrNotMember
+			return dnfrepo.CharacterMirrorStats{}, dnfguild.ErrNotMember
 		}
 	}
 	if !s.currentGuildMemberProfileIdentities(a) {
-		return dnfrepo.CharacterRecord{}, dnfguild.ErrNotMember
+		return dnfrepo.CharacterMirrorStats{}, dnfguild.ErrNotMember
 	}
 	return actor, ctx.Err()
+}
+
+// validateCurrentGuildRosterPrimeActorAccess validates the target actor right
+// before writing a lightweight silent mode8 priming frame during a guild-roster
+// sweep whose viewer and fresh guild snapshot were already validated for this
+// request. It preserves live online-identity and delete_flag checks with 1
+// narrow PK lookup instead of repeating 2x3 queries per peer.
+func (s *Service) validateCurrentGuildRosterPrimeActorAccess(ctx context.Context, a currentGuildMemberProfileAccess) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !s.currentGuildMemberProfileIdentities(a) {
+		return dnfguild.ErrNotMember
+	}
+	repos, ok := s.repositoryGroupFor(ctx)
+	if !ok || repos.Character == nil {
+		return dnfguild.ErrRepositoryUnavailable
+	}
+	id := strconv.Itoa(int(a.actor.character))
+	c, found, err := dnfrepo.LoadCharacterMirrorStats(ctx, repos.Character, id, "delete_flag")
+	if err != nil {
+		return err
+	}
+	if !found || c.CharacterID != id || c.AccountID != a.actorAccount || c.Stats["delete_flag"] != 0 {
+		return dnfguild.ErrCharacterNotFound
+	}
+	// The sweep's original guild snapshot can become stale while waiting for
+	// preparation or the viewer transport. Revalidate both membership receipts
+	// using the current narrow directory; keep the single actor PK read above.
+	_, reg, err := s.readCurrentGuildDirectory(ctx)
+	if err != nil {
+		return err
+	}
+	for i, identity := range []boundGameSessionCharacter{a.viewer, a.actor} {
+		account, joined := a.viewerAccount, a.viewerJoined
+		if i == 1 {
+			account, joined = a.actorAccount, a.actorJoined
+		}
+		m, found := reg.OwnedMember(dnfrepo.GuildOwner{CharacterID: strconv.Itoa(int(identity.character)), AccountID: account})
+		if !found || m.GuildID != a.guildID || !m.JoinedAt.Equal(joined) {
+			return dnfguild.ErrNotMember
+		}
+	}
+	if !s.currentGuildMemberProfileIdentities(a) {
+		return dnfguild.ErrNotMember
+	}
+	return ctx.Err()
 }
 
 func (s *Service) handleCurrentGuildMemberProfile(session *gameSession, body []byte) error {
@@ -176,45 +225,139 @@ func (s *Service) sendCurrentGuildMemberProfileWithPolicy(ctx context.Context, a
 }
 
 func (s *Service) sendCurrentGuildMemberProfileWithPolicyDelivered(ctx context.Context, a currentGuildMemberProfileAccess, cacheOnly bool) (bool, uint64, error) {
-	c, err := s.validateCurrentGuildMemberProfileAccess(ctx, a)
+	delivered, revision, _, _, err := s.sendCurrentGuildMemberProfileWithPolicyDeliveredWithWriteCtx(ctx, ctx, a, cacheOnly)
+	return delivered, revision, err
+}
+
+// sendCurrentGuildRosterPrimeMode8DeliveredWithWriteCtx delivers a lightweight
+// silent mode8 priming frame during a guild-roster sweep whose viewer and
+// fresh guild snapshot g were already validated once for the current request.
+func (s *Service) sendCurrentGuildRosterPrimeMode8DeliveredWithWriteCtx(
+	prepCtx context.Context,
+	writeCtx context.Context,
+	a currentGuildMemberProfileAccess,
+	g *dnfguild.Guild,
+) (delivered bool, revision uint64, transportErr bool, err error) {
+	if prepCtx == nil {
+		prepCtx = context.Background()
+	}
+	if writeCtx == nil {
+		writeCtx = prepCtx
+	}
+	if !s.currentGuildMemberProfileIdentities(a) {
+		return false, 0, false, nil
+	}
+	priming, rev, cacheGen, dynamicExpiresAt, ok, err := s.loadOrBuildGuildCacheOnlyMode8(prepCtx, a, a.request.channel, g)
 	if err != nil {
-		return false, 0, nil
+		return false, 0, false, err
+	}
+	if !ok {
+		return false, 0, false, nil
+	}
+	frames := []currentGuildMemberProfileFrame{{2, 0, priming}}
+	sent, writeFailed, err := s.sendCurrentGuildMemberProfileFramesDeliveredWithValidatorAndGuard(
+		prepCtx,
+		writeCtx,
+		a,
+		rev,
+		frames,
+		s.validateCurrentGuildRosterPrimeActorAccess,
+		s.guildMode8CacheSendGuard(a.actor.character, cacheGen, dynamicExpiresAt),
+	)
+	return sent, rev, writeFailed, err
+}
+
+// sendCurrentGuildMemberProfileWithPolicyDeliveredWithWriteCtx bounds all
+// pre-write preparation (validation, DB/singleflight build, character
+// reservation, appearance/wire locks) by prepCtx, while passing writeCtx to
+// beginGameWriteBudgetLocked so an optional priming budget expiring before the
+// socket write never closes the viewer's TCP transport.
+func (s *Service) sendCurrentGuildMemberProfileWithPolicyDeliveredWithWriteCtx(
+	prepCtx context.Context,
+	writeCtx context.Context,
+	a currentGuildMemberProfileAccess,
+	cacheOnly bool,
+) (delivered bool, revision uint64, dynamicExpiresAt time.Time, transportErr bool, err error) {
+	if prepCtx == nil {
+		prepCtx = context.Background()
+	}
+	if writeCtx == nil {
+		writeCtx = prepCtx
+	}
+	if _, err := s.validateCurrentGuildMemberProfileAccess(prepCtx, a); err != nil {
+		if errors.Is(err, dnfguild.ErrNotMember) || errors.Is(err, dnfguild.ErrCharacterNotFound) {
+			return false, 0, time.Time{}, false, nil
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return false, 0, time.Time{}, false, err
+		}
+		return false, 0, time.Time{}, false, nil
+	}
+	if cacheOnly && a.request.kind == 0 {
+		priming, rev, cacheGen, dynExp, ok, err := s.loadOrBuildGuildCacheOnlyMode8(prepCtx, a, a.request.channel)
+		if err != nil {
+			return false, 0, time.Time{}, false, err
+		}
+		if !ok {
+			return false, 0, time.Time{}, false, nil
+		}
+		frames := []currentGuildMemberProfileFrame{{2, 0, priming}}
+		sent, writeFailed, err := s.sendCurrentGuildMemberProfileFramesDeliveredWithWriteCtxAndGuard(
+			prepCtx,
+			writeCtx,
+			a,
+			rev,
+			frames,
+			s.guildMode8CacheSendGuard(a.actor.character, cacheGen, dynExp),
+		)
+		return sent, rev, dynExp, writeFailed, err
+	}
+	repos, ok := s.repositoryGroupFor(prepCtx)
+	if !ok || repos.Character == nil {
+		return false, 0, time.Time{}, false, dnfguild.ErrRepositoryUnavailable
+	}
+	c, found, err := repos.Character.Load(prepCtx, strconv.Itoa(int(a.actor.character)))
+	if err != nil {
+		return false, 0, time.Time{}, false, err
+	}
+	if !found || c.CharacterID != strconv.Itoa(int(a.actor.character)) || c.AccountID != a.actorAccount || c.Stats["delete_flag"] != 0 {
+		return false, 0, time.Time{}, false, nil
 	}
 	actor := a.actor.session
-	revision := currentCrossSceneAppearanceRevision(actor)
+	revision = currentCrossSceneAppearanceRevision(actor)
 	var frames []currentGuildMemberProfileFrame
 	if a.request.kind == 4 {
-		body, err := s.buildCurrentGuildMemberAdventure(ctx, a, c)
+		body, err := s.buildCurrentGuildMemberAdventure(prepCtx, a, c)
 		if err != nil {
-			return false, 0, err
+			return false, 0, time.Time{}, false, err
 		}
 		frames = append(frames, currentGuildMemberProfileFrame{currentAdventureInfoRequestMsgID, 1, upperSuccessBody(body)})
 	} else {
 		owner := a.request.channel
-		mode0, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(ctx, actor, a.actor.character, c.Name, c, true, owner)
+		buildCtx := prepCtx
+		if s.equipMode0RepositoryMemoEnabled() {
+			buildCtx, _ = withEquipMode0RepositoryMemo(prepCtx)
+		}
+		mode0, err := s.buildCurrentSceneObjectListBodyForSessionInContextStrict(buildCtx, actor, a.actor.character, c.Name, c, true, owner)
 		if err != nil {
-			return false, 0, err
+			return false, 0, time.Time{}, false, err
 		}
-		repos, ok := s.repositoryGroupFor(ctx)
-		if !ok {
-			return false, 0, dnfguild.ErrRepositoryUnavailable
-		}
-		ctx = context.WithValue(ctx, nativePeerProfileSkillsKey{}, c.CharacterID)
+		detailCtx := context.WithValue(buildCtx, nativePeerProfileSkillsKey{}, c.CharacterID)
 		if buffSwapReapplyEnabled() {
-			ctx = context.WithValue(ctx, nativePeerBuffInspectKey{}, c.CharacterID)
+			detailCtx = context.WithValue(detailCtx, nativePeerBuffInspectKey{}, c.CharacterID)
 		}
-		mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(ctx, actor, repos.LegacyUserInfo, c, true, a.actor.character, owner)
+		mode3 := s.buildCurrentSelectedUserInfoMode3BodyInContext(detailCtx, actor, repos.LegacyUserInfo, c, true, a.actor.character, owner)
 		priming, err := buildCurrentCrossSceneUserInfoBody(mode0, mode3)
 		if err != nil {
-			return false, 0, err
+			return false, 0, time.Time{}, false, err
 		}
 		frames = []currentGuildMemberProfileFrame{{2, 0, priming}, {2, 0, mode3}}
 		if cacheOnly {
 			frames = frames[:1]
 		}
 	}
-	delivered, err := s.sendCurrentGuildMemberProfileFramesDelivered(ctx, a, revision, frames)
-	return delivered, revision, err
+	sent, writeFailed, err := s.sendCurrentGuildMemberProfileFramesDeliveredWithWriteCtx(prepCtx, writeCtx, a, revision, frames)
+	return sent, revision, time.Time{}, writeFailed, err
 }
 
 // Keep this checked wire path separate from the party/raid memory-only
@@ -230,52 +373,142 @@ func (s *Service) sendCurrentGuildMemberProfileFrames(ctx context.Context, a cur
 // （outcome == upperPacketWritten，排除阻断/诊断过滤、批次缓冲待写及任何错误）时
 // 才返回 true，供调用方据此维护预热去重缓存。
 func (s *Service) sendCurrentGuildMemberProfileFramesDelivered(ctx context.Context, a currentGuildMemberProfileAccess, revision uint64, frames []currentGuildMemberProfileFrame) (bool, error) {
+	delivered, _, err := s.sendCurrentGuildMemberProfileFramesDeliveredWithWriteCtx(ctx, ctx, a, revision, frames)
+	return delivered, err
+}
+
+func (s *Service) sendCurrentGuildMemberProfileFramesDeliveredWithWriteCtx(
+	prepCtx context.Context,
+	writeCtx context.Context,
+	a currentGuildMemberProfileAccess,
+	revision uint64,
+	frames []currentGuildMemberProfileFrame,
+) (delivered bool, transportErr bool, err error) {
+	return s.sendCurrentGuildMemberProfileFramesDeliveredWithWriteCtxAndGuard(prepCtx, writeCtx, a, revision, frames, nil)
+}
+
+func (s *Service) sendCurrentGuildMemberProfileFramesDeliveredWithWriteCtxAndGuard(
+	prepCtx context.Context,
+	writeCtx context.Context,
+	a currentGuildMemberProfileAccess,
+	revision uint64,
+	frames []currentGuildMemberProfileFrame,
+	validateCache func() bool,
+) (delivered bool, transportErr bool, err error) {
+	return s.sendCurrentGuildMemberProfileFramesDeliveredWithValidatorAndGuard(
+		prepCtx,
+		writeCtx,
+		a,
+		revision,
+		frames,
+		nil,
+		validateCache,
+	)
+}
+
+func (s *Service) sendCurrentGuildMemberProfileFramesDeliveredWithValidator(
+	prepCtx context.Context,
+	writeCtx context.Context,
+	a currentGuildMemberProfileAccess,
+	revision uint64,
+	frames []currentGuildMemberProfileFrame,
+	validate func(context.Context, currentGuildMemberProfileAccess) error,
+) (delivered bool, transportErr bool, err error) {
+	return s.sendCurrentGuildMemberProfileFramesDeliveredWithValidatorAndGuard(
+		prepCtx,
+		writeCtx,
+		a,
+		revision,
+		frames,
+		validate,
+		nil,
+	)
+}
+
+func (s *Service) sendCurrentGuildMemberProfileFramesDeliveredWithValidatorAndGuard(
+	prepCtx context.Context,
+	writeCtx context.Context,
+	a currentGuildMemberProfileAccess,
+	revision uint64,
+	frames []currentGuildMemberProfileFrame,
+	validate func(context.Context, currentGuildMemberProfileAccess) error,
+	validateCache func() bool,
+) (delivered bool, transportErr bool, err error) {
 	if len(frames) == 0 {
-		return false, nil
+		return false, false, nil
 	}
-	release, err := s.reserveCurrentGuildParticipants(ctx, []boundGameSessionCharacter{a.viewer, a.actor})
+	if prepCtx == nil {
+		prepCtx = context.Background()
+	}
+	if writeCtx == nil {
+		writeCtx = prepCtx
+	}
+	if validate == nil {
+		validate = func(ctx context.Context, access currentGuildMemberProfileAccess) error {
+			_, err := s.validateCurrentGuildMemberProfileAccess(ctx, access)
+			return err
+		}
+	}
+	if err := prepCtx.Err(); err != nil {
+		return false, false, err
+	}
+	release, err := s.reserveCurrentGuildParticipants(prepCtx, []boundGameSessionCharacter{a.viewer, a.actor})
 	if err != nil {
 		// A peer may reconnect between preparation and binding reservation.
 		// Drop this inspection instead of failing the viewer's command stream.
 		if errors.Is(err, errDungeonWorldMapUnavailable) {
-			return false, nil
+			return false, false, nil
 		}
-		return false, err
+		return false, false, err
 	}
 	defer release()
 	actor, viewer := a.actor.session, a.viewer.session
-	if err := lockCurrentCrossSceneProfile(ctx, &actor.crossSceneAppearanceMu); err != nil {
-		return false, err
+	if err := lockCurrentCrossSceneProfile(prepCtx, &actor.crossSceneAppearanceMu); err != nil {
+		return false, false, err
 	}
 	defer actor.crossSceneAppearanceMu.Unlock()
-	if err := s.lockGameWire(viewer, ctx); err != nil {
-		return false, err
+	if err := s.lockGameWire(viewer, prepCtx); err != nil {
+		return false, false, err
 	}
 	defer viewer.wireMu.Unlock()
-	finishWrite, err := beginGameWriteBudgetLocked(viewer, ctx)
+	if err := prepCtx.Err(); err != nil {
+		return false, false, err
+	}
+	finishWrite, err := beginGameWriteBudgetLocked(viewer, writeCtx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	defer finishWrite()
 	allWritten := true
-	for _, frame := range frames {
+	for i, frame := range frames {
 		if revision != actor.crossSceneAppearanceRevision {
-			return false, nil
+			return false, false, nil
 		}
-		if _, err := s.validateCurrentGuildMemberProfileAccess(ctx, a); err != nil {
+		if validateCache != nil && !validateCache() {
+			return false, false, nil
+		}
+		if err := validate(prepCtx, a); err != nil {
 			if errors.Is(err, dnfguild.ErrNotMember) || errors.Is(err, dnfguild.ErrCharacterNotFound) {
-				return false, nil
+				return false, false, nil
 			}
-			return false, err
+			return false, false, err
+		}
+		if validateCache != nil && !validateCache() {
+			return false, false, nil
+		}
+		if i == 0 {
+			if err := prepCtx.Err(); err != nil {
+				return false, false, err
+			}
 		}
 		outcome, err := s.sendGameUpperRawClassCodecLockedWithOutcome(viewer, frame.opcode, frame.body, frame.class, true)
 		if err != nil {
 			viewer.closeGameTransport()
-			return false, err
+			return false, true, err
 		}
 		if outcome != upperPacketWritten {
 			allWritten = false
 		}
 	}
-	return allWritten, nil
+	return allWritten, false, nil
 }

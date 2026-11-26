@@ -132,6 +132,15 @@ func (c *p0E2EMySQLConn) QueryContext(_ context.Context, query string, args []dr
 			cols: []string{"digest"},
 			rows: [][]driver.Value{{hex.EncodeToString(sum[:])}},
 		}, nil
+	case strings.Contains(strings.ToUpper(query), " LEFT JOIN "):
+		rows := make([][]driver.Value, 0, len(vals))
+		for k, v := range vals {
+			rows = append(rows, []driver.Value{scope, time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC), k, v})
+		}
+		if len(rows) == 0 && exists {
+			rows = append(rows, []driver.Value{scope, time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC), nil, nil})
+		}
+		return &p0E2EMySQLRows{cols: []string{"scope", "updated_at", "entry_key", "entry_value"}, rows: rows}, nil
 	case strings.Contains(query, ".`dnf_settings`"):
 		if !exists {
 			return &p0E2EMySQLRows{cols: []string{"scope", "updated_at"}}, nil

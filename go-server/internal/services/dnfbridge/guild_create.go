@@ -38,44 +38,81 @@ type currentGuildCreateInvitation struct {
 	operationID string
 }
 
+var guildPrimedPeerTTL = 60 * time.Second
+
 type weddingPrimedPeer struct {
 	viewerChar    uint16
 	viewerGen     uint64
 	actorSession  *gameSession
 	actorGen      uint64
 	actorChannel  int
+	directory     byte
 	guildID       uint32
 	appearanceRev uint64
+	expiresAt     time.Time
+}
+
+func (p weddingPrimedPeer) matches(expected weddingPrimedPeer, now time.Time) bool {
+	if p.expiresAt.IsZero() || !now.Before(p.expiresAt) {
+		return false
+	}
+	return p.viewerChar == expected.viewerChar &&
+		p.viewerGen == expected.viewerGen &&
+		p.actorSession == expected.actorSession &&
+		p.actorGen == expected.actorGen &&
+		p.actorChannel == expected.actorChannel &&
+		p.directory == expected.directory &&
+		p.guildID == expected.guildID &&
+		p.appearanceRev == expected.appearanceRev
+}
+
+func guildPrimedPeerExpiry(now time.Time, dynamicExpiresAt time.Time) time.Time {
+	expiresAt := now.Add(guildPrimedPeerTTL)
+	if !dynamicExpiresAt.IsZero() && dynamicExpiresAt.Before(expiresAt) {
+		return dynamicExpiresAt
+	}
+	return expiresAt
 }
 
 type guildSessionState struct {
-	placement                currentGuildPlacementProjection
-	mu                       sync.Mutex
-	purchaseSequence         guildPurchaseSequence
-	teleport                 *currentGuildTeleport
-	teleportLast             *currentGuildTeleport
-	pendingName              string
-	nameChecked              bool
-	promotion                string
-	createCommitted          bool
-	createInvitation         *currentGuildCreateInvitation
-	incomingInvitation       *currentGuildInvitation
-	outgoingInvitations      map[*currentGuildInvitation]struct{}
-	lastCreate               *dnfguild.CreateRequest
-	soloOperationID          string
-	memberListRequested      bool
-	memberListRequestedAt    time.Time
-	presenceRefresh          *currentGuildPresenceRefresh
-	membershipRefresh        *currentGuildMembershipRefresh
-	membershipRefreshPending atomic.Bool
-	eventLoopCompletedSeq    atomic.Uint64
-	presenceRefreshClosed    bool
-	lastPresenceRefreshAt    time.Time
-	lastMembershipRefreshAt  time.Time
-	weddingPrimedPeers       map[uint16]weddingPrimedPeer
-	cargoLoadedGuild         uint32
-	cargoLoadedGeneration    uint64
-	cargoPending             uint32
+	placement                  currentGuildPlacementProjection
+	mu                         sync.Mutex
+	purchaseSequence           guildPurchaseSequence
+	teleport                   *currentGuildTeleport
+	teleportLast               *currentGuildTeleport
+	pendingName                string
+	nameChecked                bool
+	promotion                  string
+	createCommitted            bool
+	createInvitation           *currentGuildCreateInvitation
+	incomingInvitation         *currentGuildInvitation
+	outgoingInvitations        map[*currentGuildInvitation]struct{}
+	lastCreate                 *dnfguild.CreateRequest
+	soloOperationID            string
+	memberListRequested        bool
+	memberListRequestedAt      time.Time
+	presenceRefresh            *currentGuildPresenceRefresh
+	membershipRefresh          *currentGuildMembershipRefresh
+	essenceRefresh             *currentGuildEssenceRefresh
+	dungeonRefresh             *currentGuildDungeonRefresh
+	membershipRefreshPending   atomic.Bool
+	eventLoopCompletedSeq      atomic.Uint64
+	presenceRefreshClosed      bool
+	lastPresenceRefreshAt      time.Time
+	lastMembershipRefreshAt    time.Time
+	lastEssenceRefreshAt       time.Time
+	lastDungeonRefreshAt       time.Time
+	weddingPrimedPeers         map[uint16]weddingPrimedPeer
+	sameChannelPrimeGuildID    uint32
+	sameChannelPrimeViewerChar uint16
+	sameChannelPrimeViewerGen  uint64
+	sameChannelPrimeCursor     string
+	sameChannelPrimeIncomplete bool
+	weddingPrimeIncomplete     bool
+	sameChannelPrimeRetryAfter map[uint16]time.Time
+	cargoLoadedGuild           uint32
+	cargoLoadedGeneration      uint64
+	cargoPending               uint32
 }
 
 func (s *Service) handleCurrentGuildCreate(session *gameSession, body []byte) error {
@@ -260,8 +297,15 @@ func (s *Service) expireCurrentGuildCreateInvitation(invite *currentGuildCreateI
 	}
 }
 
+var testGuildContextTimeout time.Duration
+var testBeforeGuildPeerWireLock func(kind string)
+
 func (s *Service) currentGuildContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), createWriteTimeout)
+	timeout := createWriteTimeout
+	if testGuildContextTimeout > 0 {
+		timeout = testGuildContextTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (s *Service) loadCurrentGuildRegistry(ctx context.Context) (dnfrepo.Group, dnfguild.Registry, error) {

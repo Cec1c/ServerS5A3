@@ -23,7 +23,10 @@ type fakeSQLDB struct {
 	execErr    error
 	execResult sql.Result
 	pingErr    error
+	joinedRead bool
 }
+
+func (f *fakeSQLDB) SupportsSettingsJoinedRead() bool { return f.joinedRead }
 
 func (f *fakeSQLDB) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
 	f.execs = append(f.execs, fakeSQLCall{
@@ -264,6 +267,17 @@ func assignFakeSQLValue(dest any, value any) error {
 			*out = sql.NullInt64{Int64: v, Valid: true}
 		default:
 			return errors.New("unsupported fake sql null int64 value")
+		}
+	case *sql.NullBool:
+		if value == nil {
+			*out = sql.NullBool{}
+			return nil
+		}
+		switch v := value.(type) {
+		case bool:
+			*out = sql.NullBool{Bool: v, Valid: true}
+		default:
+			return errors.New("unsupported fake sql null bool value")
 		}
 	case *time.Time:
 		if value == nil {

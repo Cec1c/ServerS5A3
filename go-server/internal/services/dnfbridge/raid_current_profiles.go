@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"longheng.io/server/internal/modules/dnf/raid"
+	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // currentRaidProfileSendView is connection-local. A replacement connection
@@ -329,17 +330,19 @@ func (s *Service) currentRuntimeRaidProfileBodyForMembers(
 		if !available || repos.Character == nil {
 			return nil, nil
 		}
-		character, found, err := repos.Character.Load(ctx, strconv.Itoa(int(member.CharID)))
+		id := strconv.Itoa(int(member.CharID))
+		snap, found, err := dnfrepo.LoadCharacterMirrorStats(ctx, repos.Character, id, dnfrepo.CharacterGrowTypeStatKey)
 		if err != nil {
 			return nil, err
 		}
-		if !found || character.CharacterID != strconv.Itoa(int(member.CharID)) || character.Level <= 0 || character.Level > 65535 {
+		if !found || snap.CharacterID != id || snap.Level <= 0 || snap.Level > 65535 {
 			continue
 		}
-		job, err := strconv.ParseUint(character.Job, 10, 8)
+		job, err := strconv.ParseUint(snap.Job, 10, 8)
 		if err != nil {
 			continue
 		}
+		character := dnfrepo.CharacterRecord{CharacterID: snap.CharacterID, Name: snap.Name, Job: snap.Job, Level: snap.Level, Stats: snap.Stats}
 		row := raid.CurrentProfileRecord{CharKey: member.CharID, Channel: byte(state.RaidKey >> 16), Server: byte(state.RaidKey >> 24), Level: uint16(character.Level), Job: byte(job), Grow: characterGrowTypeByte(character), Name: character.Name}
 		// Missing/oversized names must not be replaced by a synthetic character.
 		if _, err := raid.BuildCurrentRaidProfilesBody([]raid.CurrentProfileRecord{row}); err != nil {

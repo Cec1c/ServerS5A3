@@ -153,37 +153,51 @@ func (s *Service) refreshCurrentGuildTextPeerShared(ctx context.Context, guildID
 	if err != nil {
 		return err
 	}
-	defer release()
 	character, err := s.currentGuildOwnedSelectedIdentity(peer.session)
 	if err != nil {
+		release()
 		return err
 	}
 	_, r, err := s.readCurrentGuildDirectory(ctx)
 	if err != nil {
+		release()
 		return err
 	}
 	g, err := r.OwnedRoster(dnfrepo.GuildOwner{CharacterID: character.CharacterID, AccountID: character.AccountID})
 	if err != nil {
+		release()
 		return err
 	}
 	if g == nil || g.ID != guildID {
+		release()
 		return nil
 	}
 	if notice {
+		defer release()
 		return s.sendCurrentGuildManagementState(peer.session, g)
 	}
 	if peer != source {
 		if !s.isCurrentGuildMemberListActive(peer.session) {
+			release()
 			return nil
 		}
 		if sessionInDungeon(peer.session) {
 			s.guildRosterCounter(guildRefreshDeferred, 1)
+			release()
 			return nil
 		}
+	}
+	// Release the outer character reservation BEFORE entering roster display:
+	// roster priming sends mode8 frames via sendCurrentGuildMemberProfileFramesDelivered,
+	// which acquires non-reentrant reservations for {viewer=peer, actor}. Re-verify the
+	// exact bound snapshot and guild ID at display/publish time.
+	release()
+	if !s.boundGameSessionCharacterCurrent(peer) {
+		return nil
 	}
 	trigger := "membership"
 	if source.session == nil {
 		trigger = "presence"
 	}
-	return s.handleCurrentGuildMemberListObservedShared(peer.session, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger, shared)
+	return s.handleCurrentGuildMemberListObservedBoundShared(peer, guildID, uint16(dnfenum.CmdPacketGuildAllMemberList), trigger, shared)
 }

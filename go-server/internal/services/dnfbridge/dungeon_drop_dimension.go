@@ -118,6 +118,31 @@ func (s *Service) loadDimensionDropCharacter(characterID uint16) (dnfrepo.Charac
 	return character, nil
 }
 
+// 异界翻牌只需要领取者的职业/等级/grow_type，走窄读取避免扫 400+ stat 与名册表。
+func (s *Service) loadDimensionDropCareerCharacter(characterID uint16) (dnfrepo.CharacterRecord, error) {
+	repositories, ok := s.repositoryGroup()
+	if !ok || repositories.Character == nil {
+		return dnfrepo.CharacterRecord{}, errCurrentDungeonDimensionDropInvalid
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	snap, found, err := dnfrepo.LoadCharacterMirrorStats(ctx, repositories.Character, strconv.Itoa(int(characterID)), dnfrepo.CharacterGrowTypeStatKey)
+	if err != nil {
+		return dnfrepo.CharacterRecord{}, err
+	}
+	if !found {
+		return dnfrepo.CharacterRecord{}, fmt.Errorf("异界掉落领取角色不存在：%d", characterID)
+	}
+	return dnfrepo.CharacterRecord{
+		CharacterID: snap.CharacterID,
+		AccountID:   snap.AccountID,
+		Name:        snap.Name,
+		Job:         snap.Job,
+		Level:       snap.Level,
+		Stats:       snap.Stats,
+	}, nil
+}
+
 func currentDungeonRandomDimensionCardItem(rng *currentDungeonDropLCG, items *pvfDungeonDropCatalog, dimension *currentDungeonDimensionDropCatalog, dungeonID int64, level int, job byte, growType byte, now time.Time) (dungeonCardItemReward, bool, error) {
 	_, itemID, _, matched, selected, err := currentDungeonDimensionChronicleItem(dimension, dungeonID, level, job, growType, rng, true)
 	if err != nil || !selected {

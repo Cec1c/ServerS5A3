@@ -47,6 +47,64 @@ type RoomClearMapCompletionPlan struct {
 	ChangedFields  []dnfrepo.QuestField
 }
 
+// RoomClearMapPlanningIDs returns the exact sorted subset of maze-linked child
+// quest IDs that match input.MapID in the catalog, plus the full bounded set of
+// quest IDs (matching children, their quest-clear parents, and those parents'
+// IntData sibling children) that PlanRoomClearMapCompletion can inspect.
+func (c *Catalog) RoomClearMapPlanningIDs(input RoomClearMapInput) (linkedIDs []int64, dependencyIDs []int64) {
+	if c == nil || input.MapID <= 0 {
+		return nil, nil
+	}
+	candidates := normalizedRoomClearMapQuestIDs(input.LinkedQuestIDs)
+	deps := make(map[int64]struct{}, len(candidates)*4)
+	for _, questID := range candidates {
+		definition, known := c.Find(questID)
+		if !known || !roomClearMapChildMatches(definition, input.MapID) {
+			continue
+		}
+		linkedIDs = append(linkedIDs, questID)
+		deps[questID] = struct{}{}
+		if definition.MainQuestID <= 0 {
+			continue
+		}
+		parent, parentKnown := c.Find(definition.MainQuestID)
+		if !parentKnown || !questClearDefinition(parent) || !roomClearMapIntContains(parent.IntData, definition.ID) {
+			continue
+		}
+		deps[parent.ID] = struct{}{}
+		for _, siblingID := range parent.IntData {
+			if siblingID > 0 {
+				deps[siblingID] = struct{}{}
+			}
+		}
+	}
+	if len(deps) == 0 {
+		return nil, nil
+	}
+	dependencyIDs = make([]int64, 0, len(deps))
+	for id := range deps {
+		dependencyIDs = append(dependencyIDs, id)
+	}
+	sort.Slice(dependencyIDs, func(i, j int) bool { return dependencyIDs[i] < dependencyIDs[j] })
+	return linkedIDs, dependencyIDs
+}
+
+func validateRoomClearMapInput(input RoomClearMapInput) error {
+	if input.DungeonID <= 0 {
+		return ErrRoomClearMapDungeonRequired
+	}
+	if input.MapID <= 0 {
+		return ErrRoomClearMapMapRequired
+	}
+	if strings.TrimSpace(input.CompletionKey) == "" {
+		return ErrRoomClearMapCompletionKeyRequired
+	}
+	if input.CompletedAt.IsZero() {
+		return ErrRoomClearMapCompletionTimeRequired
+	}
+	return nil
+}
+
 // PlanRoomClearMapCompletion archives an active, maze-linked, no-reward
 // clear-map child and recomputes its active quest-clear parent. It never
 // activates missing work, matches a dungeon id as a map, grants rewards, or
@@ -58,19 +116,10 @@ func (c *Catalog) PlanRoomClearMapCompletion(
 	if c == nil {
 		return RoomClearMapCompletionPlan{}, ErrCatalogEmpty
 	}
-	if input.DungeonID <= 0 {
-		return RoomClearMapCompletionPlan{}, ErrRoomClearMapDungeonRequired
-	}
-	if input.MapID <= 0 {
-		return RoomClearMapCompletionPlan{}, ErrRoomClearMapMapRequired
+	if err := validateRoomClearMapInput(input); err != nil {
+		return RoomClearMapCompletionPlan{}, err
 	}
 	input.CompletionKey = strings.TrimSpace(input.CompletionKey)
-	if input.CompletionKey == "" {
-		return RoomClearMapCompletionPlan{}, ErrRoomClearMapCompletionKeyRequired
-	}
-	if input.CompletedAt.IsZero() {
-		return RoomClearMapCompletionPlan{}, ErrRoomClearMapCompletionTimeRequired
-	}
 
 	plan := RoomClearMapCompletionPlan{Record: dnfrepo.CloneQuest(record)}
 	linkedQuestIDs := normalizedRoomClearMapQuestIDs(input.LinkedQuestIDs)

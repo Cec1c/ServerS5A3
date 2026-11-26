@@ -634,6 +634,12 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 			"maze_index", runtime.MazeIndex)
 	}
 	if prepared == nil {
+		if err := s.preparePartyEntryActorBatch(ctx, session, runtime, preparedFollowers); err != nil {
+			reason, class := currentSelectDungeonEntryFailureReason(err)
+			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
+				"party_entry_actor_preparation_failed", class, reason, err)
+			return s.refuseDungeonSelectEntryValidation(session, request, err)
+		}
 		// Recheck immediately before the first entry asset mutation. Repository
 		// preflight can outlive the reply or race a town leave/leader handoff.
 		if nativeProof != nil && !s.partyNativeProofCurrent(nativeProof) {
@@ -756,7 +762,12 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 	if err := s.sendCurrentDungeonResourceState(session, runtime, "select_dungeon_after_op16_ack_before_op27"); err != nil {
 		return err
 	}
-	if err := s.sendCurrentPreDungeonContextPlayerState(session, "select_dungeon_after_op5_before_op27"); err != nil {
+	if len(runtime.entryActorRows) > 0 {
+		err = s.sendPartyEntryActorBatch(ctx, session, runtime, "select_dungeon_after_op5_before_op27")
+	} else {
+		err = s.sendCurrentPreDungeonContextPlayerState(session, "select_dungeon_after_op5_before_op27")
+	}
+	if err != nil {
 		return err
 	}
 	// 厂商 packet_order ①（`…op2-mode1-all-op11-remotes-op3-all…`）：`op2` mode1 之后、

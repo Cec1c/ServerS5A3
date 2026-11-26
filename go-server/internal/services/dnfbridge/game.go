@@ -144,6 +144,11 @@ type gameSession struct {
 	imageCommunicationNonce           [32]byte
 	imageCommunicationSceneGeneration uint64
 	dungeonDeathBurst                 *currentDungeonDeathBurst // 同一会话事件内的连续击杀；不跨事件保存。
+	questMaterialInbox                questMaterialInboxState
+	// dungeonUserStateActive records that the in-dungeon user-state notification
+	// has activated the local actor. In-dungeon mode0 refreshes must preserve
+	// tail[5]=1 until the dungeon return gates clear it.
+	dungeonUserStateActive atomic.Bool
 
 	endpointHandshakeMu                     sync.Mutex
 	currentChannelResidentNoticeSent        bool

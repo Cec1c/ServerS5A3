@@ -153,6 +153,8 @@ type OnlinePlayerManager struct {
 	mode0Cache    map[townMode0CacheKey]townMode0CacheEntry
 	mode0Inflight map[townMode0CacheKey]*townMode0Inflight
 	mode0Now      func() time.Time
+
+	guildMode8 guildMode8Cache
 }
 
 func newOnlinePlayerManager() *OnlinePlayerManager {
@@ -184,6 +186,7 @@ func (m *OnlinePlayerManager) InvalidateMode0Cache(characterID uint16) {
 		}
 	}
 	m.mode0CacheMu.Unlock()
+	m.guildMode8.invalidate(characterID)
 }
 
 func (m *OnlinePlayerManager) lookupMode0Cache(key townMode0CacheKey, accountID string) (townMode0CacheEntry, bool) {

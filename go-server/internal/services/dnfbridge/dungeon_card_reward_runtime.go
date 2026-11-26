@@ -99,7 +99,7 @@ func (s *Service) freezeCurrentDungeonCardRewardStateLocked(
 		character := runtime.Character
 		if owner != session.selectedCharacterID {
 			var loadErr error
-			character, loadErr = s.loadDimensionDropCharacter(owner)
+			character, loadErr = s.loadDimensionDropCareerCharacter(owner)
 			if loadErr != nil {
 				return dungeonCardItemReward{}, false, loadErr
 			}

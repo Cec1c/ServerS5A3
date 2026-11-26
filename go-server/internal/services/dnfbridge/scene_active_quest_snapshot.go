@@ -88,8 +88,8 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	record, found, err := repositories.Quest.Load(ctx, strconv.Itoa(int(session.selectedCharacterID)))
+	cancel()
 	if err != nil {
-		cancel()
 		s.logGameEvent(session, "game-upper-current-active-quest-snapshot-skipped",
 			"char_id", session.selectedCharacterID,
 			"msg_id", currentActiveQuestSnapshotMsgID,
@@ -101,6 +101,34 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 		}
 		return nil
 	}
+	_, err = s.sendCurrentActiveQuestSnapshotWithLoadedRecord(session, record, found, source, required)
+	return err
+}
+
+func (s *Service) sendCurrentActiveQuestSnapshotWithLoadedRecord(
+	session *gameSession,
+	record dnfrepo.QuestRecord,
+	found bool,
+	source string,
+	required bool,
+) (dnfrepo.QuestRecord, error) {
+	if s == nil || session == nil || session.selectedCharacterID == 0 {
+		return record, nil
+	}
+	repositories, ok := s.repositoryGroup()
+	if !ok || repositories.Quest == nil {
+		s.logGameEvent(session, "game-upper-current-active-quest-snapshot-skipped",
+			"char_id", session.selectedCharacterID,
+			"msg_id", currentActiveQuestSnapshotMsgID,
+			"source", source,
+			"reason", "quest_repository_unavailable")
+		if required {
+			return record, fmt.Errorf("%w: quest_repository_unavailable", errCurrentActiveQuestSnapshotUnavailable)
+		}
+		return record, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	if !found {
 		if required {
 			cancel()
@@ -109,7 +137,7 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 				"msg_id", currentActiveQuestSnapshotMsgID,
 				"source", source,
 				"reason", "quest_record_missing")
-			return fmt.Errorf("%w: quest_record_missing", errCurrentActiveQuestSnapshotUnavailable)
+			return record, fmt.Errorf("%w: quest_record_missing", errCurrentActiveQuestSnapshotUnavailable)
 		}
 		record = dnfrepo.QuestRecord{CharacterID: strconv.Itoa(int(session.selectedCharacterID))}
 	} else {
@@ -123,7 +151,7 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 				"error", recoveryErr)
 			if errors.Is(recoveryErr, errCurrentQueenLetterRecoveryInventorySend) {
 				cancel()
-				return recoveryErr
+				return record, recoveryErr
 			}
 		} else {
 			record = recoveredRecord
@@ -143,7 +171,7 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 				"error", recoveryErr)
 			if errors.Is(recoveryErr, errCurrentBoxSourceRecoveryInventorySend) {
 				cancel()
-				return recoveryErr
+				return record, recoveryErr
 			}
 		} else {
 			record = recoveredRecord
@@ -163,7 +191,7 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 				"error", recoveryErr)
 			if errors.Is(recoveryErr, errCurrentMedicineSourceRecoveryInventorySend) {
 				cancel()
-				return recoveryErr
+				return record, recoveryErr
 			}
 		} else {
 			record = recoveredRecord
@@ -175,10 +203,11 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 			}
 		}
 	}
-	record = s.projectCurrentActiveQuestSnapshot(ctx, session, record, source)
+	persistedRecord := record
+	projectedRecord := s.projectCurrentActiveQuestSnapshot(ctx, session, record, source)
 	cancel()
-	body := buildCurrentActiveQuestSnapshotBody(record, found)
-	rows := currentSelectAckQuestRows(record, found)
+	body := buildCurrentActiveQuestSnapshotBody(projectedRecord, found)
+	rows := currentSelectAckQuestRows(projectedRecord, found)
 	s.logGameEvent(session, "game-upper-current-active-quest-snapshot-send",
 		"char_id", session.selectedCharacterID,
 		"msg_id", currentActiveQuestSnapshotMsgID,
@@ -188,7 +217,7 @@ func (s *Service) sendCurrentActiveQuestSnapshot(session *gameSession, source st
 		"active_count", len(rows),
 		"body_len", len(body),
 		"body_source", "current_exe_sub_1D632D0_u32_count_u16_quest_u32_trigger")
-	return s.sendCurrentActiveQuestSnapshotWithEmptyCompletedRestore(session, record, found, body, source)
+	return persistedRecord, s.sendCurrentActiveQuestSnapshotWithEmptyCompletedRestore(session, projectedRecord, found, body, source)
 }
 
 // 本机official-24.9/v97的574消费者2014370在count=0时调用1CB7E40，

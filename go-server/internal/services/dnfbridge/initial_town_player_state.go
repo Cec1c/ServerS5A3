@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"longheng.io/server/internal/modules/dnf/adventuregroup"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfrepo "longheng.io/server/internal/modules/dnf/repository"
 	"longheng.io/server/internal/modules/dnf/wedding"
@@ -196,14 +197,22 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if repos, ok := s.repositoryGroup(); ok {
 		legacyRepo = repos.LegacyUserInfo
 	}
-	adventureSummary := s.currentAccountAdventureGroupSummaryForPacket(ctx, session, character, hasCharacter)
+	adventureState, adventureStateErr := s.currentAccountAdventureGroupInfoState(ctx, character, hasCharacter, session)
+	adventureSummary := adventuregroup.Summary{}
+	if adventureStateErr == nil {
+		adventureSummary = adventureState.Summary
+	} else {
+		s.logGameEvent(session, "game-adventure-group-summary-unavailable",
+			"character_id", character.CharacterID,
+			"error", adventureStateErr)
+	}
 	adventureLevel := uint32(adventureSummary.ManageLevel)
 	// sub_C7DAF0 (op1340) populates the account-wide adventure model consumed
 	// by mode1/sub_2008010 before it applies the real management-level option
 	// rows, including the four basic-stat bonus. The mode0/mode1 prerequisite
 	// above has already created and bound the selected actor, so op1340's
 	// current-object check is satisfied before the final transition commit.
-	if err := s.sendCurrentAdventureInfoPushFromAccount(session, objectKey, source+"_before_mode1_adventure_model"); err != nil {
+	if err := s.sendCurrentAdventureInfoPushFromState(ctx, session, objectKey, adventureState, adventureStateErr, source+"_before_mode1_adventure_model"); err != nil {
 		return err
 	}
 	if err := s.sendCurrentAdventureExpeditionRosterAfterSelection(session); err != nil {
@@ -218,11 +227,15 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	//
 	// 修复档只把这**同一次调用**挪到装备 mode1 之前（不新增帧、不新增行、不改字节）；
 	// 回退档保持今天的位置（mode1 之后）。
+	modeReadCtx := ctx
+	if s.equipMode0RepositoryMemoEnabled() {
+		modeReadCtx, _ = withEquipMode0RepositoryMemo(ctx)
+	}
 	authoritativeOrderFixed := loginAuthoritativeBeforeCommitEnabled()
 	nameTagReplaySent := false
 	nameTagReplayEvidence := "not_attempted_before_mode1"
 	if authoritativeOrderFixed {
-		sent, evidence, err := s.loginAuthoritativeBeforeCommitNameTagReplay(ctx, session)
+		sent, evidence, err := s.loginAuthoritativeBeforeCommitNameTagReplay(modeReadCtx, session)
 		if err != nil {
 			return err
 		}
@@ -230,7 +243,7 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		nameTagReplayEvidence = evidence
 	}
 	mode1Body := s.buildCurrentSelectedUserInfoMode1BodyWithAdventureLevelInContext(
-		ctx,
+		modeReadCtx,
 		session,
 		legacyRepo,
 		character,
@@ -301,14 +314,14 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 		// The scene's first mode0 is intentionally sent before full mode1 creates
 		// equipment objects. A live name-tag endpoint therefore needs one mode0
 		// replay here, after slot 30 exists, or sub_2008D80 discards the decoration.
-		sent, evidence, err := s.loginAuthoritativeBeforeCommitNameTagReplay(ctx, session)
+		sent, evidence, err := s.loginAuthoritativeBeforeCommitNameTagReplay(modeReadCtx, session)
 		if err != nil {
 			return err
 		}
 		nameTagReplaySent = sent
 		nameTagReplayEvidence = evidence
 	}
-	mode0AppearanceRows, mode0AppearanceSource := s.loginAuthoritativeMode0AppearanceRows(ctx, session, charID)
+	mode0AppearanceRows, mode0AppearanceSource := s.loginAuthoritativeMode0AppearanceRows(modeReadCtx, session, charID)
 	s.logLoginAuthoritativeBeforeCommitOrder(
 		session,
 		source,
@@ -380,13 +393,14 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	// F1 "All" is rebuilt by the current op21 acceptable/definition list,
 	// while op574 owns the live active triggers. Both handlers require the
 	// selected actor to exist; mode1 + op19 is the accepted pre-op24 boundary.
-	if err := s.sendCurrentInitialTownQuestSnapshotsLocked(session, source+"_after_mode1_and_op19_before_typed_op24"); err != nil {
+	sharedQuestRecord, sharedQuestFound, sharedQuestReady, err := s.sendCurrentInitialTownQuestSnapshotsWithSnapshotLocked(ctx, session, source+"_after_mode1_and_op19_before_typed_op24")
+	if err != nil {
 		return err
 	}
 	// op1340 has already populated the model before mode1 consumes it.  Keep
 	// op1346 after the full actor state: it remains the actor-bound
 	// notification for the account display name and overhead/UI views.
-	if err := s.sendCurrentAdventureActorRefreshFromAccount(session, objectKey, source+"_after_adventure_info_actor_bound"); err != nil {
+	if err := s.sendCurrentAdventureActorRefreshFromSummary(session, objectKey, adventureSummary, adventureStateErr, source+"_after_adventure_info_actor_bound"); err != nil {
 		return err
 	}
 	// The normal initial-town route can commit without the optional client
@@ -415,11 +429,22 @@ func (s *Service) sendCurrentTownPlayerStateLocked(
 	if err := s.sendCSharpSelectInitPacket(session, insertPacket, insertBody); err != nil {
 		return err
 	}
-	clearQuestListBody, err := s.buildCurrentClearQuestListTransportBodyForSession(
-		ctx,
-		session,
-		source+"_after_actor_and_quest_snapshots_before_scene_commit",
-	)
+	var clearQuestListBody []byte
+	if sharedQuestReady {
+		clearQuestListBody, err = s.buildCurrentClearQuestListTransportBodyForLoadedRecord(
+			ctx,
+			session,
+			sharedQuestRecord,
+			sharedQuestFound,
+			source+"_after_actor_and_quest_snapshots_before_scene_commit",
+		)
+	} else {
+		clearQuestListBody, err = s.buildCurrentClearQuestListTransportBodyForSession(
+			ctx,
+			session,
+			source+"_after_actor_and_quest_snapshots_before_scene_commit",
+		)
+	}
 	if err != nil {
 		return err
 	}

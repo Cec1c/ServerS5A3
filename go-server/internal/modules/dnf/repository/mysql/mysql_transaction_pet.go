@@ -41,6 +41,7 @@ func (u *mysqlCharacterPetUnitOfWork) WithinCharacterPets(
 	txRouter.writeDBs = []string{writeDatabase}
 	txRouter.lockReads = true
 	txGroup := newMySQLGroupFromRouter(txRouter, false)
+	enableInventoryDeltaTracking(txGroup)
 	txGroup.Pet.(*mysqlPetStore).trackGrowthChanges = true
 	inventory := &characterPetScopedInventoryRepository{characterID: characterID, base: txGroup.Inventory}
 	equipment := &characterPetScopedEquipmentRepository{characterID: characterID, base: txGroup.Equipment}

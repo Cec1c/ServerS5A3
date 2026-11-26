@@ -141,10 +141,14 @@ func currentCleanupExpiredNameTagCard(character *dnfrepo.CharacterRecord) bool {
 	return true
 }
 
+var currentNameTagExpireNowFn = func() int64 {
+	return time.Now().UTC().Unix()
+}
+
 // currentNameTagExpireNow returns the current UTC unix timestamp for name tag
 // expiry comparisons.
 func currentNameTagExpireNow() int64 {
-	return time.Now().UTC().Unix()
+	return currentNameTagExpireNowFn()
 }
 
 // currentIsNameTagItem checks whether the given item template ID is a name tag

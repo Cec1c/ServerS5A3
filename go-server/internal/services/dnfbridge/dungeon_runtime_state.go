@@ -36,6 +36,7 @@ var (
 )
 
 type runtimeDungeonState struct {
+	entryActorRows                           []partyEntryActorRow
 	ekernDiagnostic                          *ekernDiagnosticBudget
 	pendingDeathPreparations                 map[uint32]*pendingDungeonDeathPreparation
 	guildDungeonKills                        *currentGuildDungeonKillPlan

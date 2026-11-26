@@ -8,12 +8,56 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"longheng.io/server/internal/modules/dnf/premium"
 	"longheng.io/server/internal/modules/dnf/questmaterial"
 	r "longheng.io/server/internal/modules/dnf/repository"
 )
+
+const questMaterialPeriodicSafetyInterval = 60 * time.Second
+
+// questMaterialInboxState tracks whether a character's durable quest-material
+// pending inbox was observed empty with no overlapping Prepare in flight.
+// Any Prepare targeting this character marks dirty before and after the
+// transaction so Recover can never mark clean across an uncommitted drop.
+type questMaterialInboxState struct {
+	mu              sync.Mutex
+	epoch           uint64
+	prepareInFlight int
+	clean           bool
+	cleanCharID     uint16
+	lastCheckedAt   time.Time
+}
+
+func (q *questMaterialInboxState) markDirty() {
+	q.mu.Lock()
+	q.epoch++
+	q.clean = false
+	q.cleanCharID = 0
+	q.mu.Unlock()
+}
+
+func (q *questMaterialInboxState) beginPrepare() {
+	q.mu.Lock()
+	q.epoch++
+	q.prepareInFlight++
+	q.clean = false
+	q.cleanCharID = 0
+	q.mu.Unlock()
+}
+
+func (q *questMaterialInboxState) endPrepare() {
+	q.mu.Lock()
+	q.epoch++
+	if q.prepareInFlight > 0 {
+		q.prepareInFlight--
+	}
+	q.clean = false
+	q.cleanCharID = 0
+	q.mu.Unlock()
+}
 
 type questMaterialRecipient struct {
 	id      uint16
@@ -91,6 +135,37 @@ func (s *Service) prepareQuestMaterialDeath(p *gameSession, rt *runtimeDungeonSt
 	}
 	event := questmaterial.EventKey(key, monster.Spawn.MonsterID)
 	return func() error {
+		tracked := make([]*gameSession, 0, len(recipients))
+		seen := make(map[*gameSession]struct{}, len(recipients))
+		track := func(sess *gameSession) {
+			if sess == nil {
+				return
+			}
+			if _, exists := seen[sess]; exists {
+				return
+			}
+			seen[sess] = struct{}{}
+			sess.questMaterialInbox.beginPrepare()
+			tracked = append(tracked, sess)
+		}
+		for _, rec := range recipients {
+			track(rec.session)
+			if live, ok := s.onlineGameSession(rec.id); ok {
+				track(live)
+			}
+		}
+		defer func() {
+			for _, sess := range tracked {
+				sess.questMaterialInbox.endPrepare()
+			}
+			for _, rec := range recipients {
+				if live, ok := s.onlineGameSession(rec.id); ok {
+					if _, already := seen[live]; !already {
+						live.questMaterialInbox.markDirty()
+					}
+				}
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 		defer cancel()
 		return questmaterial.Prepare(ctx, repos, room, event, ids, func(ctx context.Context, id string, q r.QuestRecord) ([]questmaterial.Attempt, error) {
@@ -149,6 +224,33 @@ func (rm *runtimeDungeonRoom) questMaterialIdentity() (string, error) {
 	return rm.materialID, nil
 }
 
+func (s *Service) recoverQuestMaterialsIfNeeded(p *gameSession, safetyInterval time.Duration) error {
+	if p == nil || p.selectedCharacterID == 0 {
+		return nil
+	}
+	charID := p.selectedCharacterID
+	now := s.gameplayNow()
+	p.questMaterialInbox.mu.Lock()
+	skip := p.questMaterialInbox.clean &&
+		p.questMaterialInbox.cleanCharID == charID &&
+		p.questMaterialInbox.prepareInFlight == 0
+	if skip && safetyInterval > 0 {
+		if p.questMaterialInbox.lastCheckedAt.IsZero() {
+			skip = false
+		} else {
+			elapsed := now.Sub(p.questMaterialInbox.lastCheckedAt)
+			if elapsed < 0 || elapsed >= safetyInterval {
+				skip = false
+			}
+		}
+	}
+	p.questMaterialInbox.mu.Unlock()
+	if skip {
+		return nil
+	}
+	return s.recoverQuestMaterials(p)
+}
+
 func (s *Service) recoverQuestMaterials(p *gameSession) error {
 	if p == nil || p.selectedCharacterID == 0 {
 		return nil
@@ -157,9 +259,15 @@ func (s *Service) recoverQuestMaterials(p *gameSession) error {
 	if !ok {
 		return errDungeonQuestRepositoryUnavailable
 	}
+	charID := p.selectedCharacterID
+	p.questMaterialInbox.mu.Lock()
+	epochBefore := p.questMaterialInbox.epoch
+	inFlightBefore := p.questMaterialInbox.prepareInFlight
+	p.questMaterialInbox.mu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
 	defer cancel()
-	result, err := questmaterial.Recover(ctx, repos, s.accountIDForSession(p), strconv.Itoa(int(p.selectedCharacterID)), s.grantQuestMaterialInventory)
+	result, err := questmaterial.Recover(ctx, repos, s.accountIDForSession(p), strconv.Itoa(int(charID)), s.grantQuestMaterialInventory)
 	if err != nil {
 		return err
 	}
@@ -175,8 +283,30 @@ func (s *Service) recoverQuestMaterials(p *gameSession) error {
 		if err := s.sendCurrentDungeonQuestDropRefresh(p, result.Inventory, slots, 0); err != nil {
 			return err
 		}
-		return questmaterial.Acknowledge(ctx, repos, strconv.Itoa(int(p.selectedCharacterID)), result.Notices)
+		if err := questmaterial.Acknowledge(ctx, repos, strconv.Itoa(int(charID)), result.Notices); err != nil {
+			return err
+		}
+		now := s.gameplayNow()
+		p.questMaterialInbox.mu.Lock()
+		p.questMaterialInbox.lastCheckedAt = now
+		p.questMaterialInbox.clean = false
+		p.questMaterialInbox.cleanCharID = 0
+		p.questMaterialInbox.mu.Unlock()
+		return nil
 	}
+	now := s.gameplayNow()
+	p.questMaterialInbox.mu.Lock()
+	p.questMaterialInbox.lastCheckedAt = now
+	if !result.Pending && p.selectedCharacterID == charID &&
+		p.questMaterialInbox.epoch == epochBefore &&
+		inFlightBefore == 0 && p.questMaterialInbox.prepareInFlight == 0 {
+		p.questMaterialInbox.clean = true
+		p.questMaterialInbox.cleanCharID = charID
+	} else {
+		p.questMaterialInbox.clean = false
+		p.questMaterialInbox.cleanCharID = 0
+	}
+	p.questMaterialInbox.mu.Unlock()
 	return nil
 }
 
@@ -208,7 +338,7 @@ func (s *Service) armQuestMaterialRecovery(p *gameSession) error {
 			if err := s.recoverDungeonDeathPreparation(p); err != nil {
 				return err
 			}
-			if err := s.recoverQuestMaterials(p); err != nil {
+			if err := s.recoverQuestMaterialsIfNeeded(p, questMaterialPeriodicSafetyInterval); err != nil {
 				s.logGameEvent(p, "game-quest-material-recovery-deferred", "error", err)
 			}
 			return nil
