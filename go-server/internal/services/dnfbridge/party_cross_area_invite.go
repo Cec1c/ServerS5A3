@@ -216,7 +216,11 @@ func (s *Service) primeCurrentSameChannelGuildPartyPeers(
 		s.markSameChannelGuildPrimeIncomplete(bound, g)
 		return
 	}
-	s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, ctx, bound, g)
+	writeCtx := ctx
+	if bound.session != nil {
+		writeCtx = bound.session.gameTransportContext()
+	}
+	s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, writeCtx, bound, g)
 }
 
 func (s *Service) primeCurrentSameChannelGuildPartyPeersWithBudget(

@@ -220,6 +220,9 @@ type Service struct {
 	attendanceMarbleCatalog   *attendanceMarbleCatalog
 	monthlyCatalogMu          sync.Mutex
 	monthlyCatalog            *onlineevent.MonthlyCatalog
+	semesterCatalogCache      archiveCatalogCache[*onlineevent.SemesterCatalog]
+	epicCatalogCache          archiveCatalogCache[*onlineevent.EpicCatalog]
+	returneeGiftCache         returneeGiftRulesCache
 	pvfItemCatalogMu          sync.Mutex
 	pvfItemCatalog            *pvfDungeonDropCatalog
 	pvfItemCatalogLoadErr     error

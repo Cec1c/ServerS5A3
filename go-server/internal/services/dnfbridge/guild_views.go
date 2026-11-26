@@ -344,11 +344,17 @@ func (s *Service) sendCurrentGuildRosterDisplayShared(ctx context.Context, bound
 		primeCancel  context.CancelFunc
 		primeAllowed bool
 	)
+	primeWriteCtx := ctx
+	if session != nil {
+		// Keep admitted priming socket writes on the independent transport budget
+		// (gameTransportWriteTimeout) rather than the 3s guild query ctx.
+		primeWriteCtx = session.gameTransportContext()
+	}
 	if shouldPrime {
 		primeCtx, primeCancel, primeAllowed = newGuildRosterPrimeContext(ctx, time.Now(), guildSameChannelPrimeMaxDuration, guildSameChannelPrimeMinCtxHeadway)
 		defer primeCancel()
 		if primeAllowed {
-			if primeErr := s.primeCurrentWeddingGuildRosterForBoundWithBudget(primeCtx, ctx, bound, g); primeErr != nil {
+			if primeErr := s.primeCurrentWeddingGuildRosterForBoundWithBudget(primeCtx, primeWriteCtx, bound, g); primeErr != nil {
 				s.logGameEvent(session, "game-wedding-guild-roster-prime-deferred", "error", primeErr)
 				if (errors.Is(primeErr, context.DeadlineExceeded) || errors.Is(primeErr, context.Canceled)) && (ctx == nil || ctx.Err() == nil) {
 					s.setWeddingGuildRosterPrimeIncomplete(bound, g, true)
@@ -367,7 +373,7 @@ func (s *Service) sendCurrentGuildRosterDisplayShared(ctx context.Context, bound
 	}
 	if shouldPrime {
 		if primeAllowed && primeCtx.Err() == nil {
-			s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, ctx, bound, g)
+			s.primeCurrentSameChannelGuildPartyPeersWithBudget(primeCtx, primeWriteCtx, bound, g)
 		} else {
 			s.markSameChannelGuildPrimeIncomplete(bound, g)
 		}

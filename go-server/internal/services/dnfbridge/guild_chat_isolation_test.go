@@ -118,7 +118,11 @@ func TestGuildChatSlowRecipientDoesNotHoldOtherMembers(t *testing.T) {
 		}
 		s.releaseCurrentCharacterAssets(reservation)
 	}
-	flushGuildChatTestEvents(t, s, peers[30])
+	slowCtx, slowCancel := context.WithTimeout(context.Background(), gameTransportWriteTimeout+5*time.Second)
+	defer slowCancel()
+	if err := s.callGameSession(slowCtx, peers[30], "chat-test-slow-barrier", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.Write([]byte{1}); err == nil {
 		t.Fatal("timed-out stream remained reusable")
 	}

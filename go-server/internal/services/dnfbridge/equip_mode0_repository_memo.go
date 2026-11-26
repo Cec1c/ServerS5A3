@@ -321,6 +321,23 @@ func (r memoCharacterRepository) NextNumericID(ctx context.Context) (int, error)
 	return r.inner.NextNumericID(ctx)
 }
 
+func (r memoCharacterRepository) LoadCharacterExtraStats(ctx context.Context, id string, keys ...string) (dnfrepo.CharacterMirrorStats, bool, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return dnfrepo.CharacterMirrorStats{}, false, err
+		}
+	}
+	r.memo.mu.Lock()
+	entry, ok := r.memo.character[id]
+	if ok {
+		record := dnfrepo.SelectCharacterMirrorStats(entry.record, keys...)
+		r.memo.mu.Unlock()
+		return record, entry.found, nil
+	}
+	r.memo.mu.Unlock()
+	return dnfrepo.LoadCharacterExtraStats(ctx, r.inner, id, keys...)
+}
+
 type memoAccountRepository struct {
 	memo  *repositoryMemo
 	inner dnfrepo.AccountRepository

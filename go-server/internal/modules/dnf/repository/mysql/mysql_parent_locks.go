@@ -49,3 +49,17 @@ func (r *characterTradeScopedCharacterRepository) LoadCharacterMirrorStats(ctx c
 	}
 	return repository.LoadCharacterMirrorStats(ctx, r.ownerStore(id), id, keys...)
 }
+
+func (r *rentalScopedCharacterRepository) LoadCharacterExtraStats(ctx context.Context, id string, keys ...string) (repository.CharacterMirrorStats, bool, error) {
+	if err := repository.TransactionKeyError(ctx, r.characterID, id); err != nil {
+		return repository.CharacterMirrorStats{}, false, err
+	}
+	return repository.LoadCharacterExtraStats(ctx, r.base, id, keys...)
+}
+func (r *characterTradeScopedCharacterRepository) LoadCharacterExtraStats(ctx context.Context, id string, keys ...string) (repository.CharacterMirrorStats, bool, error) {
+	id = strings.TrimSpace(id)
+	if _, ok := r.allowed[id]; !ok {
+		return repository.CharacterMirrorStats{}, false, repository.ErrCharacterTradeTransactionUnavailable
+	}
+	return repository.LoadCharacterExtraStats(ctx, r.ownerStore(id), id, keys...)
+}

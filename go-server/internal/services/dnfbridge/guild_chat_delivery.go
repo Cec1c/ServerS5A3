@@ -119,7 +119,11 @@ func (s *Service) sendCurrentGuildChatFrameChecked(ctx context.Context, p *gameS
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	finishWrite, err := beginGameWriteBudgetLocked(p, ctx)
+	// Preparation, wire-lock waits and membership validation stay bounded by the
+	// 3s storage/prep ctx above. Once admitted to the codec/wire, give the socket
+	// write the independent transport budget (gameTransportWriteTimeout) so a
+	// nearly-expired prep deadline never closes a healthy recipient's TCP stream.
+	finishWrite, err := beginGameWriteBudgetLocked(p, nil)
 	if err != nil {
 		return err
 	}
