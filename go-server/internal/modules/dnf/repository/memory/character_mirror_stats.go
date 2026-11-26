@@ -7,6 +7,7 @@ import (
 )
 
 var _ repository.CharacterMirrorStatsReader = (*memoryCharStore)(nil)
+var _ repository.CharacterExtraStatsReader = (*memoryCharStore)(nil)
 
 func (s *memoryCharStore) LoadCharacterMirrorStats(ctx context.Context, id string, keys ...string) (repository.CharacterMirrorStats, bool, error) {
 	if err := ctxErr(ctx); err != nil {
@@ -16,4 +17,8 @@ func (s *memoryCharStore) LoadCharacterMirrorStats(ctx context.Context, id strin
 		return repository.SelectCharacterMirrorStats(row, keys...)
 	})
 	return record, found, nil
+}
+
+func (s *memoryCharStore) LoadCharacterExtraStats(ctx context.Context, id string, keys ...string) (repository.CharacterMirrorStats, bool, error) {
+	return s.LoadCharacterMirrorStats(ctx, id, keys...)
 }

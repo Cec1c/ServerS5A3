@@ -31,7 +31,7 @@ func (s *mysqlBagStore) LoadInventorySlotItemPrefix(ctx context.Context, charact
 	query := "SELECT i.entry_key, i.item_id, i.item_count, i.bind_flag, i.expire_at, i.raw_entry, e.extra_key, e.extra_value FROM " + items + " i" +
 		" INNER JOIN " + owners + " b ON b.character_id = i.character_id" +
 		" LEFT JOIN " + extra + " e ON e.character_id = i.character_id AND e.collection_name = i.collection_name AND e.entry_key = i.entry_key" +
-		" WHERE i.character_id = ? AND i.collection_name = ? AND i.item_id = ? AND i.entry_key LIKE ? ESCAPE '!' ORDER BY i.entry_key, e.extra_key"
+		" WHERE i.character_id = ? AND i.collection_name = ? AND i.item_id = ? AND i.entry_key LIKE ? ESCAPE '!'"
 	pattern := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(prefix) + "%"
 	rows, err := s.router.db.QueryContext(ctx, s.router.selectQuery(query), characterID, "slots", itemID, pattern)
 	if err != nil {
@@ -107,7 +107,7 @@ func (s *mysqlBagStore) LoadInventorySlotItemPrefixFound(
 		args = append(args, pattern)
 	}
 	query += " LEFT JOIN " + extra + " e ON e.character_id = i.character_id AND e.collection_name = i.collection_name AND e.entry_key = i.entry_key" +
-		" WHERE b.character_id = ? ORDER BY i.entry_key, e.extra_key"
+		" WHERE b.character_id = ?"
 	args = append(args, characterID)
 	rows, err := s.router.db.QueryContext(ctx, s.router.selectQuery(query), args...)
 	if err != nil {

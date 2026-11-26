@@ -61,6 +61,11 @@ func SemesterJournalKey(c EpicCampaign) string {
 	return "event_new_semester_v1:" + c.Starts.UTC().Format("20060102T150405Z")
 }
 
+func SemesterCharacterStatKeys(c EpicCampaign) []string {
+	k := SemesterJournalKey(c)
+	return []string{k + ":day_bitmap", k + ":qualified_days", k + ":version", k + ":claim_bitmap", k + ":claim_observed"}
+}
+
 type SemesterSnapshot struct {
 	Qualified, Processed, Today uint8
 	Eligible, Claimed           uint32

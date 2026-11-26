@@ -9,7 +9,17 @@ import (
 
 	dnfonlineevent "longheng.io/server/internal/modules/dnf/onlineevent"
 	"longheng.io/server/internal/modules/dnf/worldmap"
+	platformpvf "longheng.io/server/internal/platform/pvf"
 )
+
+func (s *Service) currentReturneeGiftRules(ctx context.Context, archive *platformpvf.Archive, npc uint32) (dnfonlineevent.ReturneeGiftRules, error) {
+	if s == nil {
+		return dnfonlineevent.ReturneeGiftRules{}, dnfonlineevent.ErrOwnerUnavailable
+	}
+	return s.returneeGiftCache.get(ctx, archive, npc, func(a *platformpvf.Archive, npcID uint32) (dnfonlineevent.ReturneeGiftRules, error) {
+		return dnfonlineevent.LoadReturneeGiftRules(a, npcID)
+	})
+}
 
 // sub_10DD340: u8 action=0, u32 NPC, u8 inventory, u16 cube slot.
 // sub_1D25180: success, action, NPC, u16 affection gain, u32 total, u8 used.
@@ -47,7 +57,9 @@ func (s *Service) handleCurrentReturneeNPCGift(session *gameSession, body []byte
 	if archive == nil {
 		return fail(101, "pvf_unavailable")
 	}
-	rules, err := dnfonlineevent.LoadReturneeGiftRules(archive, npc)
+	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
+	defer cancel()
+	rules, err := s.currentReturneeGiftRules(ctx, archive, npc)
 	if err != nil {
 		return fail(101, err.Error())
 	}
@@ -55,8 +67,6 @@ func (s *Service) handleCurrentReturneeNPCGift(session *gameSession, body []byte
 	if !ok {
 		return fail(101, "repository_unavailable")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), createWriteTimeout)
-	defer cancel()
 	result, err := dnfonlineevent.GiveReturneeNPCGift(ctx, repos, rules, s.accountIDForSession(session), strconv.Itoa(int(session.selectedCharacterID)), body[5], slot, s.gameplayNow())
 	if err != nil {
 		code := byte(100)

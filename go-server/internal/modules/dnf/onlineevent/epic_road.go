@@ -92,6 +92,11 @@ type EpicSnapshot struct {
 }
 
 func epicStatKey(c EpicCampaign, field string) string { return c.Key() + ":" + field }
+
+func EpicCharacterStatKeys(c EpicCampaign) []string {
+	return []string{epicStatKey(c, "invitations"), epicStatKey(c, "claimed"), epicStatKey(c, "observed")}
+}
+
 func EpicCharacterSnapshot(ch repo.CharacterRecord, c EpicCampaign, now time.Time) (EpicSnapshot, error) {
 	if c.Validate() != nil || now.IsZero() {
 		return EpicSnapshot{}, ErrOwnerUnavailable

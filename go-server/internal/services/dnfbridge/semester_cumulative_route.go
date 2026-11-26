@@ -9,6 +9,7 @@ import (
 	"time"
 
 	oe "longheng.io/server/internal/modules/dnf/onlineevent"
+	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
 // The matching current client receives the daily panel alongside Epic Road.
@@ -51,12 +52,18 @@ func (s *Service) sendCurrentSemesterCumulative(session *gameSession, identity b
 	}
 	now := s.gameplayNow()
 	characterID := strconv.Itoa(int(identity.character))
-	ch, found, err := g.Character.Load(ctx, characterID)
+	proj, found, err := repo.LoadCharacterExtraStats(ctx, g.Character, characterID, oe.SemesterCharacterStatKeys(campaign)...)
 	if err != nil {
 		return err
 	}
-	if !found || ch.CharacterID != characterID || ch.AccountID != account {
+	if !found || proj.CharacterID != characterID || proj.AccountID != account {
 		return oe.ErrOwnerUnavailable
+	}
+	ch := repo.CharacterRecord{
+		CharacterID: proj.CharacterID,
+		AccountID:   proj.AccountID,
+		Level:       proj.Level,
+		Stats:       proj.Stats,
 	}
 	state, err := oe.SemesterCharacterSnapshot(ch, campaign, now)
 	if err != nil {

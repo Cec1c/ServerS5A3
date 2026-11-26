@@ -6,6 +6,7 @@ import (
 	"fmt"
 	onlineevent "longheng.io/server/internal/modules/dnf/onlineevent"
 	repo "longheng.io/server/internal/modules/dnf/repository"
+	platformpvf "longheng.io/server/internal/platform/pvf"
 	"strconv"
 	"strings"
 )
@@ -14,16 +15,37 @@ func (s *Service) currentEpicBenefitsEnabled() bool {
 	return s != nil && s.options.currentClientVersion == "official-24.9" && (s.activityControls == nil || s.activityControls.Enabled(350))
 }
 func (s *Service) currentEpicCatalog(ctx context.Context) (*onlineevent.EpicCatalog, error) {
+	if s == nil {
+		return nil, onlineevent.ErrOwnerUnavailable
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.initialEquipmentMu.Lock()
 	a, e := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
 	if e != nil {
 		return nil, e
 	}
-	if e = validateCurrentEpicRoadActivity(a); e != nil {
+	if a == nil {
+		return nil, onlineevent.ErrOwnerUnavailable
+	}
+	cat, e := s.epicCatalogCache.get(ctx, a, func(loadCtx context.Context, archive *platformpvf.Archive) (*onlineevent.EpicCatalog, error) {
+		if err := validateCurrentEpicRoadActivity(archive); err != nil {
+			return nil, err
+		}
+		if err := loadCtx.Err(); err != nil {
+			return nil, err
+		}
+		return onlineevent.LoadEpicCatalog(loadCtx, archive)
+	})
+	if e != nil {
 		return nil, e
 	}
-	return onlineevent.LoadEpicCatalog(ctx, a)
+	return cloneEpicCatalog(cat), nil
 }
 func (s *Service) currentEpicCampaign(session *gameSession) (onlineevent.EpicCampaign, error) {
 	identity, ok := s.boundGameSessionCharacterSnapshot(session)
@@ -81,12 +103,19 @@ func (s *Service) sendCurrentEpicState(session *gameSession) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), currentSpendTimeWriteTimeout)
 	defer cancel()
-	ch, found, e := g.Character.Load(ctx, strconv.Itoa(int(identity.character)))
+	charID := strconv.Itoa(int(identity.character))
+	proj, found, e := repo.LoadCharacterExtraStats(ctx, g.Character, charID, onlineevent.EpicCharacterStatKeys(campaign)...)
 	if e != nil {
 		return e
 	}
-	if !found || ch.CharacterID != strconv.Itoa(int(identity.character)) || ch.AccountID != s.accountIDForSession(session) {
+	if !found || proj.CharacterID != charID || proj.AccountID != s.accountIDForSession(session) {
 		return onlineevent.ErrOwnerUnavailable
+	}
+	ch := repo.CharacterRecord{
+		CharacterID: proj.CharacterID,
+		AccountID:   proj.AccountID,
+		Level:       proj.Level,
+		Stats:       proj.Stats,
 	}
 	state, e := onlineevent.EpicCharacterSnapshot(ch, campaign, s.gameplayNow())
 	if e != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	oe "longheng.io/server/internal/modules/dnf/onlineevent"
 	repo "longheng.io/server/internal/modules/dnf/repository"
+	platformpvf "longheng.io/server/internal/platform/pvf"
 	"strconv"
 	"strings"
 )
@@ -28,13 +29,31 @@ func buildCurrentSemesterCumulativeACK(success bool) []byte {
 	return b
 }
 func (s *Service) currentSemesterCumulativeCatalog(ctx context.Context) (*oe.SemesterCatalog, error) {
+	if s == nil {
+		return nil, oe.ErrOwnerUnavailable
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.initialEquipmentMu.Lock()
 	a, e := s.initialEquipmentArchiveLocked()
 	s.initialEquipmentMu.Unlock()
 	if e != nil {
 		return nil, e
 	}
-	return oe.LoadSemesterCatalog(ctx, a)
+	if a == nil {
+		return nil, oe.ErrOwnerUnavailable
+	}
+	cat, e := s.semesterCatalogCache.get(ctx, a, func(loadCtx context.Context, archive *platformpvf.Archive) (*oe.SemesterCatalog, error) {
+		return oe.LoadSemesterCatalog(loadCtx, archive)
+	})
+	if e != nil {
+		return nil, e
+	}
+	return cloneSemesterCatalog(cat), nil
 }
 func (s *Service) claimCurrentSemesterCumulative(session *gameSession, index uint32) (oe.SemesterSnapshot, error) {
 	identity, ok := s.boundGameSessionCharacterSnapshot(session)
