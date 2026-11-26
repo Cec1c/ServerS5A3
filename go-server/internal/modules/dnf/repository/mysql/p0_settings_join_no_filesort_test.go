@@ -9,6 +9,7 @@ import (
 func TestP0SettingsJoinedLoadOmitsOrderByFilesort(t *testing.T) {
 	t.Run("unlocked_join_omits_order_by", func(t *testing.T) {
 		db := &fakeSQLDB{
+			joinedRead: true,
 			rowsets: []fakeSQLRows{
 				{
 					rows: []fakeSQLRow{

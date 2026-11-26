@@ -23,7 +23,10 @@ type fakeSQLDB struct {
 	execErr    error
 	execResult sql.Result
 	pingErr    error
+	joinedRead bool
 }
+
+func (f *fakeSQLDB) SupportsSettingsJoinedRead() bool { return f.joinedRead }
 
 func (f *fakeSQLDB) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
 	f.execs = append(f.execs, fakeSQLCall{

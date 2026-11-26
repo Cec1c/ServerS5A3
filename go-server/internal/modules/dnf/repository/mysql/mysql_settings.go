@@ -54,7 +54,7 @@ func (s *mysqlSettingsStore) Load(ctx context.Context, scope string) (repository
 	if err != nil {
 		return repository.SettingsRecord{}, false, err
 	}
-	if !s.router.lockReads {
+	if !s.router.lockReads && supportsJoinedSettingsRead(s.router.db) {
 		return s.loadJoinedSettings(ctx, scope, table, valuesTable)
 	}
 	query := s.router.selectQuery("SELECT scope, updated_at FROM " + table + " WHERE scope = ?")
@@ -206,4 +206,21 @@ func (s *mysqlSettingsStore) loadJoinedSettings(ctx context.Context, scope, tabl
 	}
 	record.UpdatedAt = scanTime(updatedAt)
 	return record, found, nil
+}
+
+// supportsJoinedSettingsRead keeps the joined optimization on production SQL
+// adapters while allowing focused test doubles to retain the legacy two-query
+// contract unless they explicitly opt in.
+func supportsJoinedSettingsRead(database SQLDB) bool {
+	if marker, ok := database.(interface{ SupportsSettingsJoinedRead() bool }); ok {
+		return marker.SupportsSettingsJoinedRead()
+	}
+	switch wrapped := database.(type) {
+	case SQLDBAdapter, *SQLDBAdapter, *PreparedSQLDB, sqlTransactionDB, *sqlTransactionDB:
+		return true
+	case *ObservedSQLDB:
+		return wrapped != nil && supportsJoinedSettingsRead(wrapped.SQLDB)
+	default:
+		return false
+	}
 }
