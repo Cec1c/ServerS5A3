@@ -14,7 +14,7 @@ category: 功能修复
 ## 验证
 
 - `gofmt -l`：116 个变更 Go 文件通过。
-- 依赖闭包定向测试：62 个 `dnfbridge` 目标通过；1 个需要部署后 PVF 的真实资源用例在无 PVF 环境跳过。
+- 依赖闭包定向测试：61 个 `dnfbridge` 目标通过；1 个需要部署后 PVF 的真实资源用例在无 PVF 环境跳过。
 - MySQL/Quest 窄读：11 个顶层用例及其 13 个子测试通过。
 - `adventuregroup`、`buffswap`、`guild`、`repository`、`repository/memory` 包测试通过。
 - 受影响包 `go vet`、`go mod verify` 和完整 Linux 服务端构建通过。
