@@ -77,6 +77,10 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 	if deadline.Unix() > math.MaxUint32 || deadline.Unix() <= 0 {
 		return false, fmt.Errorf("Anton next phase native deadline invalid")
 	}
+	groups, err := nextPhaseRewardGroups(planned)
+	if err != nil {
+		return false, err
+	}
 	var next *raid.AntonProgression
 	if b.Mode == 2 {
 		var luke *raid.LukeProgression
@@ -96,11 +100,42 @@ func (s *Service) beginCurrentAntonNextPhaseLocked(state *runtimeRaidState, now 
 	b.PhaseCompleted, b.PhaseCompletedAt, b.TimedOut, b.ProgressVersion = false, time.Time{}, false, 0
 	b.MemberClears = map[uint16]uint32{}
 	b.RunCoins = map[string]uint32{}
-	if b.MemberGroups == nil {
-		b.MemberGroups = map[uint16]byte{}
-	}
-	for _, member := range state.Members {
-		b.MemberGroups[member.CharID] = member.GroupIndex
-	}
+	b.MemberGroups = groups
 	return true, nil
+}
+
+// Independent solos can share a live group number with a full ordinary party.
+// Keep the live formation for gameplay and reserve bounded reward groups on a
+// separate copy before committing the next phase.
+func nextPhaseRewardGroups(planned runtimeRaidState) (map[uint16]byte, error) {
+	groups := make(map[uint16]byte, len(planned.Battle.MemberGroups))
+	for id, group := range planned.Battle.MemberGroups {
+		groups[id] = group
+	}
+	counts := make(map[byte]int)
+	for _, member := range planned.Members {
+		groups[member.CharID] = member.GroupIndex
+		counts[member.GroupIndex]++
+	}
+	if planned.Battle.Mode != 1 || !runtimeRaidKeepsUneditedSolos(planned) {
+		return groups, nil
+	}
+	maxGroup, capacity := runtimeRaidMemberPlacementLimits(planned)
+	for _, member := range planned.Members {
+		from := member.GroupIndex
+		if !member.OrdinaryPartySolo || counts[from] <= capacity {
+			continue
+		}
+		to := byte(1)
+		for to <= maxGroup && counts[to] >= capacity {
+			to++
+		}
+		if to > maxGroup {
+			return nil, fmt.Errorf("Anton next phase reward placement unavailable")
+		}
+		groups[member.CharID] = to
+		counts[from]--
+		counts[to]++
+	}
+	return groups, nil
 }
