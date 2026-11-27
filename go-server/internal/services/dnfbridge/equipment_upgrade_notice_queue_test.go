@@ -65,7 +65,7 @@ func TestEquipmentUpgradeNoticeFullQueueDoesNotStallSourceOrOtherPeers(t *testin
 	if peer.events.loop.QueueLengths().Medium != 512 {
 		t.Fatal("未使用真实512容量")
 	}
-	if err := s.postCurrentEquipmentNotice(boundGameSessionCharacter{session: peer, character: peer.selectedCharacterID, generation: peer.characterGeneration}, func() error { return nil }); !errors.Is(err, eventloop.ErrQueueFull) {
+	if err := s.postCurrentGameNotice(boundGameSessionCharacter{session: peer, character: peer.selectedCharacterID, generation: peer.characterGeneration}, "频道装备播报", func() error { return nil }); !errors.Is(err, eventloop.ErrQueueFull) {
 		t.Fatalf("满队列未立即拒绝播报：%v", err)
 	}
 	healthyConn := &bufferConn{}
