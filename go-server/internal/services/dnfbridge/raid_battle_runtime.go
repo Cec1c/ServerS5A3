@@ -244,9 +244,12 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 	defer cancel()
 	now := time.Now()
 	mode := state.RouteOrRaidType + 1
+	single := state.TailFlag == 1
+	if state.CurrentLayout {
+		single = state.CurrentUIFlags[0] == 1
+	}
 	leaderUsed := -1
 	memberAccounts := make(map[uint16]string, len(state.Members))
-	memberGroups := make(map[uint16]byte, len(state.Members))
 	for _, member := range state.Members {
 		peer, found := s.onlineGameSession(member.CharID)
 		if member.CharID == session.selectedCharacterID {
@@ -263,7 +266,6 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 			return nil, fmt.Errorf("raid battle member/account mismatch: %d", member.CharID)
 		}
 		memberAccounts[member.CharID] = character.AccountID
-		memberGroups[member.CharID] = member.GroupIndex
 		used, err := raid.WeeklyClears(character, mode, now, policy)
 		if err != nil {
 			return nil, err
@@ -278,9 +280,9 @@ func (s *Service) prepareCurrentRaidBattle(session *gameSession, state runtimeRa
 	if leaderUsed < 0 {
 		return nil, fmt.Errorf("raid battle leader missing")
 	}
-	single := state.TailFlag == 1
-	if state.CurrentLayout {
-		single = state.CurrentUIFlags[0] == 1
+	memberGroups, err := boundedCurrentRaidRewardGroups(state, nil, mode, single)
+	if err != nil {
+		return nil, err
 	}
 	b := &runtimeRaidBattle{Mode: mode, ChannelID: session.channel.ID, ChannelType: session.channel.Type, Single: single, StartedAt: now, Configuration: config,
 		MemberAccounts: memberAccounts,
