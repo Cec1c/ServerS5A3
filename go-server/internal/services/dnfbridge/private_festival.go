@@ -12,26 +12,30 @@ import (
 	repo "longheng.io/server/internal/modules/dnf/repository"
 )
 
-func parsePrivateFestivalCatalog(source pvf.Source, products map[uint32]currentCeraShopProduct) (*festival.Catalog, error) {
+func parsePrivateFestivalCatalog(source pvf.Source, products map[uint32]currentCeraShopProduct) (c *festival.Catalog, skipped int, e error) {
 	text, e := source.ReadText(festival.PVFPath)
 	if e != nil {
-		return nil, nil
+		return nil, 0, nil
 	} // optional on upstream PVFs
 	d, e := pvf.Parse(festival.PVFPath, text)
 	if e != nil {
-		return nil, e
+		return nil, 0, e
 	}
-	c, e := festival.Parse(d)
+	c, e = festival.Parse(d)
 	if e != nil || c == nil {
-		return c, e
+		return c, 0, e
 	}
+	// A PVF may drop packages from etc/cerashop.etc while the festival table
+	// still lists them. Those rows can no longer be bought, so they simply leave
+	// the whitelist; failing here would take the whole shop catalog down.
 	for id := range c.Commodities {
 		p, ok := products[id]
 		if !ok || p.Count != 1 || p.CeraPrice == 0 {
-			return nil, fmt.Errorf("invalid festival paid commodity %d", id)
+			delete(c.Commodities, id)
+			skipped++
 		}
 	}
-	return c, nil
+	return c, skipped, nil
 }
 func festivalCartUnits(c *pvfCeraShopCatalog, q currentCeraShopPurchaseRequest) map[uint32]uint32 {
 	out := map[uint32]uint32{}
