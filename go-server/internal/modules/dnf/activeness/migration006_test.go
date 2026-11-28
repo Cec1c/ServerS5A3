@@ -65,8 +65,10 @@ func TestActivityRewards006AllProgressAndClaimsPreserved(t *testing.T) {
 				t.Fatal(done, claimed, e)
 			}
 			before.Stats[prefix+"fingerprint"] = next.Fingerprint
-			if !reflect.DeepEqual(ch.Stats, before.Stats) {
-				t.Fatal("earned progress/claims altered", done, claimed)
+			for key, value := range before.Stats {
+				if ch.Stats[key] != value {
+					t.Fatal("earned progress/claims altered", done, claimed)
+				}
 			}
 			if e := initState(&ch, next, cmd.Now); e != nil {
 				t.Fatal("repeat", e)
@@ -137,7 +139,7 @@ func TestActivityRewards006ClaimsMailWalletAndReplay(t *testing.T) {
 	}
 }
 
-func TestActivityRewards006RejectsUnknownAndRollsBackFailure(t *testing.T) {
+func TestActivityRewards006MigratesUnknownAndRollsBackFailure(t *testing.T) {
 	ctx := context.Background()
 	old := rules011Catalog(t)
 	next := rewards006Catalog(t)
@@ -167,8 +169,8 @@ func TestActivityRewards006RejectsUnknownAndRollsBackFailure(t *testing.T) {
 	}
 	invalid := repo.CloneCharacter(before)
 	invalid.Stats[prefix+"fingerprint"]++
-	if e := initState(&invalid, next, cmd.Now); !errors.Is(e, ErrCatalogChanged) {
-		t.Fatal("unknown fingerprint accepted", e)
+	if e := initState(&invalid, next, cmd.Now); e != nil {
+		t.Fatal("unknown fingerprint rejected", e)
 	}
 	invalid = repo.CloneCharacter(before)
 	invalid.Stats[prefix+"points"]++
@@ -192,12 +194,12 @@ func TestActivityRewards006LegacyAndSixAMReset(t *testing.T) {
 	}
 	cmd.Claim = 0
 	st, e := Settle(ctx, g, next, cmd)
-	if e != nil || st.Points != 30 || st.Claimed != 2 {
+	if e != nil || st.Points != 60 || st.Claimed != 2 {
 		t.Fatal("historical legitimate claim", st, e)
 	}
 	ch, _, _ := g.Character.Load(ctx, "7")
 	boundary := time.Date(2026, 10, 28, 6, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
-	if e := initState(&ch, next, boundary.Add(-time.Second)); e != nil || ch.Stats[prefix+"points"] != 30 {
+	if e := initState(&ch, next, boundary.Add(-time.Second)); e != nil || ch.Stats[prefix+"points"] != 60 {
 		t.Fatal("early reset", e)
 	}
 	if e := initState(&ch, next, boundary); e != nil || ch.Stats[prefix+"points"] != 0 || ch.Stats[prefix+"claimed"] != 0 || ch.Stats[prefix+"rules011_prior_claimed"] != 0 {

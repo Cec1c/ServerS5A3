@@ -196,7 +196,7 @@ func TestPrivateActivityRealPVFAndTransactions(t *testing.T) {
 				t.Fatalf("batch %+v %v", batch, e)
 			}
 			ch, _, _ = g.Character.Load(ctx, character)
-			if ch.Stats["private_activity_v1_points"] != 10 {
+			if ch.Stats["private_activity_v1_points"] != int64(c.Tasks[4].Points) {
 				t.Fatalf("box %d stats %v", boxID, ch.Stats)
 			}
 		}

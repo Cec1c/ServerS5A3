@@ -61,7 +61,7 @@ func TestActivityRules011MigrationAllProgressAndClaimStates(t *testing.T) {
 				t.Fatalf("done=%d claimed=%d: %v", done, claimed, e)
 			}
 			want := int64(0)
-			for i, v := range next.Tasks {
+			for i, v := range old.Tasks {
 				if done&(1<<i) != 0 {
 					want += int64(v.Points)
 				}
@@ -85,7 +85,7 @@ func TestActivityRules011MigrationClaimsAndRollback(t *testing.T) {
 	ctx := context.Background()
 	for _, id := range []uint16{1, 2, 5} {
 		event(t, g, old, cmd, id, 1)
-	} // old 60, new 30
+	} // 60 earned points stay earned after the task weights change
 	cmd.ExpectedDay = Day(cmd.Now)
 	cmd.ExpectedFingerprint = old.Fingerprint
 	for _, stage := range []uint16{1, 2} {
@@ -105,7 +105,7 @@ func TestActivityRules011MigrationClaimsAndRollback(t *testing.T) {
 		t.Fatal("failed transaction migrated")
 	}
 	st, e := Settle(ctx, g, next, cmd)
-	if e != nil || st.Points != 30 || st.Claimed != 3 {
+	if e != nil || st.Points != 60 || st.Claimed != 3 {
 		t.Fatalf("migration %+v %v", st, e)
 	}
 	cmd.ExpectedFingerprint = next.Fingerprint
