@@ -27,6 +27,9 @@ var (
 type ItemDefinition struct {
 	StackableType  string
 	ResealMaterial bool
+	// MaximumQuality is an explicit policy from the verified item catalogue.
+	// Some master adjusters use [etc] rather than the gold kaleido marker.
+	MaximumQuality bool
 	// UsableEquipTypes is the adjuster's PVF [usable equip type] list. An empty
 	// list means the item is not slot-restricted (the reference implementation
 	// documents the same rule: "空表示不限部位"), which is why the plain
@@ -63,6 +66,7 @@ type Result struct {
 	MaterialRemoved   bool
 	NewSeed           uint32
 	GoldKaleido       bool
+	MaximumQuality    bool
 }
 
 // Owner owns kaleido validation, quality selection, material consumption, and
@@ -137,8 +141,9 @@ func (o *Owner) Adjust(ctx context.Context, cmd Command) (Result, error) {
 	}
 
 	goldKaleido := isGoldKaleidoDefinition(materialDefinition, definitionFound)
+	maximumQuality := goldKaleido || definitionFound && materialDefinition.MaximumQuality
 	seed := itemquality.TopSeed
-	if !goldKaleido {
+	if !maximumQuality {
 		seed, err = o.newSeed()
 		if err != nil {
 			return Result{}, err
@@ -160,6 +165,8 @@ func (o *Owner) Adjust(ctx context.Context, cmd Command) (Result, error) {
 	target.Extra["last_grade_adjust"] = now.Format(time.RFC3339)
 	if goldKaleido {
 		target.Extra["grade_adjust_type"] = "gold_kaleido"
+	} else if maximumQuality {
+		target.Extra["grade_adjust_type"] = "master_kaleido"
 	} else {
 		target.Extra["grade_adjust_type"] = "standard_kaleido"
 	}
@@ -187,6 +194,7 @@ func (o *Owner) Adjust(ctx context.Context, cmd Command) (Result, error) {
 		MaterialRemoved:   materialRemoved,
 		NewSeed:           seed,
 		GoldKaleido:       goldKaleido,
+		MaximumQuality:    maximumQuality,
 	}, nil
 }
 

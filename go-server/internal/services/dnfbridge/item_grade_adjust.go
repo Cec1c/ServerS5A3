@@ -127,6 +127,7 @@ func (s *Service) handleCurrentResetItemAttr(session *gameSession, body []byte) 
 		"material_slot", result.MaterialSlot,
 		"material_item_id", result.MaterialItemID,
 		"new_seed", result.NewSeed,
+		"maximum_quality", result.MaximumQuality,
 		"is_gold", result.GoldKaleido)
 
 	// Current EXE sub_1D16480 reads u16 slot + u32 amount + u16 resultType.
@@ -171,7 +172,18 @@ func (c currentItemGradeCatalog) ResolveItem(itemID uint32) (dnfitemgrade.ItemDe
 	_, resealMaterial := dnfsvc.WaxKind(dnfsvc.Definition{ItemID: itemID, PVFPath: definition.PVFPath})
 	return dnfitemgrade.ItemDefinition{
 		StackableType:    definition.StackableType,
+		MaximumQuality:   currentMasterKaleidoMaximumQuality(definition),
 		ResealMaterial:   definition.ItemID == 14 || resealMaterial,
 		UsableEquipTypes: append([]string(nil), definition.UsableEquipTypes...),
 	}, nil
+}
+
+// The paired PVF defines this epic master box as [etc], exactly like ordinary
+// box 15. Its native identity and description promise maximum attributes.
+// Match the exact definition, not every [etc] item or a localized display name.
+func currentMasterKaleidoMaximumQuality(definition dungeonDropItemDefinition) bool {
+	return definition.ItemID == 10150863 &&
+		definition.Kind == dungeonDropItemStackable &&
+		definition.PVFPath == "stackable/10150001/10150863.stk" &&
+		definition.StackableType == "[etc]"
 }
