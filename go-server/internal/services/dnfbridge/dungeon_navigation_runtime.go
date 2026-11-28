@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
 	"longheng.io/server/internal/modules/dnf/alignedcmd"
 	"longheng.io/server/internal/modules/dnf/dnfenum"
 	dnfdungeon "longheng.io/server/internal/modules/dnf/dungeon"
@@ -18,6 +19,8 @@ import (
 )
 
 const currentSelectDungeonEntryLevelTooLowReason byte = 14
+const dungeonRuntimeCommitFailedSite = "dungeon_runtime_commit_failed"
+const dungeonFollowerRuntimeCommitFailedSite = "party_follower_runtime_commit_failed_before_leader_commit"
 
 // 进图前置校验失败必须**回包**：旧实现只在等级不足档回拒绝包，其余失败
 // （疲劳不足 / 疲劳不可知 / 队伍超限 / 其它）只记一条
@@ -726,7 +729,7 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 				"char_id", session.selectedCharacterID,
 				"dungeon_id", runtime.Dungeon.ID,
 				"difficulty", request.Difficulty,
-				"reason", "party_follower_runtime_commit_failed_before_leader_commit",
+				"reason", dungeonFollowerRuntimeCommitFailedSite,
 				"error", err)
 			// 文档段 104 的"晚期错误"：队员的进图运行时已经提交过（失败时由
 			// commitRuntimePartyPreparedFollowers 回滚掉了），队长的进图还没提交。改动前这里
@@ -735,9 +738,9 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 			// 发起者（队长）同一形状的拒绝包。见 party_entry_refusal_before_commit.go。
 			reason, class := currentSelectDungeonEntryFailureReason(err)
 			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
-				"party_follower_runtime_commit_failed_before_leader_commit", class, reason, err)
+				dungeonFollowerRuntimeCommitFailedSite, class, reason, err)
 			return s.refuseDungeonSelectEntry(session, request,
-				"party_follower_runtime_commit_failed_before_leader_commit",
+				dungeonFollowerRuntimeCommitFailedSite,
 				class,
 				reason,
 				err,
@@ -752,16 +755,12 @@ func (s *Service) handleDungeonSelectUpperPlannedWithNativeAdmission(
 			// 掉），再解挂：两名客户端都还在等这条流程的结果。
 			reason, class := currentSelectDungeonEntryFailureReason(err)
 			s.answerRoutedPartyEntryOwnerOnRefusal(ctx, session, partyStateAtRequest, routed, request,
-				"dungeon_runtime_commit_failed", class, reason, err)
+				dungeonRuntimeCommitFailedSite, class, reason, err)
 			if errors.Is(err, dnfdungeon.ErrDailyEntryLimit) || errors.Is(err, dnfdungeon.ErrDayDungeonClosed) || errors.Is(err, dnfdungeon.ErrEntryItemConsumeInsufficient) {
 				return s.refuseDungeonSelectEntryValidation(session, request, err)
 			}
-			s.logGameEvent(session, "game-dungeon-select-blocked",
-				"dungeon_id", request.DungeonID,
-				"maze_index", runtime.MazeIndex,
-				"reason", "dungeon_runtime_commit_failed",
-				"error", err)
-			return nil
+			return s.refuseDungeonSelectEntry(session, request, dungeonRuntimeCommitFailedSite,
+				class, reason, err, "maze_index", runtime.MazeIndex)
 		}
 	}
 	// 到这里队长自己的 runtime 也提交成功了：这一队真的进图，这次路由请求的挂起态到此结清
@@ -1851,7 +1850,18 @@ func (s *Service) refuseDungeonSelectEntry(
 	if suppressed {
 		return nil
 	}
-	return s.sendSelectDungeonFailureForError(session, reason, memberSlot, err)
+	if sendErr := s.sendSelectDungeonFailureForError(session, reason, memberSlot, err); sendErr != nil {
+		return sendErr
+	}
+	// 通用 0x01 可能没有可见提示。队长和原路由请求者各自只在拒绝包写成功后收到系统文字。
+	if (siteReason == dungeonRuntimeCommitFailedSite || siteReason == dungeonFollowerRuntimeCommitFailedSite) && class == "entry_unavailable" {
+		message, encodeErr := simplifiedchinese.GBK.NewEncoder().Bytes([]byte("地下城入场未能完成。"))
+		if encodeErr != nil {
+			return encodeErr
+		}
+		return s.sendGameUpperRawClass(session, currentAreaChatNotifyOpcode, buildBroadcastSystemNoticeBody(message), 0)
+	}
+	return nil
 }
 
 // dungeonSelectRefusalSuppression 报告 `refuseDungeonSelectEntry` 对这条请求会不会真的

@@ -1,39 +1,30 @@
 package activeness
 
-import (
-	repo "longheng.io/server/internal/modules/dnf/repository"
-	"time"
-)
-
-// Exact approved 017 -> 011 configuration transition. Unknown changes still
-// fail closed. No player assets or existing claim receipts are altered.
+// These historical rule snapshots validate saved states written before generic
+// catalog migration existed. Their earned points are no longer reweighted.
 const rules011OldFingerprint int64 = 7377709129766840788
 const rules011NewFingerprint int64 = 6495276099522868119
 
-func migrateRules011(ch *repo.CharacterRecord, c *Catalog, now time.Time) error {
-	if c.Fingerprint != rules011NewFingerprint || ch.Stats[prefix+"fingerprint"] != rules011OldFingerprint {
-		return ErrCatalogChanged
+func legacyActivityCatalog(fingerprint int64) *Catalog {
+	switch fingerprint {
+	case rules011OldFingerprint, rules011NewFingerprint, rewards006Fingerprint:
+	default:
+		return nil
 	}
-	old := *c
-	old.Fingerprint = rules011OldFingerprint
-	old.Rewards[1].HappyTokens = 2500
-	old.Rewards[2].HappyTokens = 3500
-	for i := range old.Tasks {
-		old.Tasks[i].Points = 20
+	c := &Catalog{Fingerprint: fingerprint,
+		Tasks:   [8]Task{{1, 1, 20}, {2, 1, 20}, {3, 1, 20}, {4, 1, 100}, {5, 1, 20}, {6, 100, 20}, {7, 1, 20}, {8, 1, 20}},
+		Rewards: [3]Reward{{1, 30, 500, 990027401, 1, 0, 0}, {2, 50, 2500, 990027402, 1, 3330, 500}, {3, 100, 3500, 990027403, 1, 3330, 500}},
 	}
-	old.Tasks[3].Points = 100
-	prior := repo.CloneCharacter(*ch)
-	if err := initState(&prior, &old, now); err != nil {
-		return err
-	}
-	points := int64(0)
-	for i, t := range c.Tasks {
-		if ch.Stats[prefix+"done"]&(1<<i) != 0 {
-			points += int64(t.Points)
+	if fingerprint != rules011OldFingerprint {
+		for i, points := range []uint16{10, 10, 50, 100, 10, 20, 10, 10} {
+			c.Tasks[i].Points = points
 		}
+		c.Rewards[1].HappyTokens = 500
+		c.Rewards[2].HappyTokens = 5500
 	}
-	ch.Stats[prefix+"points"] = points
-	ch.Stats[prefix+"rules011_prior_claimed"] = ch.Stats[prefix+"claimed"]
-	ch.Stats[prefix+"fingerprint"] = c.Fingerprint
-	return nil
+	if fingerprint == rewards006Fingerprint {
+		c.Rewards[0].InvitationID = 3330
+		c.Rewards[0].InvitationCount = 500
+	}
+	return c
 }

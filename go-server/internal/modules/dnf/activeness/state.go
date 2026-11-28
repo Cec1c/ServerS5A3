@@ -47,6 +47,7 @@ func initState(ch *repo.CharacterRecord, c *Catalog, now time.Time) error {
 		}
 	}
 	if old != day {
+		resetActivityCarry(v)
 		for _, k := range []string{"points", "claimed", "done", "rules011_prior_claimed"} {
 			v[prefix+k] = 0
 		}
@@ -57,33 +58,43 @@ func initState(ch *repo.CharacterRecord, c *Catalog, now time.Time) error {
 		v[prefix+"fingerprint"] = c.Fingerprint
 	}
 	if v[prefix+"fingerprint"] != c.Fingerprint {
-		if err := migrateRewards006(ch, c, now); err != nil {
+		if err := migrateActivityCatalog(ch, c, now); err != nil {
 			return err
 		}
 	}
 	if v[prefix+"claimed"] < 0 || v[prefix+"claimed"] > 7 || v[prefix+"done"] < 0 || v[prefix+"done"] > 255 {
 		return ErrState
 	}
+	_, carried := v[carryVersionKey]
+	if carried {
+		if err := validateActivityShape(v); err != nil {
+			return err
+		}
+	}
 	points := int64(0)
 	for i, t := range c.Tasks {
 		p := v[progressKey(i+1)]
 		done := v[prefix+"done"]&(1<<i) != 0
-		if p < 0 || p > int64(t.Target) || done != (p == int64(t.Target)) {
+		if (!carried && (p < 0 || p > int64(t.Target) || done != (p == int64(t.Target)))) ||
+			(carried && !done && p >= int64(t.Target)) {
 			return ErrState
 		}
 		if done {
 			points += int64(t.Points)
 		}
 	}
-	if points != v[prefix+"points"] {
+	if !carried && points != v[prefix+"points"] {
 		return ErrState
 	}
 	for i, r := range c.Rewards {
 		prior := v[prefix+"rules011_prior_claimed"]
-		if prior < 0 || prior > 7 || prior & ^v[prefix+"claimed"] != 0 || (prior != 0 && c.Fingerprint != rules011NewFingerprint && c.Fingerprint != rewards006Fingerprint) {
+		if carried {
+			prior = v[carryClaimedKey]
+		}
+		if prior < 0 || prior > 7 || prior & ^v[prefix+"claimed"] != 0 || (!carried && prior != 0 && c.Fingerprint != rules011NewFingerprint && c.Fingerprint != rewards006Fingerprint) {
 			return ErrState
 		}
-		if v[prefix+"claimed"]&(1<<i) != 0 && prior&(1<<i) == 0 && points < int64(r.Required) {
+		if v[prefix+"claimed"]&(1<<i) != 0 && prior&(1<<i) == 0 && v[prefix+"points"] < int64(r.Required) {
 			return ErrState
 		}
 	}
@@ -101,30 +112,37 @@ func Apply(ch *repo.CharacterRecord, c *Catalog, id uint16, amount uint32, now, 
 	if id < 1 || id > 8 || amount == 0 || eventAt.IsZero() || eventAt.After(now) {
 		return false, ErrState
 	}
+	migrating := ch != nil && ch.Stats[prefix+"day"] == Day(now) && ch.Stats[prefix+"fingerprint"] != c.Fingerprint
 	if err := initState(ch, c, now); err != nil {
 		return false, err
 	}
 	if Day(eventAt) != Day(now) {
-		return false, nil
+		return migrating, nil
 	}
 	t := c.Tasks[id-1]
 	key := progressKey(int(id))
 	before := ch.Stats[key]
-	if before == int64(t.Target) {
-		return false, nil
+	if ch.Stats[prefix+"done"]&(1<<(id-1)) != 0 {
+		return migrating, nil
 	}
 	after := min(int64(t.Target), before+int64(amount))
 	ch.Stats[key] = after
 	if after == int64(t.Target) {
 		ch.Stats[prefix+"done"] |= 1 << (id - 1)
 		ch.Stats[prefix+"points"] += int64(t.Points)
+		if ch.Stats[carryVersionKey] == 1 {
+			ch.Stats[earnedKey(int(id))] = int64(t.Points)
+		}
 	}
 	return true, nil
 }
 func view(ch repo.CharacterRecord, c *Catalog) Snapshot {
-	s := Snapshot{Day: ch.Stats[prefix+"day"], Fingerprint: c.Fingerprint, Points: uint16(ch.Stats[prefix+"points"]), Claimed: uint8(ch.Stats[prefix+"claimed"]), Tasks: c.Tasks, Rewards: c.Rewards}
+	s := Snapshot{Day: ch.Stats[prefix+"day"], Fingerprint: c.Fingerprint, Points: uint16(min(ch.Stats[prefix+"points"], 65535)), Claimed: uint8(ch.Stats[prefix+"claimed"]), Tasks: c.Tasks, Rewards: c.Rewards}
 	for i := range s.Progress {
-		s.Progress[i] = uint16(ch.Stats[progressKey(i+1)])
+		s.Progress[i] = uint16(min(ch.Stats[progressKey(i+1)], int64(c.Tasks[i].Target)))
+		if ch.Stats[prefix+"done"]&(1<<i) != 0 {
+			s.Progress[i] = c.Tasks[i].Target
+		}
 	}
 	return s
 }
@@ -174,7 +192,7 @@ func Settle(ctx context.Context, g repo.Group, c *Catalog, cmd Command) (Snapsho
 				out.Replayed = true
 			} else {
 				r := c.Rewards[cmd.Claim-1]
-				if out.Points < r.Required {
+				if ch.Stats[prefix+"points"] < int64(r.Required) {
 					return ErrNotReady
 				}
 				account, found, err := accounts.Load(ctx, cmd.AccountID)

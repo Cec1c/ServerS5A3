@@ -184,7 +184,7 @@ func TestActivityFailureRollsBackEverything(t *testing.T) {
 		})
 	}
 }
-func TestActivityResetStaleReplayAndConfigFreeze(t *testing.T) {
+func TestActivityResetStaleReplayAndConfigChange(t *testing.T) {
 	g, c, cmd := fixture(t)
 	cmd.Now = time.Date(2026, 10, 27, 21, 59, 59, 0, time.UTC)
 	event(t, g, c, cmd, 4, 1)
@@ -204,7 +204,7 @@ func TestActivityResetStaleReplayAndConfigFreeze(t *testing.T) {
 	changed := *c
 	changed.Fingerprint++
 	cmd.Claim = 0
-	if _, e := Settle(context.Background(), g, &changed, cmd); !errors.Is(e, ErrCatalogChanged) {
+	if _, e := Settle(context.Background(), g, &changed, cmd); e != nil {
 		t.Fatal(e)
 	}
 }
